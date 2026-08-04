@@ -45,7 +45,7 @@ All public measures are exposed from `complextorch.measures` and listed in `MEAS
 ### Emergence
 
 - Ψ, Δ and Γ from a fitted `VARSystem` and a linear macro projection.
-- Observational Gaussian plug-in calculation for Ψ.
+- Observational Gaussian plug-in estimates for Ψ, Δ and Γ.
 
 ### CMem
 
