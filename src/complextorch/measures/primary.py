@@ -1,9 +1,4 @@
-"""Primary analytical measures derived from VAR and state-space parameters.
-
-Generating and fitted models are evaluated through the same code path. Shared
-representations such as stationary covariance, autocovariances, spectra and
-innovations state-space forms are built once and reused across measure families.
-"""
+"""Primary analytical measures routed through canonical model primitives."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,24 +6,22 @@ from typing import Any
 import math
 import torch
 
-from ..control import (
-    InnovationsStateSpace,
-    dynamical_dependence,
-    innovations_form,
-    stochastic_interaction,
-    var_to_innovations_state_space,
-)
+from ..control import InnovationsStateSpace, dynamical_dependence, stochastic_interaction
 from ..representations import LinearDynamicalSystem, VARSystem
-from .cmem import compute_cmem
-from .criticality import covariance_amplification, dominant_timescale, stability_margin
-from .dynamics import (
-    active_information_storage,
-    cross_spectral_density,
-    entropy_rate,
-    predictive_information,
-    spectral_entropy,
+from .backbone import (
+    CovarianceModel,
+    Model,
+    as_innovations,
+    cmem_from_primitives,
+    covariance_amplification_from_model,
+    emergence_from_model,
+    entropy_rate_from_model,
+    finite_lag_ais,
+    innovations_spectrum,
+    observation_autocovariances,
+    predictive_information_from_model,
+    spectral_entropy_from_spectrum,
 )
-from .emergence import emergence_measures
 from .gaussian import (
     dual_total_correlation,
     gaussian_entropy,
@@ -40,23 +33,17 @@ from .gaussian import (
 from .mvgc import state_space_spectral_mvgc, state_space_temporal_mvgc
 from .phid import gaussian_phiid_atoms
 
-Model = VARSystem | LinearDynamicalSystem | InnovationsStateSpace
-CovarianceModel = VARSystem | LinearDynamicalSystem
-
 
 @dataclass(frozen=True)
 class ModelMeasureConfig:
-    """Structural choices for analytical measures.
-
-    Delay-bearing families have independent parameters. Their defaults are one
-    sample, while measures defined from the complete model history (MVGC,
-    entropy rate, predictive information and AIS) do not receive an artificial
-    delay parameter.
-    """
+    """Structural choices for model-derived analytical measures."""
 
     frequencies: torch.Tensor | None = None
+    sampling_frequency: float = 1.0
     autocovariance_max_lag: int = 1
+    ais_lag: int = 1
     cmem_max_lag: int = 1
+    cmem_decomposition_max_lag: int = 1
     source: tuple[int, ...] | None = None
     target: tuple[int, ...] | None = None
     conditional: tuple[int, ...] = ()
@@ -67,19 +54,27 @@ class ModelMeasureConfig:
     base: float = 2.0
 
     def __post_init__(self) -> None:
-        for name in ("autocovariance_max_lag", "cmem_max_lag", "phiid_lag"):
+        for name in (
+            "autocovariance_max_lag",
+            "ais_lag",
+            "cmem_max_lag",
+            "cmem_decomposition_max_lag",
+            "phiid_lag",
+        ):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name} must be at least one")
+        if self.sampling_frequency <= 0:
+            raise ValueError("sampling_frequency must be positive")
 
 
 @dataclass(frozen=True)
 class ModelMeasureContext:
-    """Shared analytical representations computed once for one model."""
+    """Canonical representations computed once and shared by all measures."""
 
     model: Model
+    innovations: InnovationsStateSpace
     observation_covariance: torch.Tensor | None
     autocovariances: torch.Tensor | None
-    innovations: InnovationsStateSpace | None
     frequencies: torch.Tensor | None
     cross_spectral_density: torch.Tensor | None
 
@@ -88,90 +83,16 @@ class ModelMeasureContext:
         return 0 if self.autocovariances is None else int(self.autocovariances.shape[-3] - 1)
 
 
-def _batched_matrix(tensor: torch.Tensor) -> tuple[torch.Tensor, bool]:
-    value = torch.as_tensor(tensor)
-    single = value.ndim == 2
-    if single:
-        value = value.unsqueeze(0)
-    if value.ndim != 3:
-        raise ValueError("matrix must be unbatched or batched")
-    return value, single
-
-
-def model_autocovariances(model: CovarianceModel, max_lag: int = 1) -> torch.Tensor:
-    """Return Gamma[tau]=Cov(y[t+tau], y[t]) for all lags in one pass."""
-    if max_lag < 0:
-        raise ValueError("max_lag must be nonnegative")
-
-    if isinstance(model, VARSystem):
-        transition = model.companion
-        observation = model.projection
-        state_covariance = model.state_covariance
-        observation_noise = torch.zeros_like(model.present_covariance)
-        single = False
-    else:
-        if model.state_covariance is None:
-            raise ValueError("LinearDynamicalSystem.state_covariance is required")
-        transition, transition_single = _batched_matrix(model.transition)
-        observation, observation_single = _batched_matrix(model.observation)
-        state_covariance, state_single = _batched_matrix(model.state_covariance)
-        observation_noise, noise_single = _batched_matrix(model.observation_covariance)
-        single = transition_single and observation_single and state_single and noise_single
-        batch = max(
-            transition.shape[0],
-            observation.shape[0],
-            state_covariance.shape[0],
-            observation_noise.shape[0],
-        )
-        transition, observation, state_covariance, observation_noise = [
-            value.expand(batch, *value.shape[1:]) if value.shape[0] == 1 else value
-            for value in (transition, observation, state_covariance, observation_noise)
-        ]
-
-    batch = transition.shape[0]
-    power = torch.eye(
-        transition.shape[-1], dtype=transition.dtype, device=transition.device
-    ).expand(batch, -1, -1)
-    values = []
-    for lag in range(max_lag + 1):
-        if lag:
-            power = power @ transition
-        gamma = observation @ power @ state_covariance @ observation.transpose(-1, -2)
-        if lag == 0:
-            gamma = gamma + observation_noise
-        values.append(gamma)
-    result = torch.stack(values, dim=1)
-    return result[0] if single else result
-
-
-def stationary_observation_covariance(model: CovarianceModel) -> torch.Tensor:
-    """Return the model-implied stationary covariance of observed variables."""
-    return model_autocovariances(model, 0)[..., 0, :, :]
-
-
-def _as_innovations(model: Model) -> InnovationsStateSpace | None:
-    if isinstance(model, InnovationsStateSpace):
-        return model
-    if isinstance(model, VARSystem):
-        return var_to_innovations_state_space(model)
-    if isinstance(model, LinearDynamicalSystem):
-        form = innovations_form(model)
-        return InnovationsStateSpace(
-            model.transition,
-            model.observation,
-            form.gain,
-            form.covariance,
-        )
-    return None
-
-
 def required_autocovariance_max_lag(model: Model, config: ModelMeasureConfig) -> int:
-    """Resolve delay-bearing measures to one shared maximum lag."""
-    required = [config.autocovariance_max_lag]
+    """Resolve all finite-delay families to one shared maximum lag."""
+    required = [
+        config.autocovariance_max_lag,
+        config.ais_lag,
+        config.cmem_max_lag,
+        config.cmem_decomposition_max_lag,
+    ]
     if config.phiid_variables is not None:
         required.append(config.phiid_lag)
-    if isinstance(model, VARSystem):
-        required.extend([config.cmem_max_lag, model.order])
     return max(required)
 
 
@@ -179,36 +100,44 @@ def build_measure_context(
     model: Model,
     config: ModelMeasureConfig | None = None,
 ) -> ModelMeasureContext:
-    """Build and cache shared representations for analytical measures."""
+    """Build the canonical analytical backbone for one model."""
     config = ModelMeasureConfig() if config is None else config
+    innovations = as_innovations(model)
     covariance = None
     autocovariance_sequence = None
-    spectrum = None
-
     if isinstance(model, (VARSystem, LinearDynamicalSystem)):
-        autocovariance_sequence = model_autocovariances(
-            model,
-            required_autocovariance_max_lag(model, config),
+        autocovariance_sequence = observation_autocovariances(
+            model, required_autocovariance_max_lag(model, config)
         )
         covariance = autocovariance_sequence[..., 0, :, :]
-
-    if isinstance(model, VARSystem) and config.frequencies is not None:
-        spectrum = cross_spectral_density(model, config.frequencies)
-
+    spectrum = None
+    if config.frequencies is not None:
+        spectrum = innovations_spectrum(
+            model,
+            config.frequencies,
+            sampling_frequency=config.sampling_frequency,
+        )
     return ModelMeasureContext(
         model=model,
+        innovations=innovations,
         observation_covariance=covariance,
         autocovariances=autocovariance_sequence,
-        innovations=_as_innovations(model),
         frequencies=config.frequencies,
         cross_spectral_density=spectrum,
     )
 
 
+def stationary_observation_covariance(model: CovarianceModel) -> torch.Tensor:
+    return observation_autocovariances(model, 0)[..., 0, :, :]
+
+
+def model_autocovariances(model: CovarianceModel, max_lag: int = 1) -> torch.Tensor:
+    return observation_autocovariances(model, max_lag)
+
+
 def pairwise_gaussian_mutual_information(
     covariance: torch.Tensor, *, base: float = 2.0
 ) -> torch.Tensor:
-    """Pairwise Gaussian MI matrix from a model-implied covariance."""
     covariance = torch.as_tensor(covariance)
     n_variables = covariance.shape[-1]
     result = torch.zeros(
@@ -235,7 +164,6 @@ def gaussian_measures_from_model(
     base: float = 2.0,
     covariance: torch.Tensor | None = None,
 ) -> dict[str, torch.Tensor]:
-    """Static Gaussian measures from the model-implied observation covariance."""
     covariance = stationary_observation_covariance(model) if covariance is None else covariance
     return {
         "covariance": covariance,
@@ -255,23 +183,25 @@ def past_future_covariance(
     lag: int = 1,
     autocovariance_sequence: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    """Build [past0,past1,future0,future1] covariance analytically."""
     if lag < 1:
         raise ValueError("lag must be at least one")
     if len(variables) != 2 or variables[0] == variables[1]:
         raise ValueError("variables must contain two distinct indices")
-    gamma = model_autocovariances(model, lag) if autocovariance_sequence is None else autocovariance_sequence
+    gamma = (
+        observation_autocovariances(model, lag)
+        if autocovariance_sequence is None else autocovariance_sequence
+    )
     if gamma.shape[-3] <= lag:
-        raise ValueError("autocovariance_sequence does not contain the requested lag")
+        raise ValueError("autocovariances do not contain the requested lag")
     single = gamma.ndim == 3
     if single:
         gamma = gamma.unsqueeze(0)
     index = torch.as_tensor(variables, dtype=torch.long, device=gamma.device)
     present = gamma[:, 0].index_select(-2, index).index_select(-1, index)
     future_past = gamma[:, lag].index_select(-2, index).index_select(-1, index)
-    top = torch.cat([present, future_past.transpose(-1, -2)], dim=-1)
-    bottom = torch.cat([future_past, present], dim=-1)
-    result = torch.cat([top, bottom], dim=-2)
+    top = torch.cat([present, future_past.transpose(-1, -2)], -1)
+    bottom = torch.cat([future_past, present], -1)
+    result = torch.cat([top, bottom], -2)
     return result[0] if single else result
 
 
@@ -282,7 +212,6 @@ def phiid_from_model(
     lag: int = 1,
     autocovariance_sequence: torch.Tensor | None = None,
 ) -> dict[str, torch.Tensor]:
-    """Complete Gaussian MMI PhiID from model-implied lagged covariance."""
     return gaussian_phiid_atoms(
         past_future_covariance(
             model,
@@ -294,19 +223,15 @@ def phiid_from_model(
 
 
 def temporal_mvgc(
-    model: VARSystem | InnovationsStateSpace | LinearDynamicalSystem,
+    model: Model,
     source,
     target,
     *,
     conditional=(),
     base: float = math.e,
 ) -> torch.Tensor:
-    """Canonical primary temporal MVGC derived from model parameters."""
-    innovations = _as_innovations(model)
-    if innovations is None:
-        raise TypeError("unsupported model type")
     return state_space_temporal_mvgc(
-        innovations,
+        as_innovations(model),
         source=source,
         target=target,
         conditional=conditional,
@@ -315,7 +240,7 @@ def temporal_mvgc(
 
 
 def spectral_mvgc(
-    model: VARSystem | InnovationsStateSpace | LinearDynamicalSystem,
+    model: Model,
     source,
     target,
     frequencies: torch.Tensor,
@@ -323,18 +248,38 @@ def spectral_mvgc(
     conditional=(),
     base: float = math.e,
 ) -> torch.Tensor:
-    """Canonical primary spectral MVGC derived from model parameters."""
-    innovations = _as_innovations(model)
-    if innovations is None:
-        raise TypeError("unsupported model type")
     return state_space_spectral_mvgc(
-        innovations,
+        as_innovations(model),
         source=source,
         target=target,
-        conditional=conditional,
         frequencies=frequencies,
+        conditional=conditional,
         base=base,
     )
+
+
+def _transition_radius(model: Model) -> torch.Tensor:
+    transition = as_innovations(model).transition
+    return torch.linalg.eigvals(transition).abs().amax(-1)
+
+
+def _criticality(model: Model, context: ModelMeasureContext) -> dict[str, torch.Tensor]:
+    radius = _transition_radius(model)
+    tiny = torch.finfo(radius.dtype).tiny
+    safe = radius.clamp(min=tiny, max=1.0 - torch.finfo(radius.dtype).eps)
+    result = {
+        "spectral_radius": radius,
+        "stability_margin": 1.0 - radius,
+        "dominant_timescale": torch.where(
+            radius <= tiny, torch.zeros_like(radius), -1.0 / torch.log(safe)
+        ),
+    }
+    if context.observation_covariance is not None:
+        result["covariance_amplification"] = covariance_amplification_from_model(
+            model,
+            observation_covariance=context.observation_covariance,
+        )
+    return result
 
 
 def compute_all_model_measures(
@@ -343,13 +288,34 @@ def compute_all_model_measures(
     *,
     context: ModelMeasureContext | None = None,
 ) -> dict[str, Any]:
-    """Compute every primary measure applicable to a canonical model."""
+    """Compute primary measures using the most appropriate canonical form."""
     config = ModelMeasureConfig() if config is None else config
     context = build_measure_context(model, config) if context is None else context
     if context.model is not model:
         raise ValueError("context was built for a different model")
 
-    result: dict[str, Any] = {"model_type": type(model).__name__, "context": context}
+    result: dict[str, Any] = {
+        "model_type": type(model).__name__,
+        "context": context,
+        "available": [],
+        "not_available": {},
+    }
+
+    result["dynamics"] = {
+        "entropy_rate": entropy_rate_from_model(model, base=config.base),
+    }
+    result["available"].append("entropy_rate")
+    result["criticality"] = _criticality(model, context)
+    result["available"].append("criticality")
+
+    if context.cross_spectral_density is not None:
+        result["frequency"] = {
+            "cross_spectral_density": context.cross_spectral_density,
+            "spectral_entropy": spectral_entropy_from_spectrum(
+                context.cross_spectral_density
+            ),
+        }
+        result["available"].extend(["cross_spectral_density", "spectral_entropy"])
 
     if isinstance(model, (VARSystem, LinearDynamicalSystem)):
         result["gaussian"] = gaussian_measures_from_model(
@@ -358,6 +324,31 @@ def compute_all_model_measures(
             covariance=context.observation_covariance,
         )
         result["autocovariances"] = context.autocovariances
+        result["dynamics"].update(
+            {
+                "predictive_information": predictive_information_from_model(
+                    model,
+                    observation_covariance=context.observation_covariance,
+                    base=config.base,
+                ),
+                "active_information_storage": finite_lag_ais(
+                    context.autocovariances,
+                    config.ais_lag,
+                    base=config.base,
+                ),
+                "active_information_storage_lag": config.ais_lag,
+            }
+        )
+        result["cmem"] = cmem_from_primitives(
+            context.observation_covariance,
+            context.innovations.innovation_covariance,
+            context.autocovariances,
+            curve_max_lag=config.cmem_max_lag,
+            decomposition_max_lag=config.cmem_decomposition_max_lag,
+        )
+        result["available"].extend(
+            ["gaussian", "autocovariances", "predictive_information", "active_information_storage", "cmem"]
+        )
         if config.phiid_variables is not None:
             result["phiid"] = phiid_from_model(
                 model,
@@ -365,31 +356,19 @@ def compute_all_model_measures(
                 lag=config.phiid_lag,
                 autocovariance_sequence=context.autocovariances,
             )
-
-    if isinstance(model, VARSystem):
-        result["dynamics"] = {
-            "entropy_rate": entropy_rate(model, base=config.base),
-            "predictive_information": predictive_information(model, base=config.base),
-            "active_information_storage": active_information_storage(model, base=config.base),
-        }
-        result["criticality"] = {
-            "spectral_radius": model.spectral_radius,
-            "stability_margin": stability_margin(model),
-            "dominant_timescale": dominant_timescale(model),
-            "covariance_amplification": covariance_amplification(model),
-        }
-        result["cmem"] = compute_cmem(
-            model,
-            config.cmem_max_lag,
-            autocovariance_sequence=context.autocovariances,
-        )
-        if config.frequencies is not None:
-            result["frequency"] = {
-                "cross_spectral_density": context.cross_spectral_density,
-                "spectral_entropy": spectral_entropy(model, config.frequencies),
-            }
+            result["available"].append("phiid")
         if config.macro_projection is not None:
-            result["emergence"] = emergence_measures(model, config.macro_projection)
+            result["emergence"] = emergence_from_model(
+                model,
+                config.macro_projection,
+                observation_covariance=context.observation_covariance,
+                base=config.base,
+            )
+            result["available"].append("emergence")
+    else:
+        reason = "stationary observation covariance is not stored by InnovationsStateSpace"
+        for name in ("gaussian", "autocovariances", "predictive_information", "active_information_storage", "cmem", "phiid", "emergence"):
+            result["not_available"][name] = reason
 
     if config.source is not None and config.target is not None:
         result["mvgc"] = {
@@ -406,10 +385,11 @@ def compute_all_model_measures(
                 model,
                 source=config.source,
                 target=config.target,
-                conditional=config.conditional,
                 frequencies=config.frequencies,
+                conditional=config.conditional,
                 base=config.base,
             )
+        result["available"].append("mvgc")
 
     if isinstance(model, LinearDynamicalSystem):
         result["control"] = {
@@ -421,24 +401,21 @@ def compute_all_model_measures(
                 config.partition,
                 base=config.base,
             )
+        result["available"].append("control")
+    else:
+        result["not_available"]["control"] = (
+            "dynamical dependence requires an explicit latent LinearDynamicalSystem"
+        )
 
+    result["available"] = tuple(result["available"])
     return result
 
 
 __all__ = [
-    "Model",
-    "CovarianceModel",
-    "ModelMeasureConfig",
-    "ModelMeasureContext",
-    "model_autocovariances",
-    "required_autocovariance_max_lag",
-    "build_measure_context",
-    "stationary_observation_covariance",
-    "pairwise_gaussian_mutual_information",
-    "gaussian_measures_from_model",
-    "past_future_covariance",
-    "phiid_from_model",
-    "temporal_mvgc",
-    "spectral_mvgc",
-    "compute_all_model_measures",
+    "Model", "CovarianceModel", "ModelMeasureConfig", "ModelMeasureContext",
+    "model_autocovariances", "required_autocovariance_max_lag",
+    "build_measure_context", "stationary_observation_covariance",
+    "pairwise_gaussian_mutual_information", "gaussian_measures_from_model",
+    "past_future_covariance", "phiid_from_model", "temporal_mvgc",
+    "spectral_mvgc", "compute_all_model_measures",
 ]
