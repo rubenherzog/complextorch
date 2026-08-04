@@ -1,8 +1,8 @@
 """Complexity measures organised into model-first and empirical tiers.
 
-Use :mod:`complextorch.measures.primary` for the main analytical API. Sample-
-based estimators remain available explicitly through
-:mod:`complextorch.measures.secondary`.
+Use :mod:`complextorch.measures.primary` for the strict analytical API. The
+package-level MVGC names prefer canonical models but temporarily dispatch legacy
+observation-based calls to explicitly named secondary estimators.
 """
 from . import primary, secondary
 from .primary import (
@@ -18,10 +18,9 @@ from .primary import (
     past_future_covariance,
     phiid_from_model,
     required_autocovariance_max_lag,
-    spectral_mvgc,
     stationary_observation_covariance,
-    temporal_mvgc,
 )
+from .mvgc_api import spectral_mvgc, temporal_mvgc
 from .secondary import (
     estimate_spectral_mvgc_from_observations,
     estimate_temporal_mvgc_from_observations,
