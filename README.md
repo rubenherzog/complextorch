@@ -1,57 +1,28 @@
 # ComplexTorch
 
-Torch-first batched inference of vector autoregressive models and analytical dynamical measures for neural time series.
+Torch-first batched inference of vector autoregressive and latent linear state-space models, with analytical and sample-based complexity measures.
 
-## Core architecture
+## Design
 
-- NumPy or Torch input, normalized internally to `(batch, time, variables)`.
-- Independent per-epoch or pooled VAR fitting.
-- OLS and Ridge estimation using batched linear algebra.
-- scikit-learn-compatible estimator surface.
-- Epoch-aware temporal cross-validation for model-order selection.
-- Exact VAR companion state-space representation.
-- Batched stationary covariance through the discrete Lyapunov equation.
-- Stable random and structured cyclic/frustrated synthetic VAR generators.
+ComplexTorch uses shared computational primitives rather than separate implementations for each measure:
 
-## Measures
+- `measures/_model_comparison.py` owns variable indexing, full/reduced VAR fitting, conditional covariance and spectral comparisons, and log-determinant ratios.
+- `control.py` owns DARE/Riccati, innovations form, observational reduction and linear projections used by Kalman, dynamical dependence and SSDI.
+- `measures/gaussian.py` is the single Gaussian entropy and mutual-information implementation used across emergence and PhiID.
+- `measures/phid.py` builds the complete 16-atom bivariate Gaussian MMI double-redundancy lattice using generic Möbius inversion.
 
-All public measures are exposed from `complextorch.measures` and listed in `MEASURE_REGISTRY`.
+## Implemented coverage
 
-### Gaussian information
-
-- Gaussian entropy.
-- Mutual information and conditional mutual information.
-- Conditional covariance.
-- Total correlation (TC), dual total correlation (DTC), O-information and S-information.
-- Local Gaussian mutual information.
-
-### Time and frequency domain
-
-- VAR autocovariances.
-- Entropy rate.
-- Predictive information.
-- Per-variable active information storage.
-- Transfer and inverse-transfer functions.
-- Cross-spectral density.
-- Spectral entropy.
-
-### Dynamical diagnostics
-
-- Spectral radius.
-- Stability margin.
-- Dominant timescale.
-- Covariance amplification.
-
-### Emergence
-
-- Ψ, Δ and Γ from a fitted `VARSystem` and a linear macro projection.
-- Observational Gaussian plug-in estimates for Ψ, Δ and Γ.
-
-### CMem
-
-- CMem1 and CMem3 totals.
-- CMem1 and CMem3 lag curves.
-- Conditional-lag CMem3 decomposition.
+- Batched VAR fitting from NumPy or Torch, with independent or pooled epochs.
+- Temporal cross-validation for model-order selection.
+- Companion and latent state-space representations.
+- Kalman filtering and smoothing, N4SID and linear-Gaussian EM.
+- DARE/Riccati, model reduction, innovations form and projection search.
+- Group temporal and spectral MVGC plus bivariate Geweke spectral GC.
+- Dynamical dependence and SSDI/stochastic interaction.
+- Complete 16-atom Gaussian MMI PhiID and aggregate compatibility API.
+- Gaussian information measures, emergence measures, spectra, criticality and CMem.
+- Discrete entropy, mutual information, total correlation and LZ76 complexity.
 
 ## Installation
 
@@ -64,27 +35,21 @@ python -m pip install -e ".[dev]"
 ```python
 import torch
 from complextorch import VAR, demo_var, simulate_var
-from complextorch.measures import DynamicalMeasures
+from complextorch.measures import temporal_mvgc, spectral_mvgc
 
-coef, noise = demo_var(n_variables=3, order=2)
-X = simulate_var(coef, noise, n_times=4000, seed=1)
-model = VAR(order=2, mode="independent").fit(X)
-system = model.to_var_system()
+coefficients, noise = demo_var(n_variables=3, order=2)
+data = simulate_var(coefficients, noise, n_times=4000, seed=1)
+model = VAR(order=2).fit(data)
 
-frequencies = torch.linspace(0, 0.5, 128, dtype=system.coefficients.dtype)
-macro = torch.tensor([[1.0, 1.0, 0.0], [0.0, 0.0, 1.0]], dtype=system.coefficients.dtype)
-
-values = DynamicalMeasures(
-    [
-        "spectral_radius",
-        "predictive_information",
-        "cross_spectral_density",
-        "psi",
-        "cmem3_total",
-    ],
-    frequencies=frequencies,
-    macro_projection=macro,
-)(system)
+gc_time = temporal_mvgc(data, 2, source=[1], target=[0], conditional=[2])
+gc_frequency = spectral_mvgc(
+    data,
+    2,
+    source=[1],
+    target=[0],
+    conditional=[2],
+    frequencies=torch.linspace(0, 0.5, 128, dtype=torch.float64),
+)
 ```
 
-General latent-state SSM identification, Kalman filtering/smoothing, N4SID, EM, MVGC, PhiID and SSDI remain planned work.
+Current package version: **0.3.0**.
