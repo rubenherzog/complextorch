@@ -4,6 +4,9 @@ from .dynamics import autocovariances,entropy_rate,predictive_information,active
 from .emergence import emergence_measures,emergence_from_observations
 from .cmem import CMemResult,cmem1_curve,cmem1_total,cmem3_curve,cmem3_lag_decomposition,cmem3_total,compute_cmem
 from .criticality import covariance_amplification,dominant_timescale,stability_margin
+from .mvgc import temporal_mvgc,pairwise_spectral_gc
+from .discrete import discrete_entropy,discrete_mutual_information,discrete_total_correlation,lempel_ziv_complexity
+from .phid import gaussian_phiid_mmi
 from .planner import DynamicalMeasures
 from .registry import MEASURE_REGISTRY
 __all__=[name for name in globals() if not name.startswith('_')]
