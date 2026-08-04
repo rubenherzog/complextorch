@@ -9,7 +9,7 @@ import math
 import torch
 from ..representations import VARSystem
 from ..control import InnovationsStateSpace, var_to_innovations_state_space, reduce_innovations_state_space, innovations_transfer_function
-from ..linalg import spd_logdet, spd_solve, symmetrise
+from ..linalg import spd_logdet, spd_solve
 from ._model_comparison import fit_nested_var_models, residual_target_covariance, logdet_ratio, conditional_spectrum, var_model_spectrum, normalise_indices
 from .dynamics import transfer_function, cross_spectral_density
 
@@ -50,6 +50,10 @@ def _normalise_partition(system: InnovationsStateSpace, target, source, conditio
     return target, source, conditional
 
 
+def _hermitian(matrix: torch.Tensor) -> torch.Tensor:
+    return 0.5 * (matrix + matrix.conj().transpose(-1, -2))
+
+
 def _joint_state_space_spectral_gc(
     system: InnovationsStateSpace,
     target,
@@ -79,8 +83,8 @@ def _joint_state_space_spectral_gc(
     spectrum = transfer @ covariance[:, None].to(transfer.dtype) @ transfer.conj().transpose(-1, -2)
     intrinsic_transfer = normalized_transfer[..., :n_target, :n_target]
     intrinsic = intrinsic_transfer @ target_covariance[:, None].to(transfer.dtype) @ intrinsic_transfer.conj().transpose(-1, -2)
-    total_target = symmetrise(spectrum[..., :n_target, :n_target].real).to(spectrum.dtype)
-    intrinsic = symmetrise(intrinsic.real).to(intrinsic.dtype)
+    total_target = _hermitian(spectrum[..., :n_target, :n_target])
+    intrinsic = _hermitian(intrinsic)
     value = (torch.linalg.slogdet(total_target).logabsdet - torch.linalg.slogdet(intrinsic).logabsdet) / math.log(base)
     return (value[0], target_covariance[0]) if single else (value, target_covariance)
 
