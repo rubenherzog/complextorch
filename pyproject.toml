@@ -4,7 +4,7 @@ build-backend="setuptools.build_meta"
 
 [project]
 name="complextorch"
-version="0.1.0"
+version="0.3.0"
 description="Torch-first batched VAR/state-space estimation and analytical complexity measures."
 readme="README.md"
 requires-python=">=3.10"
