@@ -6,6 +6,7 @@ from .simulate import demo_var, random_stable_var, simulate_var
 from .var import VAR, VARParameters
 from .control import solve_dare, solve_generalized_dare, innovations_form, InnovationsStateSpace, var_to_innovations_state_space, reduce_innovations_state_space, innovations_transfer_function, reduce_state_space, project_state_space, dynamical_dependence, stochastic_interaction, optimise_dynamical_dependence_projection, ProjectionSearchResult
 from .state_space import kalman_filter, kalman_smoother, N4SID, LinearGaussianEM
+from .measures.primary import ModelMeasureConfig, compute_all_model_measures
 
 __all__ = [
     "VAR", "VARParameters", "VARSystem", "LinearDynamicalSystem", "build_var_system", "companion_matrix",
@@ -16,5 +17,6 @@ __all__ = [
     "reduce_state_space", "project_state_space", "dynamical_dependence", "stochastic_interaction",
     "optimise_dynamical_dependence_projection", "ProjectionSearchResult",
     "kalman_filter", "kalman_smoother", "N4SID", "LinearGaussianEM",
+    "ModelMeasureConfig", "compute_all_model_measures",
 ]
-__version__ = "0.3.1"
+__version__ = "0.4.0"
