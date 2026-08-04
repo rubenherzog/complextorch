@@ -4,5 +4,13 @@ from .representations import LinearDynamicalSystem, VARSystem, build_var_system,
 from .selection import EpochTimeSeriesSplit, VAROrderSearchCV, VAROrderSearchResult
 from .simulate import demo_var, random_stable_var, simulate_var
 from .var import VAR, VARParameters
-__all__=["VAR","VARParameters","VARSystem","LinearDynamicalSystem","build_var_system","companion_matrix","EpochTimeSeriesSplit","VAROrderSearchCV","VAROrderSearchResult","simulate_var","random_stable_var","demo_var","from_complexbox_timeseries","to_complexbox_timeseries","from_complexbox_var","to_complexbox_var"]
-__version__="0.1.0"
+from .control import solve_dare, innovations_form, reduce_state_space, dynamical_dependence, stochastic_interaction
+from .state_space import kalman_filter, kalman_smoother, N4SID, LinearGaussianEM
+
+__all__=[
+"VAR","VARParameters","VARSystem","LinearDynamicalSystem","build_var_system","companion_matrix",
+"EpochTimeSeriesSplit","VAROrderSearchCV","VAROrderSearchResult","simulate_var","random_stable_var","demo_var",
+"from_complexbox_timeseries","to_complexbox_timeseries","from_complexbox_var","to_complexbox_var",
+"solve_dare","innovations_form","reduce_state_space","dynamical_dependence","stochastic_interaction",
+"kalman_filter","kalman_smoother","N4SID","LinearGaussianEM"]
+__version__="0.2.0"
