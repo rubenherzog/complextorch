@@ -1,8 +1,10 @@
-"""Analytical CMem quantities for stationary Gaussian VAR systems."""
+"""Analytical CMem quantities from model-derived Gaussian covariances."""
 from __future__ import annotations
+
 from dataclasses import dataclass
 import math
 import torch
+
 from ..linalg import spd_logdet, spd_solve, symmetrise
 from ..representations import VARSystem
 from .gaussian import gaussian_mutual_information, total_correlation
@@ -19,75 +21,79 @@ class CMemResult:
     tc_present: torch.Tensor
 
 
-def cmem3_total(system: VARSystem) -> torch.Tensor:
-    return total_correlation(system.innovation_covariance) - total_correlation(system.present_covariance)
+def _batched_gamma(values: torch.Tensor) -> tuple[torch.Tensor, bool]:
+    gamma = torch.as_tensor(values)
+    single = gamma.ndim == 3
+    if single:
+        gamma = gamma.unsqueeze(0)
+    if gamma.ndim != 4 or gamma.shape[-1] != gamma.shape[-2]:
+        raise ValueError("autocovariances must have shape (lag,n,n) or (batch,lag,n,n)")
+    return gamma, single
 
 
-def cmem1_total(system: VARSystem) -> torch.Tensor:
-    sigma = system.present_covariance
-    q = system.innovation_covariance
-    full = 0.5 * (spd_logdet(sigma) - spd_logdet(q)) / math.log(2)
+def _batched_covariance(values: torch.Tensor, batch: int, n: int) -> torch.Tensor:
+    covariance = torch.as_tensor(values)
+    if covariance.ndim == 2:
+        covariance = covariance.unsqueeze(0)
+    if covariance.ndim != 3 or covariance.shape[-2:] != (n, n):
+        raise ValueError("covariance has incompatible shape")
+    if covariance.shape[0] == 1 and batch > 1:
+        covariance = covariance.expand(batch, -1, -1)
+    if covariance.shape[0] != batch:
+        raise ValueError("covariance batch dimension is incompatible")
+    return covariance
+
+
+def cmem3_total_from_covariances(
+    observation_covariance: torch.Tensor,
+    innovation_covariance: torch.Tensor,
+) -> torch.Tensor:
+    return total_correlation(innovation_covariance) - total_correlation(observation_covariance)
+
+
+def cmem1_total_from_covariances(
+    observation_covariance: torch.Tensor,
+    innovation_covariance: torch.Tensor,
+) -> torch.Tensor:
+    full = 0.5 * (
+        spd_logdet(observation_covariance) - spd_logdet(innovation_covariance)
+    ) / math.log(2.0)
     parts = 0.5 * torch.log2(
-        torch.diagonal(sigma, dim1=-2, dim2=-1)
-        / torch.diagonal(q, dim1=-2, dim2=-1)
+        torch.diagonal(observation_covariance, dim1=-2, dim2=-1)
+        / torch.diagonal(innovation_covariance, dim1=-2, dim2=-1)
     ).sum(-1)
     return full - parts
-
-
-def _validate_autocovariances(system: VARSystem, values: torch.Tensor, max_lag: int) -> torch.Tensor:
-    gamma = torch.as_tensor(values, dtype=system.coefficients.dtype, device=system.coefficients.device)
-    expected = (system.batch_size, max_lag + 1, system.n_variables, system.n_variables)
-    if gamma.ndim != 4 or gamma.shape[0] != expected[0] or gamma.shape[2:] != expected[2:] or gamma.shape[1] < expected[1]:
-        raise ValueError("autocovariance_sequence has incompatible shape or insufficient lags")
-    return gamma
-
-
-def _compute_autocovariances(system: VARSystem, max_lag: int) -> torch.Tensor:
-    power = torch.eye(
-        system.companion.shape[-1],
-        dtype=system.companion.dtype,
-        device=system.companion.device,
-    ).expand(system.batch_size, -1, -1)
-    values = []
-    for lag in range(max_lag + 1):
-        if lag:
-            power = power @ system.companion
-        values.append(
-            system.projection
-            @ power
-            @ system.state_covariance
-            @ system.projection.transpose(-1, -2)
-        )
-    return torch.stack(values, dim=1)
-
-
-def _autocovariances(system: VARSystem, max_lag: int, supplied: torch.Tensor | None) -> torch.Tensor:
-    if supplied is None:
-        return _compute_autocovariances(system, max_lag)
-    return _validate_autocovariances(system, supplied, max_lag)
 
 
 def _joint_from_gamma(sigma: torch.Tensor, gamma: torch.Tensor) -> torch.Tensor:
     return torch.cat(
         [
-            torch.cat([sigma, gamma], -1),
-            torch.cat([gamma.transpose(-1, -2), sigma], -1),
+            torch.cat([sigma, gamma.transpose(-1, -2)], -1),
+            torch.cat([gamma, sigma], -1),
         ],
         -2,
     )
 
 
-def cmem3_curve(
-    system: VARSystem,
+def _self_mi(joint: torch.Tensor, n: int) -> torch.Tensor:
+    a = torch.diagonal(joint[..., :n, :n], dim1=-2, dim2=-1)
+    b = torch.diagonal(joint[..., n:, n:], dim1=-2, dim2=-1)
+    c = torch.diagonal(joint[..., :n, n:], dim1=-2, dim2=-1)
+    determinant = (a * b - c.square()).clamp_min(torch.finfo(joint.dtype).tiny)
+    return 0.5 * torch.log2(a * b / determinant)
+
+
+def cmem3_curve_from_autocovariances(
+    autocovariances: torch.Tensor,
     tau_max: int,
-    *,
-    autocovariance_sequence: torch.Tensor | None = None,
 ) -> torch.Tensor:
     if tau_max < 1:
-        raise ValueError("tau_max must be >=1")
-    gamma = _autocovariances(system, tau_max, autocovariance_sequence)
+        raise ValueError("tau_max must be at least one")
+    gamma, single = _batched_gamma(autocovariances)
+    if gamma.shape[1] <= tau_max:
+        raise ValueError("autocovariances do not contain the requested lags")
     sigma = gamma[:, 0]
-    tc = total_correlation(sigma)
+    present_tc = total_correlation(sigma)
     values = []
     for tau in range(1, tau_max + 1):
         conditional = symmetrise(
@@ -95,28 +101,21 @@ def cmem3_curve(
             - gamma[:, tau]
             @ spd_solve(sigma, gamma[:, tau].transpose(-1, -2))
         )
-        values.append(total_correlation(conditional) - tc)
-    return torch.stack(values, -1)
+        values.append(total_correlation(conditional) - present_tc)
+    result = torch.stack(values, -1)
+    return result[0] if single else result
 
 
-def _self_mi(joint: torch.Tensor, n: int) -> torch.Tensor:
-    a = torch.diagonal(joint[..., :n, :n], dim1=-2, dim2=-1)
-    b = torch.diagonal(joint[..., n:, n:], dim1=-2, dim2=-1)
-    c = torch.diagonal(joint[..., :n, n:], dim1=-2, dim2=-1)
-    det = (a * b - c.square()).clamp_min(torch.finfo(joint.dtype).tiny)
-    return 0.5 * torch.log2(a * b / det)
-
-
-def cmem1_curve(
-    system: VARSystem,
+def cmem1_curve_from_autocovariances(
+    autocovariances: torch.Tensor,
     tau_max: int,
-    *,
-    autocovariance_sequence: torch.Tensor | None = None,
 ) -> torch.Tensor:
     if tau_max < 1:
-        raise ValueError("tau_max must be >=1")
-    gamma = _autocovariances(system, tau_max, autocovariance_sequence)
-    n = system.n_variables
+        raise ValueError("tau_max must be at least one")
+    gamma, single = _batched_gamma(autocovariances)
+    if gamma.shape[1] <= tau_max:
+        raise ValueError("autocovariances do not contain the requested lags")
+    n = gamma.shape[-1]
     sigma = gamma[:, 0]
     values = []
     for tau in range(1, tau_max + 1):
@@ -124,7 +123,8 @@ def cmem1_curve(
         values.append(
             gaussian_mutual_information(joint, n) - _self_mi(joint, n).sum(-1)
         )
-    return torch.stack(values, -1)
+    result = torch.stack(values, -1)
+    return result[0] if single else result
 
 
 def _joint_cov_lags(gammas: torch.Tensor, tau: int) -> torch.Tensor:
@@ -132,29 +132,30 @@ def _joint_cov_lags(gammas: torch.Tensor, tau: int) -> torch.Tensor:
     for left in range(tau + 1):
         row = []
         for right in range(tau + 1):
-            block = gammas[:, abs(right - left)]
-            row.append(block.transpose(-1, -2) if right < left else block)
+            delta = right - left
+            block = gammas[:, abs(delta)]
+            row.append(block if delta >= 0 else block.transpose(-1, -2))
         blocks.append(torch.cat(row, -1))
     return torch.cat(blocks, -2)
 
 
 def _node_vs_vector_mi(joint: torch.Tensor, n: int) -> torch.Tensor:
     past = joint[..., n:, n:]
-    ld = spd_logdet(past)
+    past_logdet = spd_logdet(past)
     values = []
     for node in range(n):
         index = torch.tensor([node, *range(n, 2 * n)], device=joint.device)
         sub = joint.index_select(-2, index).index_select(-1, index)
         values.append(
             0.5
-            * (torch.log(joint[..., node, node]) + ld - spd_logdet(sub))
-            / math.log(2)
+            * (torch.log(joint[..., node, node]) + past_logdet - spd_logdet(sub))
+            / math.log(2.0)
         )
     return torch.stack(values, -1)
 
 
-def _cmem3_lag_one(system: VARSystem, tau: int, gammas: torch.Tensor) -> torch.Tensor:
-    n = system.n_variables
+def _cmem3_lag_one(gammas: torch.Tensor, tau: int) -> torch.Tensor:
+    n = gammas.shape[-1]
     full = _joint_cov_lags(gammas, tau)
     present = torch.arange(0, n, device=full.device)
     target = torch.arange(tau * n, (tau + 1) * n, device=full.device)
@@ -178,16 +179,99 @@ def _cmem3_lag_one(system: VARSystem, tau: int, gammas: torch.Tensor) -> torch.T
     )
 
 
+def cmem3_lag_decomposition_from_autocovariances(
+    autocovariances: torch.Tensor,
+    max_lag: int,
+) -> torch.Tensor:
+    if max_lag < 1:
+        raise ValueError("max_lag must be at least one")
+    gammas, single = _batched_gamma(autocovariances)
+    if gammas.shape[1] <= max_lag:
+        raise ValueError("autocovariances do not contain the requested lags")
+    result = torch.stack(
+        [_cmem3_lag_one(gammas, tau) for tau in range(1, max_lag + 1)], -1
+    )
+    return result[0] if single else result
+
+
+def compute_cmem_from_primitives(
+    observation_covariance: torch.Tensor,
+    innovation_covariance: torch.Tensor,
+    autocovariances: torch.Tensor,
+    *,
+    curve_max_lag: int = 1,
+    decomposition_max_lag: int = 1,
+) -> CMemResult:
+    gamma, single = _batched_gamma(autocovariances)
+    batch, _, n, _ = gamma.shape
+    present = _batched_covariance(observation_covariance, batch, n)
+    innovations = _batched_covariance(innovation_covariance, batch, n)
+    result = CMemResult(
+        cmem3_total_from_covariances(present, innovations),
+        cmem1_total_from_covariances(present, innovations),
+        cmem3_lag_decomposition_from_autocovariances(gamma, decomposition_max_lag),
+        cmem3_curve_from_autocovariances(gamma, curve_max_lag),
+        cmem1_curve_from_autocovariances(gamma, curve_max_lag),
+        total_correlation(innovations),
+        total_correlation(present),
+    )
+    if not single:
+        return result
+    return CMemResult(*(value[0] for value in result.__dict__.values()))
+
+
+# Backward-compatible VAR wrappers.
+def cmem3_total(system: VARSystem) -> torch.Tensor:
+    return cmem3_total_from_covariances(
+        system.present_covariance, system.innovation_covariance
+    )
+
+
+def cmem1_total(system: VARSystem) -> torch.Tensor:
+    return cmem1_total_from_covariances(
+        system.present_covariance, system.innovation_covariance
+    )
+
+
+def cmem3_curve(
+    system: VARSystem,
+    tau_max: int,
+    *,
+    autocovariance_sequence: torch.Tensor | None = None,
+) -> torch.Tensor:
+    from .backbone import observation_autocovariances
+    gamma = (
+        observation_autocovariances(system, tau_max)
+        if autocovariance_sequence is None else autocovariance_sequence
+    )
+    return cmem3_curve_from_autocovariances(gamma, tau_max)
+
+
+def cmem1_curve(
+    system: VARSystem,
+    tau_max: int,
+    *,
+    autocovariance_sequence: torch.Tensor | None = None,
+) -> torch.Tensor:
+    from .backbone import observation_autocovariances
+    gamma = (
+        observation_autocovariances(system, tau_max)
+        if autocovariance_sequence is None else autocovariance_sequence
+    )
+    return cmem1_curve_from_autocovariances(gamma, tau_max)
+
+
 def cmem3_lag_decomposition(
     system: VARSystem,
     *,
     autocovariance_sequence: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    gammas = _autocovariances(system, system.order, autocovariance_sequence)
-    return torch.stack(
-        [_cmem3_lag_one(system, tau, gammas) for tau in range(1, system.order + 1)],
-        -1,
+    from .backbone import observation_autocovariances
+    gamma = (
+        observation_autocovariances(system, system.order)
+        if autocovariance_sequence is None else autocovariance_sequence
     )
+    return cmem3_lag_decomposition_from_autocovariances(gamma, system.order)
 
 
 def compute_cmem(
@@ -196,14 +280,25 @@ def compute_cmem(
     *,
     autocovariance_sequence: torch.Tensor | None = None,
 ) -> CMemResult:
-    required_lag = max(tau_max, system.order)
-    gammas = _autocovariances(system, required_lag, autocovariance_sequence)
-    return CMemResult(
-        cmem3_total(system),
-        cmem1_total(system),
-        cmem3_lag_decomposition(system, autocovariance_sequence=gammas),
-        cmem3_curve(system, tau_max, autocovariance_sequence=gammas),
-        cmem1_curve(system, tau_max, autocovariance_sequence=gammas),
-        total_correlation(system.innovation_covariance),
-        total_correlation(system.present_covariance),
+    from .backbone import observation_autocovariances
+    required = max(tau_max, system.order)
+    gamma = (
+        observation_autocovariances(system, required)
+        if autocovariance_sequence is None else autocovariance_sequence
     )
+    return compute_cmem_from_primitives(
+        system.present_covariance,
+        system.innovation_covariance,
+        gamma,
+        curve_max_lag=tau_max,
+        decomposition_max_lag=system.order,
+    )
+
+
+__all__ = [
+    "CMemResult", "cmem3_total_from_covariances", "cmem1_total_from_covariances",
+    "cmem3_curve_from_autocovariances", "cmem1_curve_from_autocovariances",
+    "cmem3_lag_decomposition_from_autocovariances", "compute_cmem_from_primitives",
+    "cmem3_total", "cmem1_total", "cmem3_curve", "cmem1_curve",
+    "cmem3_lag_decomposition", "compute_cmem",
+]
