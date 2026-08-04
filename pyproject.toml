@@ -4,8 +4,8 @@ build-backend="setuptools.build_meta"
 
 [project]
 name="complextorch"
-version="0.3.1"
-description="Torch-first batched VAR/state-space estimation and analytical complexity measures."
+version="0.4.0"
+description="Torch-first batched VAR/state-space estimation and model-derived analytical complexity measures."
 readme="README.md"
 requires-python=">=3.10"
 authors=[{name="Rubén Herzog"}]
