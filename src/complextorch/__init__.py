@@ -30,4 +30,4 @@ __all__ = [
     "compute_all_model_measures", "model_autocovariances", "phiid_from_model",
     "temporal_mvgc", "spectral_mvgc",
 ]
-__version__ = "0.4.1"
+__version__ = "0.5.0"
