@@ -49,15 +49,25 @@ def emergence_measures(system:VARSystem,macro_projection:torch.Tensor)->dict[str
 
 
 def emergence_from_observations(current:torch.Tensor,past:torch.Tensor,macro_projection:torch.Tensor)->dict[str,torch.Tensor]:
-    """Estimate Ψ from observations using Gaussian covariance plug-in estimates."""
+    """Estimate Ψ, Δ and Γ from observations using Gaussian covariance plug-in estimates."""
     x=torch.as_tensor(current); z=torch.as_tensor(past,dtype=x.dtype,device=x.device); m=torch.as_tensor(macro_projection,dtype=x.dtype,device=x.device)
     if x.ndim!=2 or z.ndim!=2: raise ValueError('current and past must be 2-D observations')
+    if z.shape[1]%x.shape[1]!=0: raise ValueError('past dimension must be a multiple of micro dimension')
     y=x@m.T
     def cov(v):
         v=v-v.mean(0); return v.T@v/(v.shape[0]-1)
-    joint=torch.cat([y,z],-1); sj=cov(joint); sy=cov(y); sz=cov(z); cross=sj[:y.shape[1],y.shape[1]:]
+    sy=cov(y); sz=cov(z); joint=torch.cat([y,z],-1); sj=cov(joint); cross=sj[:y.shape[1],y.shape[1]:]
     i_full=_mi_from_cov(sy,sz,cross)
-    if z.shape[1]%x.shape[1]!=0: raise ValueError('past dimension must be a multiple of micro dimension')
     order=z.shape[1]//x.shape[1]; mp=torch.block_diag(*([m]*order)); yp=z@mp.T
-    sjm=cov(torch.cat([y,yp],-1)); syp=cov(yp); cm=sjm[:y.shape[1],y.shape[1]:]; i_macro=_mi_from_cov(sy,syp,cm)
-    return {'psi':i_full-i_macro,'macro_predictive_information':i_macro,'macro_from_micro_predictive_information':i_full}
+    syp=cov(yp); sjm=cov(torch.cat([y,yp],-1)); cm=sjm[:y.shape[1],y.shape[1]:]; i_macro=_mi_from_cov(sy,syp,cm)
+    m_dim=y.shape[1]; self_terms=[]; full_parts=[]
+    for j in range(m_dim):
+        yj=sy[j:j+1,j:j+1]
+        own_idx=torch.tensor([j+k*m_dim for k in range(order)],device=x.device)
+        own=syp.index_select(-2,own_idx).index_select(-1,own_idx)
+        own_cross=cm[j:j+1].index_select(-1,own_idx)
+        self_terms.append(_mi_from_cov(yj,own,own_cross))
+        full_parts.append(_mi_from_cov(yj,sz,cross[j:j+1]))
+    delta=i_macro-torch.stack(self_terms).sum()
+    gamma=i_full-torch.stack(full_parts).sum()
+    return {'psi':i_full-i_macro,'delta':delta,'gamma':gamma,'macro_predictive_information':i_macro,'macro_from_micro_predictive_information':i_full}
