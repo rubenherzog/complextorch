@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+import math
 import torch
 
 from ..control import (
@@ -36,10 +37,7 @@ from .gaussian import (
     s_information,
     total_correlation,
 )
-from .mvgc import (
-    state_space_spectral_mvgc,
-    state_space_temporal_mvgc,
-)
+from .mvgc import state_space_spectral_mvgc, state_space_temporal_mvgc
 from .phid import gaussian_phiid_atoms
 
 Model = VARSystem | LinearDynamicalSystem | InnovationsStateSpace
@@ -87,13 +85,17 @@ class ModelMeasureContext:
 
     @property
     def max_lag(self) -> int:
-        return 0 if self.autocovariances is None else self.autocovariances.shape[1] - 1
+        return 0 if self.autocovariances is None else int(self.autocovariances.shape[-3] - 1)
 
 
-def _batched(tensor: torch.Tensor) -> tuple[torch.Tensor, bool]:
+def _batched_matrix(tensor: torch.Tensor) -> tuple[torch.Tensor, bool]:
     value = torch.as_tensor(tensor)
     single = value.ndim == 2
-    return (value.unsqueeze(0) if single else value), single
+    if single:
+        value = value.unsqueeze(0)
+    if value.ndim != 3:
+        raise ValueError("matrix must be unbatched or batched")
+    return value, single
 
 
 def model_autocovariances(model: CovarianceModel, max_lag: int = 1) -> torch.Tensor:
@@ -110,10 +112,11 @@ def model_autocovariances(model: CovarianceModel, max_lag: int = 1) -> torch.Ten
     else:
         if model.state_covariance is None:
             raise ValueError("LinearDynamicalSystem.state_covariance is required")
-        transition, single = _batched(model.transition)
-        observation, _ = _batched(model.observation)
-        state_covariance, _ = _batched(model.state_covariance)
-        observation_noise, _ = _batched(model.observation_covariance)
+        transition, transition_single = _batched_matrix(model.transition)
+        observation, observation_single = _batched_matrix(model.observation)
+        state_covariance, state_single = _batched_matrix(model.state_covariance)
+        observation_noise, noise_single = _batched_matrix(model.observation_covariance)
+        single = transition_single and observation_single and state_single and noise_single
         batch = max(
             transition.shape[0],
             observation.shape[0],
@@ -126,10 +129,9 @@ def model_autocovariances(model: CovarianceModel, max_lag: int = 1) -> torch.Ten
         ]
 
     batch = transition.shape[0]
-    state_identity = torch.eye(
+    power = torch.eye(
         transition.shape[-1], dtype=transition.dtype, device=transition.device
     ).expand(batch, -1, -1)
-    power = state_identity
     values = []
     for lag in range(max_lag + 1):
         if lag:
@@ -144,7 +146,7 @@ def model_autocovariances(model: CovarianceModel, max_lag: int = 1) -> torch.Ten
 
 def stationary_observation_covariance(model: CovarianceModel) -> torch.Tensor:
     """Return the model-implied stationary covariance of observed variables."""
-    return model_autocovariances(model, 0)[:, 0] if isinstance(model, VARSystem) else model_autocovariances(model, 0)[0]
+    return model_autocovariances(model, 0)[..., 0, :, :]
 
 
 def _as_innovations(model: Model) -> InnovationsStateSpace | None:
@@ -164,7 +166,7 @@ def _as_innovations(model: Model) -> InnovationsStateSpace | None:
 
 
 def required_autocovariance_max_lag(model: Model, config: ModelMeasureConfig) -> int:
-    """Resolve all requested delay-bearing measures to one shared maximum lag."""
+    """Resolve delay-bearing measures to one shared maximum lag."""
     required = [config.autocovariance_max_lag]
     if config.phiid_variables is not None:
         required.append(config.phiid_lag)
@@ -182,26 +184,23 @@ def build_measure_context(
     covariance = None
     autocovariance_sequence = None
     spectrum = None
-    frequencies = config.frequencies
 
     if isinstance(model, (VARSystem, LinearDynamicalSystem)):
-        max_lag = required_autocovariance_max_lag(model, config)
-        autocovariance_sequence = model_autocovariances(model, max_lag)
-        covariance = (
-            autocovariance_sequence[:, 0]
-            if autocovariance_sequence.ndim == 4
-            else autocovariance_sequence[0]
+        autocovariance_sequence = model_autocovariances(
+            model,
+            required_autocovariance_max_lag(model, config),
         )
+        covariance = autocovariance_sequence[..., 0, :, :]
 
-    if isinstance(model, VARSystem) and frequencies is not None:
-        spectrum = cross_spectral_density(model, frequencies)
+    if isinstance(model, VARSystem) and config.frequencies is not None:
+        spectrum = cross_spectral_density(model, config.frequencies)
 
     return ModelMeasureContext(
         model=model,
         observation_covariance=covariance,
         autocovariances=autocovariance_sequence,
         innovations=_as_innovations(model),
-        frequencies=frequencies,
+        frequencies=config.frequencies,
         cross_spectral_density=spectrum,
     )
 
@@ -261,18 +260,12 @@ def past_future_covariance(
         raise ValueError("lag must be at least one")
     if len(variables) != 2 or variables[0] == variables[1]:
         raise ValueError("variables must contain two distinct indices")
-    gamma = (
-        model_autocovariances(model, lag)
-        if autocovariance_sequence is None
-        else autocovariance_sequence
-    )
+    gamma = model_autocovariances(model, lag) if autocovariance_sequence is None else autocovariance_sequence
     if gamma.shape[-3] <= lag:
         raise ValueError("autocovariance_sequence does not contain the requested lag")
-    if gamma.ndim == 3:
+    single = gamma.ndim == 3
+    if single:
         gamma = gamma.unsqueeze(0)
-        single = True
-    else:
-        single = False
     index = torch.as_tensor(variables, dtype=torch.long, device=gamma.device)
     present = gamma[:, 0].index_select(-2, index).index_select(-1, index)
     future_past = gamma[:, lag].index_select(-2, index).index_select(-1, index)
@@ -306,7 +299,7 @@ def temporal_mvgc(
     target,
     *,
     conditional=(),
-    base: float = torch.e,
+    base: float = math.e,
 ) -> torch.Tensor:
     """Canonical primary temporal MVGC derived from model parameters."""
     innovations = _as_innovations(model)
@@ -317,7 +310,7 @@ def temporal_mvgc(
         source=source,
         target=target,
         conditional=conditional,
-        base=float(base),
+        base=base,
     )
 
 
@@ -328,7 +321,7 @@ def spectral_mvgc(
     frequencies: torch.Tensor,
     *,
     conditional=(),
-    base: float = torch.e,
+    base: float = math.e,
 ) -> torch.Tensor:
     """Canonical primary spectral MVGC derived from model parameters."""
     innovations = _as_innovations(model)
@@ -340,7 +333,7 @@ def spectral_mvgc(
         target=target,
         conditional=conditional,
         frequencies=frequencies,
-        base=float(base),
+        base=base,
     )
 
 
@@ -356,10 +349,7 @@ def compute_all_model_measures(
     if context.model is not model:
         raise ValueError("context was built for a different model")
 
-    result: dict[str, Any] = {
-        "model_type": type(model).__name__,
-        "context": context,
-    }
+    result: dict[str, Any] = {"model_type": type(model).__name__, "context": context}
 
     if isinstance(model, (VARSystem, LinearDynamicalSystem)):
         result["gaussian"] = gaussian_measures_from_model(
@@ -368,7 +358,6 @@ def compute_all_model_measures(
             covariance=context.observation_covariance,
         )
         result["autocovariances"] = context.autocovariances
-
         if config.phiid_variables is not None:
             result["phiid"] = phiid_from_model(
                 model,
