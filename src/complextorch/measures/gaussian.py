@@ -2,15 +2,69 @@
 from __future__ import annotations
 import math
 import torch
-from ..linalg import spd_logdet
+from ..linalg import spd_logdet, spd_solve, symmetrise
+
+
+def gaussian_entropy(covariance: torch.Tensor, *, base: float = 2.0) -> torch.Tensor:
+    cov=torch.as_tensor(covariance)
+    d=cov.shape[-1]
+    value=0.5*(d*math.log(2*math.pi*math.e)+spd_logdet(cov))
+    return value/math.log(base)
+
+
+def conditional_covariance(joint_covariance: torch.Tensor, n_left: int) -> torch.Tensor:
+    joint=torch.as_tensor(joint_covariance); n=joint.shape[-1]
+    if not 0<n_left<n: raise ValueError('n_left must split the covariance')
+    a=joint[...,:n_left,:n_left]; b=joint[...,:n_left,n_left:]; c=joint[...,n_left:,n_left:]
+    return symmetrise(a-b@spd_solve(c,b.transpose(-1,-2)))
+
+
+def gaussian_mutual_information(joint_covariance: torch.Tensor,n_left:int,*,base:float=2.0)->torch.Tensor:
+    joint=torch.as_tensor(joint_covariance); n=joint.shape[-1]
+    if not 0<n_left<n: raise ValueError('n_left must split the covariance')
+    a=joint[...,:n_left,:n_left]; b=joint[...,n_left:,n_left:]
+    return 0.5*(spd_logdet(a)+spd_logdet(b)-spd_logdet(joint))/math.log(base)
+
+
+def gaussian_conditional_mutual_information(joint_covariance:torch.Tensor,n_x:int,n_y:int,*,base:float=2.0)->torch.Tensor:
+    joint=torch.as_tensor(joint_covariance); n=joint.shape[-1]; n_z=n-n_x-n_y
+    if min(n_x,n_y,n_z)<1: raise ValueError('joint covariance must contain nonempty X, Y, Z blocks')
+    xz=torch.cat([torch.arange(n_x,device=joint.device),torch.arange(n_x+n_y,n,device=joint.device)])
+    yz=torch.arange(n_x,n,device=joint.device); z=torch.arange(n_x+n_y,n,device=joint.device)
+    sxz=joint.index_select(-2,xz).index_select(-1,xz); syz=joint.index_select(-2,yz).index_select(-1,yz); sz=joint.index_select(-2,z).index_select(-1,z)
+    return 0.5*(spd_logdet(sxz)+spd_logdet(syz)-spd_logdet(sz)-spd_logdet(joint))/math.log(base)
+
 
 def total_correlation(covariance:torch.Tensor,*,base:float=2.0)->torch.Tensor:
-    cov=torch.as_tensor(covariance); diagonal=torch.diagonal(cov,dim1=-2,dim2=-1)
-    if bool((diagonal<=0).any()): raise ValueError('covariance diagonal must be positive')
-    return .5*(torch.log(diagonal).sum(-1)-spd_logdet(cov))/math.log(base)
+    cov=torch.as_tensor(covariance); diag=torch.diagonal(cov,dim1=-2,dim2=-1)
+    return 0.5*(torch.log(diag).sum(-1)-spd_logdet(cov))/math.log(base)
 
-def gaussian_mutual_information(joint_covariance:torch.Tensor,n_left:int,*,base:float=2.0)->torch.Tensor:
-    joint=torch.as_tensor(joint_covariance); n_total=joint.shape[-1]
-    if not 0<n_left<n_total: raise ValueError('n_left must split covariance')
-    left=joint[...,:n_left,:n_left]; right=joint[...,n_left:,n_left:]
-    return .5*(spd_logdet(left)+spd_logdet(right)-spd_logdet(joint))/math.log(base)
+
+def dual_total_correlation(covariance:torch.Tensor,*,base:float=2.0)->torch.Tensor:
+    cov=torch.as_tensor(covariance); n=cov.shape[-1]; h=gaussian_entropy(cov,base=base)
+    parts=[]
+    for i in range(n):
+        idx=torch.tensor([j for j in range(n) if j!=i],device=cov.device)
+        parts.append(gaussian_entropy(cov.index_select(-2,idx).index_select(-1,idx),base=base))
+    return torch.stack(parts,-1).sum(-1)-(n-1)*h
+
+
+def o_information(covariance:torch.Tensor,*,base:float=2.0)->torch.Tensor:
+    return total_correlation(covariance,base=base)-dual_total_correlation(covariance,base=base)
+
+
+def s_information(covariance:torch.Tensor,*,base:float=2.0)->torch.Tensor:
+    return total_correlation(covariance,base=base)+dual_total_correlation(covariance,base=base)
+
+
+def local_gaussian_mutual_information(samples:torch.Tensor,joint_covariance:torch.Tensor,n_left:int,*,mean:torch.Tensor|None=None,base:float=2.0)->torch.Tensor:
+    x=torch.as_tensor(samples); cov=torch.as_tensor(joint_covariance,dtype=x.dtype,device=x.device); n=cov.shape[-1]
+    if x.shape[-1]!=n or not 0<n_left<n: raise ValueError('invalid sample or split shape')
+    mu=torch.zeros(n,dtype=x.dtype,device=x.device) if mean is None else torch.as_tensor(mean,dtype=x.dtype,device=x.device)
+    z=x-mu; left=z[...,:n_left]; right=z[...,n_left:]
+    a=cov[...,:n_left,:n_left]; b=cov[...,n_left:,n_left:]
+    q_joint=(z.unsqueeze(-2)@spd_solve(cov,z.unsqueeze(-1))).squeeze(-1).squeeze(-1)
+    q_left=(left.unsqueeze(-2)@spd_solve(a,left.unsqueeze(-1))).squeeze(-1).squeeze(-1)
+    q_right=(right.unsqueeze(-2)@spd_solve(b,right.unsqueeze(-1))).squeeze(-1).squeeze(-1)
+    logdet_term=0.5*(spd_logdet(a)+spd_logdet(b)-spd_logdet(cov))
+    return (logdet_term-0.5*(q_joint-q_left-q_right))/math.log(base)
