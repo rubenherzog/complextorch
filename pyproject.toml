@@ -1,0 +1,23 @@
+[build-system]
+requires=["setuptools>=77","wheel"]
+build-backend="setuptools.build_meta"
+
+[project]
+name="complextorch"
+version="0.1.0"
+description="Torch-first batched VAR/state-space estimation and analytical complexity measures."
+readme="README.md"
+requires-python=">=3.10"
+authors=[{name="Rubén Herzog"}]
+dependencies=["numpy>=1.24","scipy>=1.11","scikit-learn>=1.3","torch>=2.2"]
+
+[project.optional-dependencies]
+validation=["statsmodels>=0.14"]
+dev=["complextorch[validation]","pytest>=8","ruff>=0.6"]
+
+[tool.setuptools.packages.find]
+where=["src"]
+
+[tool.pytest.ini_options]
+testpaths=["tests"]
+markers=["cuda: requires CUDA"]
