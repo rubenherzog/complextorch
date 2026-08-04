@@ -1,14 +1,21 @@
-"""Temporal and spectral multivariate Granger causality."""
+"""Temporal and spectral multivariate Granger causality.
+
+Two explicit routes are provided:
+- regression MVGC, based on separately fitted nested VAR models;
+- exact state-space MVGC, based on one full innovations model and DARE-derived marginals.
+"""
 from __future__ import annotations
 import math
 import torch
 from ..representations import VARSystem
+from ..control import InnovationsStateSpace, var_to_innovations_state_space, reduce_innovations_state_space, innovations_transfer_function
+from ..linalg import spd_logdet, spd_solve, symmetrise
 from ._model_comparison import fit_nested_var_models, residual_target_covariance, logdet_ratio, conditional_spectrum, var_model_spectrum, normalise_indices
 from .dynamics import transfer_function, cross_spectral_density
 
 
 def temporal_mvgc(observations: torch.Tensor, order: int, source, target, *, conditional=(), base: float = math.e, **var_kwargs) -> torch.Tensor:
-    """Conditional group time-domain GC using shared nested VAR models."""
+    """Regression conditional group GC using separately fitted nested VARs."""
     models = fit_nested_var_models(observations, order, target, source, conditional, **var_kwargs)
     full_cov = residual_target_covariance(models.full, models.target_positions_full)
     reduced_cov = residual_target_covariance(models.reduced, models.target_positions_reduced)
@@ -16,7 +23,7 @@ def temporal_mvgc(observations: torch.Tensor, order: int, source, target, *, con
 
 
 def spectral_mvgc(observations: torch.Tensor, order: int, source, target, frequencies: torch.Tensor, *, conditional=(), base: float = math.e, **var_kwargs) -> torch.Tensor:
-    """Group spectral GC from the same full/reduced models at every frequency."""
+    """Regression spectral GC from the same separately fitted full/reduced VARs."""
     models = fit_nested_var_models(observations, order, target, source, conditional, **var_kwargs)
     full_spectrum = var_model_spectrum(models.full, frequencies)
     reduced_spectrum = var_model_spectrum(models.reduced, frequencies)
@@ -29,8 +36,108 @@ def spectral_mvgc(observations: torch.Tensor, order: int, source, target, freque
     return logdet_ratio(reduced_target, full_target, base=base)
 
 
+def _as_innovations(system: VARSystem | InnovationsStateSpace) -> InnovationsStateSpace:
+    return var_to_innovations_state_space(system) if isinstance(system, VARSystem) else system
+
+
+def _normalise_partition(system: InnovationsStateSpace, target, source, conditional=()):
+    n_variables = system.observation.shape[-2]
+    target = normalise_indices(target, n_variables)
+    source = normalise_indices(source, n_variables)
+    conditional = normalise_indices(conditional, n_variables) if conditional else ()
+    if set(target) & set(source) or set(target) & set(conditional) or set(source) & set(conditional):
+        raise ValueError("target, source and conditional sets must be pairwise disjoint")
+    return target, source, conditional
+
+
+def _joint_state_space_spectral_gc(
+    system: InnovationsStateSpace,
+    target,
+    drivers,
+    frequencies: torch.Tensor,
+    *,
+    base: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Joint drivers→target spectral GC and target innovations covariance."""
+    order = tuple(target) + tuple(drivers)
+    marginal = reduce_innovations_state_space(system, order)
+    transfer = innovations_transfer_function(marginal, frequencies)
+    covariance = marginal.innovation_covariance
+    single = transfer.ndim == 3
+    if single:
+        transfer = transfer.unsqueeze(0)
+        covariance = covariance.unsqueeze(0)
+    n_target = len(target)
+    n_total = n_target + len(drivers)
+    target_covariance = covariance[..., :n_target, :n_target]
+    source_target_covariance = covariance[..., n_target:, :n_target]
+    identity_target = torch.eye(n_target, dtype=covariance.dtype, device=covariance.device).expand(*covariance.shape[:-2], n_target, n_target)
+    regression = source_target_covariance @ spd_solve(target_covariance, identity_target)
+    transform = torch.eye(n_total, dtype=covariance.dtype, device=covariance.device).expand(*covariance.shape[:-2], n_total, n_total).clone()
+    transform[..., n_target:, :n_target] = regression
+    normalized_transfer = transfer @ transform[:, None].to(transfer.dtype)
+    spectrum = transfer @ covariance[:, None].to(transfer.dtype) @ transfer.conj().transpose(-1, -2)
+    intrinsic_transfer = normalized_transfer[..., :n_target, :n_target]
+    intrinsic = intrinsic_transfer @ target_covariance[:, None].to(transfer.dtype) @ intrinsic_transfer.conj().transpose(-1, -2)
+    total_target = symmetrise(spectrum[..., :n_target, :n_target].real).to(spectrum.dtype)
+    intrinsic = symmetrise(intrinsic.real).to(intrinsic.dtype)
+    value = (torch.linalg.slogdet(total_target).logabsdet - torch.linalg.slogdet(intrinsic).logabsdet) / math.log(base)
+    return (value[0], target_covariance[0]) if single else (value, target_covariance)
+
+
+def state_space_temporal_mvgc(
+    system: VARSystem | InnovationsStateSpace,
+    source,
+    target,
+    *,
+    conditional=(),
+    base: float = math.e,
+) -> torch.Tensor:
+    """Exact conditional GC from one full model and DARE-derived marginals."""
+    innovations = _as_innovations(system)
+    target, source, conditional = _normalise_partition(innovations, target, source, conditional)
+    full = reduce_innovations_state_space(innovations, target + conditional + source)
+    reduced = reduce_innovations_state_space(innovations, target + conditional)
+    n_target = len(target)
+    full_covariance = full.innovation_covariance[..., :n_target, :n_target]
+    reduced_covariance = reduced.innovation_covariance[..., :n_target, :n_target]
+    return (spd_logdet(reduced_covariance) - spd_logdet(full_covariance)) / math.log(base)
+
+
+def state_space_spectral_mvgc(
+    system: VARSystem | InnovationsStateSpace,
+    source,
+    target,
+    frequencies: torch.Tensor,
+    *,
+    conditional=(),
+    base: float = math.e,
+) -> torch.Tensor:
+    """Exact conditional spectral GC using state-space marginalisation.
+
+    Conditional source→target|conditional is computed as
+    joint(source,conditional)→target minus conditional→target. Both terms are
+    derived from the same full innovations model through generalized DAREs.
+    """
+    innovations = _as_innovations(system)
+    target, source, conditional = _normalise_partition(innovations, target, source, conditional)
+    joint, _ = _joint_state_space_spectral_gc(innovations, target, source + conditional, frequencies, base=base)
+    if not conditional:
+        return joint
+    conditioning, _ = _joint_state_space_spectral_gc(innovations, target, conditional, frequencies, base=base)
+    return joint - conditioning
+
+
+def integrate_spectral_mvgc(values: torch.Tensor, frequencies: torch.Tensor) -> torch.Tensor:
+    """Integrate one-sided GC on normalized frequencies [0,.5] to time GC."""
+    frequencies = torch.as_tensor(frequencies, dtype=values.real.dtype, device=values.device)
+    if frequencies.ndim != 1 or frequencies.numel() != values.shape[-1]:
+        raise ValueError("frequencies must match the last dimension of values")
+    return 2.0 * torch.trapezoid(values, frequencies, dim=-1)
+
+
 def pairwise_spectral_gc(system: VARSystem, source: int, target: int, frequencies: torch.Tensor, *, base: float = math.e) -> torch.Tensor:
-    """Bivariate Geweke spectral GC with innovation normalisation."""
+    """Backward-compatible bivariate Geweke spectral GC."""
     if system.n_variables != 2:
         raise ValueError("pairwise_spectral_gc expects a bivariate VARSystem")
     transfer = transfer_function(system, frequencies)
