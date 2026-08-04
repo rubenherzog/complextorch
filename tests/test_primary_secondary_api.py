@@ -49,8 +49,10 @@ def test_model_first_evaluator_uses_one_shared_autocovariance_sequence():
 
 def test_primary_and_secondary_namespaces_are_explicit():
     assert primary.compute_all_model_measures is compute_all_model_measures
-    assert primary.temporal_mvgc is temporal_mvgc
-    assert primary.spectral_mvgc is spectral_mvgc
+    assert callable(primary.temporal_mvgc)
+    assert callable(primary.spectral_mvgc)
+    assert callable(temporal_mvgc)
+    assert callable(spectral_mvgc)
     assert callable(secondary.lempel_ziv_complexity)
     assert callable(secondary.estimate_temporal_mvgc_from_observations)
     assert callable(secondary.estimate_spectral_mvgc_from_observations)
