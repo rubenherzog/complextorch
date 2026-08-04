@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from scipy.linalg import solve_discrete_are
 from .linalg import spd_logdet, spd_solve, symmetrise
-from .representations import LinearDynamicalSystem
+from .representations import LinearDynamicalSystem, VARSystem
 
 
 def _batched(t: torch.Tensor, ndim: int) -> tuple[torch.Tensor, bool]:
@@ -29,6 +29,43 @@ def solve_dare(transition, observation, process_covariance, observation_covarian
     return result[0] if single else result
 
 
+def solve_generalized_dare(
+    transition: torch.Tensor,
+    observation: torch.Tensor,
+    process_covariance: torch.Tensor,
+    observation_covariance: torch.Tensor,
+    cross_covariance: torch.Tensor,
+    *,
+    rtol: float = 1e-10,
+    atol: float = 1e-12,
+    max_iter: int = 10000,
+) -> torch.Tensor:
+    """Solve the filtering DARE with correlated process/observation noise.
+
+    Iterates
+    P = A P A' + Q - (A P C' + S)(C P C' + R)^-1(A P C' + S)'.
+    This form is required when marginalising an innovations state-space model.
+    """
+    a, single = _batched(transition, 3)
+    c, _ = _batched(observation, 3)
+    q, _ = _batched(process_covariance, 3)
+    r, _ = _batched(observation_covariance, 3)
+    s, _ = _batched(cross_covariance, 3)
+    batch = max(x.shape[0] for x in (a, c, q, r, s))
+    a, c, q, r, s = [x.expand(batch, *x.shape[1:]) if x.shape[0] == 1 else x for x in (a, c, q, r, s)]
+    p = torch.zeros_like(q)
+    for _ in range(max_iter):
+        innovation = symmetrise(c @ p @ c.transpose(-1, -2) + r)
+        gain_numerator = a @ p @ c.transpose(-1, -2) + s
+        updated = symmetrise(a @ p @ a.transpose(-1, -2) + q - gain_numerator @ spd_solve(innovation, gain_numerator.transpose(-1, -2)))
+        difference = torch.linalg.matrix_norm(updated - p, ord="fro", dim=(-2, -1))
+        scale = torch.linalg.matrix_norm(updated, ord="fro", dim=(-2, -1)).clamp_min(1.0)
+        if bool(torch.all(difference <= atol + rtol * scale)):
+            return updated[0] if single else updated
+        p = updated
+    raise RuntimeError("generalized DARE did not converge")
+
+
 @dataclass(frozen=True)
 class InnovationsForm:
     covariance: torch.Tensor
@@ -50,6 +87,69 @@ def innovations_form(system: LinearDynamicalSystem) -> InnovationsForm:
     identity = torch.eye(innovation_covariance.shape[-1], dtype=innovation_covariance.dtype, device=innovation_covariance.device).expand_as(innovation_covariance)
     gain = a @ p @ c.transpose(-1, -2) @ spd_solve(innovation_covariance, identity)
     return InnovationsForm(innovation_covariance[0] if single else innovation_covariance, gain[0] if single else gain, p[0] if single else p)
+
+
+@dataclass(frozen=True)
+class InnovationsStateSpace:
+    """Innovations representation x[t+1]=A x[t]+K e[t], y[t]=C x[t]+e[t]."""
+    transition: torch.Tensor
+    observation: torch.Tensor
+    gain: torch.Tensor
+    innovation_covariance: torch.Tensor
+
+
+def var_to_innovations_state_space(system: VARSystem) -> InnovationsStateSpace:
+    """Convert a VAR exactly to predictor-form innovations state space."""
+    coefficients = system.coefficients
+    batch, order, n_variables, _ = coefficients.shape
+    state_dimension = order * n_variables
+    observation = coefficients.permute(0, 2, 1, 3).reshape(batch, n_variables, state_dimension)
+    gain = torch.zeros((batch, state_dimension, n_variables), dtype=coefficients.dtype, device=coefficients.device)
+    gain[:, :n_variables, :] = torch.eye(n_variables, dtype=coefficients.dtype, device=coefficients.device)
+    return InnovationsStateSpace(system.companion, observation, gain, system.innovation_covariance)
+
+
+def reduce_innovations_state_space(system: InnovationsStateSpace, indices) -> InnovationsStateSpace:
+    """Obtain an exact marginal innovations model via generalized DARE."""
+    index = torch.as_tensor(tuple(indices), dtype=torch.long, device=system.observation.device)
+    a, single = _batched(system.transition, 3)
+    c, _ = _batched(system.observation, 3)
+    k, _ = _batched(system.gain, 3)
+    v, _ = _batched(system.innovation_covariance, 3)
+    batch = max(x.shape[0] for x in (a, c, k, v))
+    a, c, k, v = [x.expand(batch, *x.shape[1:]) if x.shape[0] == 1 else x for x in (a, c, k, v)]
+    reduced_c = c.index_select(-2, index)
+    reduced_r = v.index_select(-2, index).index_select(-1, index)
+    process_q = k @ v @ k.transpose(-1, -2)
+    cross_s = k @ v.index_select(-1, index)
+    p = solve_generalized_dare(a, reduced_c, process_q, reduced_r, cross_s)
+    if p.ndim == 2:
+        p = p.unsqueeze(0)
+    reduced_v = symmetrise(reduced_c @ p @ reduced_c.transpose(-1, -2) + reduced_r)
+    numerator = a @ p @ reduced_c.transpose(-1, -2) + cross_s
+    identity = torch.eye(reduced_v.shape[-1], dtype=reduced_v.dtype, device=reduced_v.device).expand_as(reduced_v)
+    reduced_k = numerator @ spd_solve(reduced_v, identity)
+    if single:
+        return InnovationsStateSpace(a[0], reduced_c[0], reduced_k[0], reduced_v[0])
+    return InnovationsStateSpace(a, reduced_c, reduced_k, reduced_v)
+
+
+def innovations_transfer_function(system: InnovationsStateSpace, frequencies: torch.Tensor) -> torch.Tensor:
+    """Frequency response H(f)=I+C(zI-A)^-1K for normalized f in [0, .5]."""
+    a, single = _batched(system.transition, 3)
+    c, _ = _batched(system.observation, 3)
+    k, _ = _batched(system.gain, 3)
+    batch = max(x.shape[0] for x in (a, c, k))
+    a, c, k = [x.expand(batch, *x.shape[1:]) if x.shape[0] == 1 else x for x in (a, c, k)]
+    frequencies = torch.as_tensor(frequencies, dtype=a.dtype, device=a.device)
+    complex_dtype = torch.complex128 if a.dtype == torch.float64 else torch.complex64
+    a_complex, c_complex, k_complex = a.to(complex_dtype), c.to(complex_dtype), k.to(complex_dtype)
+    state_identity = torch.eye(a.shape[-1], dtype=complex_dtype, device=a.device)
+    observation_identity = torch.eye(c.shape[-2], dtype=complex_dtype, device=a.device)
+    z = torch.exp(2j * torch.pi * frequencies).reshape(1, -1, 1, 1)
+    resolvent = torch.linalg.solve(z * state_identity - a_complex[:, None], k_complex[:, None])
+    transfer = observation_identity + c_complex[:, None] @ resolvent
+    return transfer[0] if single else transfer
 
 
 def reduce_state_space(system: LinearDynamicalSystem, indices) -> LinearDynamicalSystem:
