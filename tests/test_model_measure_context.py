@@ -46,7 +46,7 @@ def test_primary_mvgc_is_model_based_and_spectral_integrates_to_temporal():
 
 def test_onion_correlation_and_simulation_options():
     correlation = random_correlation_matrix(5, batch=3, seed=12)
-    torch.testing.assert_close(torch.diagonal(correlation, dim1=-2, dim2=-1), torch.ones(3, 5))
+    torch.testing.assert_close(torch.diagonal(correlation, dim1=-2, dim2=-1), torch.ones((3, 5), dtype=correlation.dtype))
     assert bool((torch.linalg.eigvalsh(correlation) > 0).all())
     coefficients, covariance = demo_var(n_variables=3, order=2)
     assert automatic_burnin(coefficients) > 0
