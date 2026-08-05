@@ -5,31 +5,134 @@ import torch
 from .linalg import spectral_radius
 from .representations import companion_matrix
 
+
 def _normalise_coefficients(coefficients):
-    coef=torch.as_tensor(coefficients)
-    if coef.ndim==3: coef=coef.unsqueeze(0)
-    if coef.ndim!=4: raise ValueError('coefficients must have shape (p,n,n) or (batch,p,n,n)')
+    coef = torch.as_tensor(coefficients)
+    if coef.ndim == 3:
+        coef = coef.unsqueeze(0)
+    if coef.ndim != 4:
+        raise ValueError("coefficients must have shape (p,n,n) or (batch,p,n,n)")
     return coef
 
-def _normalise_covariance(covariance,batch,n):
-    q=torch.as_tensor(covariance)
-    if q.ndim==2: q=q.unsqueeze(0)
-    if q.shape[0]==1 and batch>1: q=q.expand(batch,-1,-1)
-    if q.shape!=(batch,n,n): raise ValueError('covariance has incompatible shape')
+
+def _normalise_covariance(covariance, batch, n):
+    q = torch.as_tensor(covariance)
+    if q.ndim == 2:
+        q = q.unsqueeze(0)
+    if q.shape[0] == 1 and batch > 1:
+        q = q.expand(batch, -1, -1)
+    if q.shape != (batch, n, n):
+        raise ValueError("covariance has incompatible shape")
     return q
 
-def simulate_var(coefficients,innovation_covariance,n_times:int,*,burnin:int=500,seed:int=0):
-    coef=_normalise_coefficients(coefficients); batch,order,n,_=coef.shape; q=_normalise_covariance(innovation_covariance,batch,n).to(coef)
-    if bool((spectral_radius(companion_matrix(coef))>=1).any()): raise ValueError('simulation requires stable coefficients')
-    gen=torch.Generator(device=coef.device); gen.manual_seed(seed); chol=torch.linalg.cholesky(q); total=n_times+burnin
-    innovations=torch.randn((batch,total,n),dtype=coef.dtype,device=coef.device,generator=gen)
-    innovations=torch.einsum('bij,btj->bti',chol,innovations); x=torch.zeros_like(innovations)
-    for t in range(total):
-        value=innovations[:,t]
-        for lag in range(1,order+1):
-            if t>=lag: value=value+torch.einsum('bij,bj->bi',coef[:,lag-1],x[:,t-lag])
-        x[:,t]=value
-    return x[:,burnin:]
+
+def automatic_burnin(coefficients, *, epsilon: float | None = None) -> int:
+    """MVGC-style transient length ceil(-log(eps)/-log(rho))."""
+    coef = _normalise_coefficients(coefficients)
+    rho = float(spectral_radius(companion_matrix(coef)).max())
+    if rho >= 1:
+        return 0
+    if rho <= 0:
+        return 1
+    eps = torch.finfo(coef.dtype).eps if epsilon is None else float(epsilon)
+    return int(math.ceil(-math.log(eps) / -math.log(rho)))
+
+
+def simulate_var(
+    coefficients,
+    innovation_covariance,
+    n_times: int,
+    *,
+    burnin: int | str = 500,
+    seed: int = 0,
+    return_innovations: bool = False,
+):
+    coef = _normalise_coefficients(coefficients)
+    batch, order, n, _ = coef.shape
+    q = _normalise_covariance(innovation_covariance, batch, n).to(coef)
+    if bool((spectral_radius(companion_matrix(coef)) >= 1).any()):
+        raise ValueError("simulation requires stable coefficients")
+    if isinstance(burnin, str):
+        if burnin.lower() != "auto":
+            raise ValueError("burnin string must be 'auto'")
+        burnin_value = automatic_burnin(coef)
+    else:
+        burnin_value = int(burnin)
+        if burnin_value < 0:
+            raise ValueError("burnin must be nonnegative")
+    generator = torch.Generator(device=coef.device)
+    generator.manual_seed(seed)
+    chol = torch.linalg.cholesky(q)
+    total = n_times + burnin_value
+    innovations = torch.randn(
+        (batch, total, n), dtype=coef.dtype, device=coef.device, generator=generator
+    )
+    innovations = torch.einsum("bij,btj->bti", chol, innovations)
+    x = torch.zeros_like(innovations)
+    for time in range(total):
+        value = innovations[:, time].clone()
+        for lag in range(1, order + 1):
+            if time >= lag:
+                value = value + torch.einsum(
+                    "bij,bj->bi", coef[:, lag - 1], x[:, time - lag]
+                )
+        x[:, time] = value
+    observations = x[:, burnin_value:]
+    retained_innovations = innovations[:, burnin_value:]
+    return (observations, retained_innovations) if return_innovations else observations
+
+
+def random_correlation_matrix(
+    n_variables: int,
+    *,
+    batch: int = 1,
+    seed: int = 0,
+    dtype: torch.dtype = torch.float64,
+    device: str | torch.device = "cpu",
+) -> torch.Tensor:
+    """Uniform random correlation matrices via the onion construction."""
+    if n_variables < 1 or batch < 1:
+        raise ValueError("n_variables and batch must be positive")
+    import numpy as np
+    generator = np.random.default_rng(seed)
+    outputs = []
+    for _ in range(batch):
+        correlation = np.array([[1.0]])
+        for k in range(2, n_variables + 1):
+            beta = 0.5 * (n_variables - k + 1)
+            radius = np.sqrt(generator.beta(0.5 * (k - 1), beta))
+            direction = generator.standard_normal(k - 1)
+            direction = direction / np.linalg.norm(direction) * radius
+            vector = np.linalg.cholesky(correlation) @ direction
+            expanded = np.zeros((k, k))
+            expanded[:k - 1, :k - 1] = correlation
+            expanded[:k - 1, k - 1] = vector
+            expanded[k - 1, :k - 1] = vector
+            expanded[k - 1, k - 1] = 1.0
+            correlation = expanded
+        outputs.append(correlation)
+    return torch.as_tensor(np.stack(outputs), dtype=dtype, device=device)
+
+
+def random_positive_definite_covariance(
+    n_variables: int,
+    *,
+    batch: int = 1,
+    seed: int = 0,
+    scale_min: float = 0.5,
+    scale_max: float = 1.5,
+    dtype: torch.dtype = torch.float64,
+    device: str | torch.device = "cpu",
+) -> torch.Tensor:
+    correlation = random_correlation_matrix(
+        n_variables, batch=batch, seed=seed, dtype=dtype, device=device
+    )
+    generator = torch.Generator(device=torch.device(device)).manual_seed(seed + 1)
+    scales = scale_min + (scale_max - scale_min) * torch.rand(
+        (batch, n_variables), generator=generator, dtype=dtype, device=device
+    )
+    return scales[..., :, None] * correlation * scales[..., None, :]
+
 
 def random_stable_var(batch:int,n_variables:int,order:int,*,spectral_radius_target:float=.85,noise_scale:float=1.,seed:int=0,dtype=torch.float64,device='cpu'):
     if not 0<spectral_radius_target<1: raise ValueError('spectral_radius_target must lie in (0,1)')
@@ -40,11 +143,13 @@ def random_stable_var(batch:int,n_variables:int,order:int,*,spectral_radius_targ
         mid=.5*(lo+hi); rho=spectral_radius(companion_matrix(raw*mid[:,None,None,None])); ok=rho<=spectral_radius_target; lo=torch.where(ok,mid,lo); hi=torch.where(ok,hi,mid)
     coef=raw*lo[:,None,None,None]; q=noise_scale*torch.eye(n_variables,dtype=dtype,device=device).expand(batch,-1,-1).clone(); return coef,q
 
+
 def _cycle(n,frustrated,*,dtype,device):
     m=torch.zeros((n,n),dtype=dtype,device=device)
     for row in range(n): m[row,(row+1)%n]=1
     if frustrated: m[0,1]=-1
     return m
+
 
 def demo_var(n_variables:int=3,order:int=2,*,temporal_path:float=-.95,temporal_gain:float=.9,noise_correlation:float=-.25,lag_weights=None,stability_target:float=.98,dtype=torch.float64,device='cpu'):
     dev=torch.device(device); weights=torch.ones(order,dtype=dtype,device=dev) if lag_weights is None else torch.as_tensor(lag_weights,dtype=dtype,device=dev)

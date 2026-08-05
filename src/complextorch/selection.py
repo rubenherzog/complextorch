@@ -1,12 +1,13 @@
-"""Epoch-aware temporal validation and shared VAR-order selection."""
+"""Temporal validation and MVGC-compatible information-criterion order selection."""
 from __future__ import annotations
 from dataclasses import dataclass
 from math import sqrt
 from typing import Iterable, Literal
 import numpy as np
 import torch
+from sklearn.base import BaseEstimator
 from ._typing import ArrayLike
-from .linalg import stable_cholesky
+from .linalg import stable_cholesky, spd_logdet
 from .var import VAR
 
 @dataclass(frozen=True)
@@ -81,4 +82,37 @@ class VAROrderSearchCV:
         else: raise ValueError('unknown selection rule')
         self.result_=VAROrderSearchResult(best,tuple(results),self.scoring,self.selection_rule); self.best_order_=best; self.cv_results_=self.result_.as_records()
         if self.refit: self.best_estimator_=VAR(order=best,alpha=self.alpha,fit_intercept=self.fit_intercept,mode=self.mode,solver=self.solver,device=self.device,dtype=self.dtype).fit(data)
+        return self
+
+@dataclass(frozen=True)
+class VARInformationCriteriaResult:
+    p_aic:int; p_bic:int; p_hqc:int
+    aic:np.ndarray; bic:np.ndarray; hqc:np.ndarray; loglik:np.ndarray
+    orders:tuple[int,...]
+
+class VAROrderSelectionIC(BaseEstimator):
+    """MVGC2-compatible in-sample AIC/BIC/HQC order selection."""
+    def __init__(self,orders:Iterable[int]=range(1,11),*,solver:str='lwr',hurvich_tsai:bool=False,device:str='auto',dtype:str='float64',refit:str|None='hqc'):
+        self.orders=tuple(int(x) for x in orders); self.solver=solver; self.hurvich_tsai=hurvich_tsai; self.device=device; self.dtype=dtype; self.refit=refit
+    def fit(self,X:ArrayLike,y=None):
+        del y
+        if not self.orders or min(self.orders)<1: raise ValueError('orders must be positive')
+        data=torch.as_tensor(X)
+        if data.ndim==2: data=data.unsqueeze(0)
+        if data.ndim!=3: raise ValueError('X must have shape (time,n) or (trials,time,n)')
+        n_trials,n_times,n=data.shape; loglik=[]; k=[]; meff=[]; fitted={}
+        for order in self.orders:
+            est=VAR(order=order,solver=self.solver,covariance='unbiased',mode='pooled' if n_trials>1 else 'independent',device=self.device,dtype=self.dtype,stability='ignore').fit(data); fitted[order]=est
+            cov=est.noise_covariance_[0]; loglik.append(-.5*(n*np.log(2*np.pi)+float(spd_logdet(cov))+n)); k.append(order*n*n); meff.append(n_trials*(n_times-order))
+        L=np.asarray(loglik); K=np.asarray(k,dtype=float)/np.asarray(meff,dtype=float); m=np.asarray(meff,dtype=float)
+        if self.hurvich_tsai:
+            fac=m/(m-np.asarray(k)-1); aic=-2*L+2*K*fac; aic=np.where(fac<=0,np.nan,aic)
+        else: aic=-2*L+2*K
+        bic=-2*L+K*np.log(m); hqc=-2*L+2*K*np.log(np.log(m))
+        result=VARInformationCriteriaResult(self.orders[int(np.nanargmin(aic))],self.orders[int(np.nanargmin(bic))],self.orders[int(np.nanargmin(hqc))],aic,bic,hqc,L,self.orders)
+        self.result_=result; self.p_aic_=result.p_aic; self.p_bic_=result.p_bic; self.p_hqc_=result.p_hqc; self.aic_=aic; self.bic_=bic; self.hqc_=hqc; self.loglik_=L
+        if self.refit is not None:
+            key=self.refit.lower()
+            if key not in {'aic','bic','hqc'}: raise ValueError("refit must be None, 'aic', 'bic' or 'hqc'")
+            self.best_order_=getattr(result,f'p_{key}'); self.best_estimator_=fitted[self.best_order_]
         return self
