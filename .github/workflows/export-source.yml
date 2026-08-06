@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Archive repository
+      - name: Archive repository checkout
         run: tar --exclude=.git -czf complextorch-source.tar.gz .
       - uses: actions/upload-artifact@v4
         with:
