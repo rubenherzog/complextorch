@@ -1,0 +1,18 @@
+name: Export source checkout
+
+on:
+  push:
+    branches:
+      - docs/internal-math-comments
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Archive repository
+        run: tar --exclude=.git -czf complextorch-source.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: complextorch-source
+          path: complextorch-source.tar.gz
