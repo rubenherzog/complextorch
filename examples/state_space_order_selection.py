@@ -2,7 +2,7 @@
 
 import torch
 
-from complextorch import LarimoreStateSpaceOrder
+from complextorch import StateSpaceOrderSelection
 
 
 def main() -> None:
@@ -16,14 +16,14 @@ def main() -> None:
         generator=generator,
         dtype=torch.float64,
     )
-    estimator = LarimoreStateSpaceOrder(
+    estimator = StateSpaceOrderSelection(
         past_horizon=10,
         mode="pooled",
         dtype="float64",
     ).fit(observations)
 
     print("Selected state dimension:", int(estimator.best_order_))
-    print("Candidate dimensions:", estimator.candidate_orders_.tolist())
+    print("Candidate dimensions:", estimator.orders_.tolist())
     print("Bauer SVC:", estimator.criterion_.tolist())
 
 

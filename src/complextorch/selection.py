@@ -1,4 +1,4 @@
-"""Temporal cross-validation and information-criterion VAR order selection.
+r"""Unified VAR and state-space model-order selection.
 
 For per-observation Gaussian log likelihood :math:`\ell`, parameter count
 :math:`k`, and effective sample size :math:`N`,
@@ -36,6 +36,7 @@ from sklearn.base import BaseEstimator
 from ._typing import ArrayLike
 from .linalg import stable_cholesky, spd_logdet
 from .var import VAR
+from ._state_space_order import _larimore_state_space_order
 
 
 @dataclass(frozen=True)
@@ -765,3 +766,184 @@ class VAROrderSelectionIC(BaseEstimator):
             self.best_order_ = getattr(result, f"p_{key}")
             self.best_estimator_ = fitted[self.best_order_]
         return self
+
+@dataclass(frozen=True)
+class StateSpaceOrderSelectionResult:
+    r"""Immutable result of state-space latent-order selection.
+
+    Attributes
+    ----------
+    best_order
+        Selected latent state dimension. A scalar tensor in pooled mode and
+        one value per trajectory in independent mode.
+    orders
+        Candidate state dimensions represented by the final criterion axis.
+    criterion
+        Criterion values for every candidate order.
+    criterion_name
+        Name of the order-selection criterion; currently ``"bauer"``.
+    subspace_method
+        Method used to obtain the canonical-correlation spectrum; currently
+        ``"larimore"``.
+    canonical_correlations
+        Unnormalised Larimore canonical correlations.
+    normalized_canonical_correlations
+        Correlations divided by the leading value for visualization only.
+    n_effective
+        Effective number of past/future Hankel columns.
+    """
+
+    best_order: torch.Tensor
+    orders: torch.Tensor
+    criterion: torch.Tensor
+    criterion_name: str
+    subspace_method: str
+    canonical_correlations: torch.Tensor
+    normalized_canonical_correlations: torch.Tensor
+    n_effective: torch.Tensor
+
+
+class StateSpaceOrderSelection(BaseEstimator):
+    r"""Select latent state dimension using Larimore CVA and Bauer SVC.
+
+    This estimator is the state-space counterpart of
+    :class:`VAROrderSelectionIC`. It selects the latent state dimension
+    :math:`r`, not the VAR lag order :math:`p`, and therefore keeps the two
+    model families in separate estimators while exposing them through the same
+    ``complextorch.selection`` architecture.
+
+    Larimore CVA constructs whitened past/future block-Hankel covariances and
+    returns canonical correlations :math:`\rho_i`. Bauer's singular-value
+    criterion then minimizes
+
+    .. math::
+
+       \operatorname{SVC}(r)
+       = \rho_{r+1}^{2}
+         + \frac{2 n_y r\log N_{\mathrm{eff}}}{N_{\mathrm{eff}}}.
+
+    Parameters
+    ----------
+    past_horizon
+        Number of block rows in the past Hankel matrix.
+    future_horizon
+        Number of block rows in the future Hankel matrix. Defaults to
+        ``past_horizon``.
+    min_order
+        Smallest candidate state dimension. Defaults to the number of observed
+        variables, matching the full-model MVGC convention.
+    subspace_method
+        Subspace spectrum estimator. Only ``"larimore"`` is currently
+        implemented.
+    criterion
+        State-order criterion. Only ``"bauer"`` is currently implemented.
+    mode
+        ``"pooled"`` concatenates Hankel columns across trajectories;
+        ``"independent"`` selects one order per trajectory.
+    ridge
+        Non-negative diagonal regularizer used only in Cholesky whitening.
+    device, dtype
+        Torch execution device and floating-point dtype.
+    refit
+        Reserved for a future full state-space estimator. It must remain
+        ``False`` because this class performs order selection only and does not
+        estimate :math:`A,C,K,V`.
+
+    References
+    ----------
+    - Larimore, W. E. (1990, 1996), canonical variate analysis for system
+      identification.
+    - Bauer, D. (2001). Order estimation for subspace methods. *Automatica*,
+      37(10), 1561--1573.
+    - ComplexBox ``mvgc.modelorder.tsdata_to_ssmo``.
+    """
+
+    def __init__(
+        self,
+        past_horizon: int,
+        *,
+        future_horizon: int | None = None,
+        min_order: int | None = None,
+        subspace_method: Literal["larimore"] = "larimore",
+        criterion: Literal["bauer"] = "bauer",
+        mode: Literal["pooled", "independent"] = "pooled",
+        ridge: float = 1e-12,
+        device: str | torch.device = "auto",
+        dtype: str | torch.dtype = "float64",
+        refit: bool = False,
+    ):
+        """Initialize state-space order-selection settings."""
+        self.past_horizon = past_horizon
+        self.future_horizon = future_horizon
+        self.min_order = min_order
+        self.subspace_method = subspace_method
+        self.criterion = criterion
+        self.mode = mode
+        self.ridge = ridge
+        self.device = device
+        self.dtype = dtype
+        self.refit = refit
+
+    def fit(self, X: ArrayLike, y=None):
+        """Estimate the canonical spectrum and select latent state order.
+
+        Parameters
+        ----------
+        X
+            Observations in ``(time, variables)`` or ComplexTorch batch-first
+            ``(batch, time, variables)`` layout.
+        y
+            Unused scikit-learn compatibility target.
+
+        Returns
+        -------
+        StateSpaceOrderSelection
+            Fitted selector exposing ``best_order_``, ``orders_``,
+            ``criterion_`` and canonical-correlation diagnostics.
+        """
+        del y
+        if self.subspace_method != "larimore":
+            raise ValueError("subspace_method must be 'larimore'")
+        if self.criterion != "bauer":
+            raise ValueError("criterion must be 'bauer'")
+        if self.refit:
+            raise ValueError(
+                "refit=True is unavailable until a full Larimore state-space "
+                "estimator is implemented"
+            )
+
+        computation = _larimore_state_space_order(
+            X,
+            self.past_horizon,
+            future_horizon=self.future_horizon,
+            min_order=self.min_order,
+            mode=self.mode,
+            ridge=self.ridge,
+            device=self.device,
+            dtype=self.dtype,
+        )
+        result = StateSpaceOrderSelectionResult(
+            best_order=computation.best_order,
+            orders=computation.candidate_orders,
+            criterion=computation.criterion,
+            criterion_name=self.criterion,
+            subspace_method=self.subspace_method,
+            canonical_correlations=computation.canonical_correlations,
+            normalized_canonical_correlations=(
+                computation.normalized_canonical_correlations
+            ),
+            n_effective=computation.n_effective,
+        )
+        self.result_ = result
+        self.best_order_ = result.best_order
+        self.orders_ = result.orders
+        self.criterion_ = result.criterion
+        self.criterion_name_ = result.criterion_name
+        self.subspace_method_ = result.subspace_method
+        self.canonical_correlations_ = result.canonical_correlations
+        self.normalized_canonical_correlations_ = (
+            result.normalized_canonical_correlations
+        )
+        self.n_effective_ = result.n_effective
+        return self
+
