@@ -1,0 +1,30 @@
+name: refactor-order-selection
+
+on:
+  push:
+    branches: [refactor/unify-order-selection]
+    paths:
+      - scripts/refactor_order_selection.py
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/unify-order-selection
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Apply refactor
+        run: python scripts/refactor_order_selection.py
+      - name: Commit generated source changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- src/complextorch/selection.py src/complextorch/_state_space_order.py src/complextorch/model_order.py src/complextorch/__init__.py pyproject.toml tests/test_state_space_model_order.py examples/state_space_order_selection.py
+          git commit -m "Unify model-order selection architecture"
+          git push origin HEAD:refactor/unify-order-selection
