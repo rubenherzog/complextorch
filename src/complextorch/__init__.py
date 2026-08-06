@@ -1,4 +1,9 @@
 """Torch-first batched linear-dynamics inference and complexity measures."""
+import sys as _sys
+from . import _subspace as _subspace
+
+# Temporary private import alias; no compatibility module remains on disk.
+_sys.modules[__name__ + "._state_space_order"] = _subspace
 from .adapters import from_complexbox_timeseries, from_complexbox_var, to_complexbox_timeseries, to_complexbox_var
 from .representations import StateSpaceModel, VARSystem, build_var_system, companion_matrix
 from .selection import EpochTimeSeriesSplit, VAROrderSelectionIC, VARInformationCriteriaResult, StateSpaceOrderSelection, StateSpaceOrderSelectionResult
@@ -8,6 +13,8 @@ from .simulate import demo_var, random_stable_var, simulate_var, automatic_burni
 from .var import VAR, VARParameters
 from .control import solve_dare, solve_generalized_dare, innovations_form, InnovationsStateSpace, var_to_innovations_state_space, reduce_innovations_state_space, innovations_transfer_function, reduce_state_space, project_state_space, dynamical_dependence, stochastic_interaction, optimise_dynamical_dependence_projection, ProjectionSearchResult
 from .state_space import kalman_filter, kalman_smoother, N4SID, LarimoreStateSpace, LinearGaussianEM
+from . import state_space as _state_space
+_state_space._larimore_decomposition = _subspace._larimore_decomposition
 from .measures.primary import ModelMeasureConfig, ModelMeasureContext, build_measure_context, compute_all_model_measures, model_autocovariances, phiid_from_model, spectral_mvgc, temporal_mvgc
 from .measures.secondary import WhitenessResult, consistency, residual_whiteness, mvgc_pvalue, significance
 

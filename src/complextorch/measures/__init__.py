@@ -4,6 +4,10 @@ Use :mod:`complextorch.measures.primary` for the strict analytical API. The
 package-level MVGC names prefer canonical models but temporarily dispatch legacy
 observation-based calls to explicitly named secondary estimators.
 """
+import sys as _sys
+from .. import _model_comparison as _model_comparison
+_sys.modules[__name__ + "._model_comparison"] = _model_comparison
+
 from . import primary, secondary
 from .primary import (
     CovarianceModel,
