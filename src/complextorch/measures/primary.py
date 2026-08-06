@@ -397,6 +397,14 @@ def temporal_mvgc(
     base: float = math.e,
 ) -> torch.Tensor:
     """Compute conditional time-domain multivariate Granger causality.
+                    
+                    .. math:: F_{Y	o X\mid Z}=\log(\det\Sigma^R_{XX}/\det\Sigma_{XX}).
+                    
+                    References
+                    ----------
+                    Geweke (1982); Barnett and Seth (2014, 2015).
+                
+                Compute conditional time-domain multivariate Granger causality.
                 
                 .. math:: F_{Y	o X\mid Z}=\log(\det\Sigma^R_{XX}/\det\Sigma_{XX}).
                 
@@ -447,6 +455,15 @@ def spectral_mvgc(
     base: float = math.e,
 ) -> torch.Tensor:
     """Compute conditional spectral multivariate Granger causality.
+                    
+                    The frequency-resolved decomposition is obtained from innovations-form transfer
+                    functions and integrates to temporal GC.
+                    
+                    References
+                    ----------
+                    Geweke (1982); Barnett and Seth (2014, 2015).
+                
+                Compute conditional spectral multivariate Granger causality.
                 
                 The frequency-resolved decomposition is obtained from innovations-form transfer
                 functions and integrates to temporal GC.

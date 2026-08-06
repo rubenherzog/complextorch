@@ -92,6 +92,7 @@ def kalman_filter(observations,system,*,initial_mean=None,initial_covariance=Non
         # Solve with the Cholesky factor instead of forming the covariance inverse.
         # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
         # Solve with the Cholesky factor instead of forming the covariance inverse.
+        # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
         chol=torch.linalg.cholesky(s); k=torch.cholesky_solve((pred_cov@c.transpose(-1,-2)).transpose(-1,-2),chol).transpose(-1,-2)
         mean=pred_mean+torch.einsum('bdm,bm->bd',k,innovation)
         eye=torch.eye(d,dtype=y.dtype,device=y.device).expand(batch,d,d)

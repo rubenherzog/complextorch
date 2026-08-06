@@ -75,6 +75,25 @@ References
 ----------
 - Lütkepohl, H. (2005). *New Introduction to Multiple Time Series Analysis*.
 - Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
+
+Notes
+-----
+A VAR(p) process is represented as
+
+.. math::
+
+   x_t = \sum_{k=1}^{p} A_k x_{t-k} + 
+arepsilon_t,
+   \qquad 
+arepsilon_t \sim \mathcal N(0,\Sigma).
+
+Its companion-form state transition is used to connect VAR and linear
+state-space calculations.
+
+References
+----------
+- Lütkepohl, H. (2005). *New Introduction to Multiple Time Series Analysis*.
+- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
 """
 from __future__ import annotations
 from dataclasses import dataclass

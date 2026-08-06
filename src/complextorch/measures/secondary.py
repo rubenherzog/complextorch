@@ -62,6 +62,12 @@ def _trials(value):
 
 def consistency(observations,residuals,*,order:int)->float:
     """Compute the Ding--Bressler VAR consistency diagnostic.
+                    
+                    References
+                    ----------
+                    Ding et al. (2000); Barnett and Seth (2014); ComplexBox repository.
+                
+                Compute the Ding--Bressler VAR consistency diagnostic.
                 
                 References
                 ----------
@@ -123,6 +129,11 @@ def _dw(design,residual):
 
 def residual_whiteness(observations,residuals,*,order:int,method:str='durbin_watson')->WhitenessResult:
     """Test residual serial correlation with the requested method.
+                    
+                    The current Durbin--Watson route follows the ComplexBox/MVGC-compatible
+                    approximation while retaining an extensible ``method`` argument.
+                
+                Test residual serial correlation with the requested method.
                 
                 The current Durbin--Watson route follows the ComplexBox/MVGC-compatible
                 approximation while retaining an extensible ``method`` argument.
@@ -149,6 +160,12 @@ def residual_whiteness(observations,residuals,*,order:int,method:str='durbin_wat
 
 def mvgc_pvalue(statistic,*,method:str='F',n_target:int,n_source:int,n_conditional:int,order:int,n_times:int,n_trials:int=1):
     """Compute asymptotic MVGC p-values using MVGC2 conventions.
+                    
+                    References
+                    ----------
+                    Barnett and Seth (2014); MVGC repository.
+                
+                Compute asymptotic MVGC p-values using MVGC2 conventions.
                 
                 References
                 ----------
@@ -183,6 +200,12 @@ def mvgc_pvalue(statistic,*,method:str='F',n_target:int,n_source:int,n_condition
 
 def significance(pvalues,*,alpha:float=.05,method:str='fdr_bh'):
     """Apply uncorrected or Benjamini--Hochberg FDR significance testing.
+                    
+                    References
+                    ----------
+                    Benjamini and Hochberg (1995).
+                
+                Apply uncorrected or Benjamini--Hochberg FDR significance testing.
                 
                 References
                 ----------
