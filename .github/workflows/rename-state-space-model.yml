@@ -1,0 +1,32 @@
+name: rename-state-space-model
+
+on:
+  push:
+    branches: [refactor/unify-order-selection]
+    paths:
+      - scripts/rename_state_space_model.py
+      - .github/workflows/rename-state-space-model.yml
+
+permissions:
+  contents: write
+
+jobs:
+  rename:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/unify-order-selection
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Apply repository-wide rename
+        run: python scripts/rename_state_space_model.py
+      - name: Commit renamed API
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- src tests examples README.md pyproject.toml
+          git diff --cached --quiet && exit 0
+          git commit -m "Rename LinearDynamicalSystem to StateSpaceModel"
+          git push origin HEAD:refactor/unify-order-selection
