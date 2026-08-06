@@ -5,6 +5,7 @@ on:
     branches: [refactor/unify-order-selection]
     paths:
       - scripts/refactor_order_selection.py
+      - .github/workflows/refactor-order-selection.yml
 
 permissions:
   contents: write
