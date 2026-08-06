@@ -1,4 +1,4 @@
-r"""State-space model-order selection by Bauer SVC and Larimore CVA.
+r"""Internal Bauer SVC and Larimore CVA primitives for model-order selection.
 
 The Larimore route estimates canonical correlations between block-Hankel past
 and future vectors. Bauer's singular-value criterion (SVC) then selects the
@@ -36,8 +36,6 @@ from dataclasses import dataclass
 from typing import Literal
 
 import torch
-from sklearn.base import BaseEstimator
-
 from ._typing import ArrayLike
 
 
@@ -80,7 +78,7 @@ def _normalise_observations(
     return values, unbatched
 
 
-def bauer_svc(
+def __bauer_svc(
     canonical_correlations: ArrayLike,
     n_observations: int,
     n_effective: int | torch.Tensor,
@@ -169,7 +167,7 @@ def bauer_svc(
 
 
 @dataclass(frozen=True)
-class LarimoreStateSpaceOrderResult:
+class _StateSpaceOrderComputation:
     """Result of Larimore CVA followed by Bauer SVC.
 
     Attributes
@@ -281,7 +279,7 @@ def _canonical_correlations(
     return torch.linalg.svdvals(whitened)
 
 
-def larimore_state_space_order(
+def _larimore_state_space_order(
     observations: ArrayLike,
     past_horizon: int,
     *,
@@ -291,7 +289,7 @@ def larimore_state_space_order(
     ridge: float = 1e-12,
     device: str | torch.device = "auto",
     dtype: str | torch.dtype = "float64",
-) -> LarimoreStateSpaceOrderResult:
+) -> _StateSpaceOrderComputation:
     r"""Estimate full state-space order by Larimore CVA and Bauer SVC.
 
     Parameters
@@ -315,7 +313,7 @@ def larimore_state_space_order(
 
     Returns
     -------
-    LarimoreStateSpaceOrderResult
+    _StateSpaceOrderComputation
         Canonical correlations, SVC curve and selected state order.
 
     References
@@ -373,7 +371,7 @@ def larimore_state_space_order(
     )
     r_max = correlations.shape[-1]
     lower = n_variables if min_order is None else int(min_order)
-    best_order, criterion = bauer_svc(
+    best_order, criterion = _bauer_svc(
         correlations,
         n_observations=n_variables,
         n_effective=n_effective,
@@ -395,7 +393,7 @@ def larimore_state_space_order(
         correlations = correlations.squeeze(0)
         normalized = normalized.squeeze(0)
 
-    return LarimoreStateSpaceOrderResult(
+    return _StateSpaceOrderComputation(
         best_order=best_order,
         candidate_orders=candidate_orders,
         criterion=criterion,
@@ -403,58 +401,3 @@ def larimore_state_space_order(
         normalized_canonical_correlations=normalized,
         n_effective=n_effective,
     )
-
-
-class LarimoreStateSpaceOrder(BaseEstimator):
-    """Scikit-learn-style Larimore/Bauer state-order estimator.
-
-    The estimator delegates numerical work to
-    :func:`larimore_state_space_order` and exposes fitted attributes ending in
-    an underscore.
-    """
-
-    def __init__(
-        self,
-        past_horizon: int,
-        *,
-        future_horizon: int | None = None,
-        min_order: int | None = None,
-        mode: Literal["pooled", "independent"] = "pooled",
-        ridge: float = 1e-12,
-        device: str | torch.device = "auto",
-        dtype: str | torch.dtype = "float64",
-    ):
-        """Initialize Larimore CVA and Bauer SVC settings."""
-
-        self.past_horizon = past_horizon
-        self.future_horizon = future_horizon
-        self.min_order = min_order
-        self.mode = mode
-        self.ridge = ridge
-        self.device = device
-        self.dtype = dtype
-
-    def fit(self, observations: ArrayLike, y=None):
-        """Estimate canonical correlations and select state dimension."""
-
-        del y
-        result = larimore_state_space_order(
-            observations,
-            self.past_horizon,
-            future_horizon=self.future_horizon,
-            min_order=self.min_order,
-            mode=self.mode,
-            ridge=self.ridge,
-            device=self.device,
-            dtype=self.dtype,
-        )
-        self.result_ = result
-        self.best_order_ = result.best_order
-        self.candidate_orders_ = result.candidate_orders
-        self.criterion_ = result.criterion
-        self.canonical_correlations_ = result.canonical_correlations
-        self.normalized_canonical_correlations_ = (
-            result.normalized_canonical_correlations
-        )
-        self.n_effective_ = result.n_effective
-        return self
