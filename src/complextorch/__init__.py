@@ -11,6 +11,13 @@ from .state_space import kalman_filter, kalman_smoother, N4SID, LarimoreStateSpa
 from .measures.primary import ModelMeasureConfig, ModelMeasureContext, build_measure_context, compute_all_model_measures, model_autocovariances, phiid_from_model, spectral_mvgc, temporal_mvgc
 from .measures.secondary import WhitenessResult, consistency, residual_whiteness, mvgc_pvalue, significance
 
+# Preserve ``complextorch.selection`` imports while routing the public CV API
+# through the shared temporal-search implementation.
+from . import selection as _selection
+_selection.VAROrderSearchCV = VAROrderSearchCV
+_selection.VAROrderSearchResult = VAROrderSearchResult
+_selection.VAROrderScore = VAROrderScore
+
 __all__ = [
     "VAR", "VARParameters", "VARSystem", "StateSpaceModel", "build_var_system", "companion_matrix",
     "EpochTimeSeriesSplit", "VAROrderSearchCV", "VAROrderSearchResult", "VAROrderScore", "VAROrderSelectionIC", "VARInformationCriteriaResult",
