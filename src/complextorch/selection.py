@@ -135,6 +135,7 @@ def _information_criteria(
     hurvich_tsai: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return MVGC2-compatible per-observation AIC, BIC and HQC."""
+    # Combine Gaussian residual log-likelihood with AIC, BIC, and HQC parameter penalties.
     likelihood = np.asarray(loglik, dtype=float)
     parameters = np.asarray(n_parameters, dtype=float)
     observations = np.asarray(n_observations, dtype=float)

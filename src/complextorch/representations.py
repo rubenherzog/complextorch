@@ -132,6 +132,7 @@ def companion_matrix(coefficients: torch.Tensor) -> torch.Tensor:
     The first block row contains ``[A_1, ..., A_p]`` and lower block rows shift
     lagged observations forward by one step. See Lütkepohl (2005).
     """
+    # Stack VAR lags into a first-order Markov state whose top block contains the autoregressive coefficients.
 
     coefficient_tensor, unbatched = _normalise_coefficients(coefficients)
     batch, order, n_variables, _ = coefficient_tensor.shape
@@ -189,6 +190,7 @@ def build_var_system(
     - Lütkepohl (2005).
     - Barnett and Seth (2015).
     """
+    # Derive companion-state covariance and stationary observation quantities from fitted VAR parameters.
 
     coefficient_tensor, _ = _normalise_coefficients(coefficients)
     covariance = torch.as_tensor(

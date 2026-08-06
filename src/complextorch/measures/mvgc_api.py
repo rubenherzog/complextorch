@@ -34,6 +34,7 @@ def temporal_mvgc(model_or_observations, *args, **kwargs):
     ----------
     - Geweke (1982); Barnett and Seth (2014, 2015).
     """
+    # Compare full and reduced innovation covariance volumes to obtain Geweke time-domain Granger causality.
     if isinstance(model_or_observations, _MODEL_TYPES):
         return model_temporal_mvgc(model_or_observations, *args, **kwargs)
     if isinstance(model_or_observations, torch.Tensor):
@@ -60,6 +61,7 @@ def spectral_mvgc(model_or_observations, *args, **kwargs):
     ----------
     - Geweke (1982); Barnett and Seth (2014, 2015).
     """
+    # Decompose the predictive covariance ratio over frequency using the model transfer function and spectrum.
     if isinstance(model_or_observations, _MODEL_TYPES):
         return model_spectral_mvgc(model_or_observations, *args, **kwargs)
     if isinstance(model_or_observations, torch.Tensor):

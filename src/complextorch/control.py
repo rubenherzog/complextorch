@@ -58,6 +58,7 @@ def solve_dare(transition, observation, process_covariance, observation_covarian
     ----------
     - Anderson and Moore (1979), *Optimal Filtering*.
     """
+    # Iterate the steady-state Kalman covariance recursion until the Riccati fixed point is reached.
     a, single = _batched(transition, 3)
     c, _ = _batched(observation, 3)
     q, _ = _batched(process_covariance, 3)
@@ -89,6 +90,7 @@ def solve_generalized_dare(
     ----------
     - Anderson and Moore (1979); Barnett and Seth (2015).
     """
+    # Iterate the generalized Riccati map, including process-observation noise cross covariance.
     a, single = _batched(transition, 3)
     c, _ = _batched(observation, 3)
     q, _ = _batched(process_covariance, 3)
@@ -129,6 +131,7 @@ def innovations_form(system: StateSpaceModel) -> InnovationsForm:
     ----------
     - Kalman (1960); Anderson and Moore (1979); Barnett and Seth (2015).
     """
+    # Convert the general state-space model to predictor form using the steady-state innovation covariance and Kalman gain.
     p = solve_dare(system.transition, system.observation, system.process_covariance, system.observation_covariance)
     a, single = _batched(system.transition, 3)
     c, _ = _batched(system.observation, 3)
@@ -159,6 +162,7 @@ def var_to_innovations_state_space(system: VARSystem) -> InnovationsStateSpace:
     ----------
     - Lütkepohl (2005); Barnett and Seth (2015).
     """
+    # Embed VAR(p) coefficients in companion form so the observation process is represented exactly in innovations form.
     coefficients = system.coefficients
     batch, order, n_variables, _ = coefficients.shape
     state_dimension = order * n_variables
@@ -170,6 +174,7 @@ def var_to_innovations_state_space(system: VARSystem) -> InnovationsStateSpace:
 
 def reduce_innovations_state_space(system: InnovationsStateSpace, indices) -> InnovationsStateSpace:
     """Obtain an exact marginal innovations model via generalized DARE."""
+    # Marginalize unobserved channels by solving the reduced innovations problem rather than deleting covariance blocks naively.
     index = torch.as_tensor(tuple(indices), dtype=torch.long, device=system.observation.device)
     a, single = _batched(system.transition, 3)
     c, _ = _batched(system.observation, 3)
@@ -196,6 +201,7 @@ def reduce_innovations_state_space(system: InnovationsStateSpace, indices) -> In
 
 def innovations_transfer_function(system: InnovationsStateSpace, frequencies: torch.Tensor) -> torch.Tensor:
     """Frequency response H(f)=I+C(zI-A)^-1K for normalized f in [0, .5]."""
+    # Evaluate H(z)=I+C(zI-A)^-1 K, the transfer function from innovations to observations.
     a, single = _batched(system.transition, 3)
     c, _ = _batched(system.observation, 3)
     k, _ = _batched(system.gain, 3)
@@ -207,6 +213,7 @@ def innovations_transfer_function(system: InnovationsStateSpace, frequencies: to
     state_identity = torch.eye(a.shape[-1], dtype=complex_dtype, device=a.device)
     observation_identity = torch.eye(c.shape[-2], dtype=complex_dtype, device=a.device)
     z = torch.exp(2j * torch.pi * frequencies).reshape(1, -1, 1, 1)
+    # Solve the linear system directly instead of multiplying by an explicit inverse.
     resolvent = torch.linalg.solve(z * state_identity - a_complex[:, None], k_complex[:, None])
     transfer = observation_identity + c_complex[:, None] @ resolvent
     return transfer[0] if single else transfer
@@ -252,6 +259,7 @@ def dynamical_dependence(system: StateSpaceModel, *, base: float = 2.0):
     The implementation validates dimensional and positive-definiteness
     requirements before executing the numerical core.
     """
+    # Measure predictive information lost after projecting the observation process to a lower-dimensional subspace.
     if system.state_covariance is None:
         raise ValueError("state_covariance is required")
     stationary = symmetrise(system.observation @ system.state_covariance @ system.observation.transpose(-1, -2) + system.observation_covariance)
@@ -262,6 +270,7 @@ def dynamical_dependence(system: StateSpaceModel, *, base: float = 2.0):
 
 def stochastic_interaction(system: StateSpaceModel, groups, *, base: float = 2.0):
     """SSDI/stochastic interaction using the common reduced-model path."""
+    # Compare joint and component innovation volumes; the log-determinant gap quantifies failure of dynamical factorization.
     parts = torch.stack([dynamical_dependence(reduce_state_space(system, group), base=base) for group in groups], -1)
     return parts.sum(-1) - dynamical_dependence(system, base=base)
 
@@ -281,6 +290,7 @@ class ProjectionSearchResult:
 
 def optimise_dynamical_dependence_projection(system: StateSpaceModel, output_dimension: int, *, n_candidates: int = 256, seed: int = 0, minimise: bool = True) -> ProjectionSearchResult:
     """Reproducible Stiefel search reusing projection, DARE and DD primitives."""
+    # Optimize on the Stiefel manifold so projection columns remain orthonormal throughout the search.
     n_observations = system.observation.shape[-2]
     if not 1 <= output_dimension <= n_observations:
         raise ValueError("output_dimension must be between 1 and observation dimension")

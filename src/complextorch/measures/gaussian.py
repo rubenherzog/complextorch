@@ -32,6 +32,7 @@ def gaussian_entropy(covariance: torch.Tensor, *, base: float = 2.0) -> torch.Te
     ----------
     - Cover and Thomas (2006).
     """
+    # Evaluate H(X)=1/2[k log(2 pi e)+log det Sigma] for the selected Gaussian covariance.
     cov=torch.as_tensor(covariance)
     d=cov.shape[-1]
     # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
@@ -69,6 +70,7 @@ def gaussian_mutual_information(joint_covariance: torch.Tensor,n_left:int,*,base
     ----------
     - Cover and Thomas (2006).
     """
+    # Use I(X;Y)=1/2 log(det Sigma_X det Sigma_Y / det Sigma_XY).
     joint=torch.as_tensor(joint_covariance); n=joint.shape[-1]
     if not 0<n_left<n: raise ValueError('n_left must split the covariance')
     a=joint[...,:n_left,:n_left]; b=joint[...,n_left:,n_left:]
@@ -101,6 +103,7 @@ def gaussian_conditional_mutual_information(joint_covariance:torch.Tensor,n_x:in
     The implementation validates dimensional and positive-definiteness
     requirements before executing the numerical core.
     """
+    # Use the Gaussian Schur-complement identity for I(X;Y|Z).
     joint=torch.as_tensor(joint_covariance); n=joint.shape[-1]; n_z=n-n_x-n_y
     if min(n_x,n_y,n_z)<1: raise ValueError('joint covariance must contain nonempty X, Y, Z blocks')
     xz=torch.cat([torch.arange(n_x,device=joint.device),torch.arange(n_x+n_y,n,device=joint.device)])
@@ -131,6 +134,7 @@ def total_correlation(covariance:torch.Tensor,*,base:float=2.0)->torch.Tensor:
     The implementation validates dimensional and positive-definiteness
     requirements before executing the numerical core.
     """
+    # Compute total correlation as the sum of marginal entropies minus the joint entropy.
     cov=torch.as_tensor(covariance); diag=torch.diagonal(cov,dim1=-2,dim2=-1)
     # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
     return 0.5*(torch.log(diag).sum(-1)-spd_logdet(cov))/math.log(base)
@@ -157,6 +161,7 @@ def dual_total_correlation(covariance:torch.Tensor,*,base:float=2.0)->torch.Tens
     The implementation validates dimensional and positive-definiteness
     requirements before executing the numerical core.
     """
+    # Compute dual total correlation from joint entropy and leave-one-out conditional entropies.
     cov=torch.as_tensor(covariance); n=cov.shape[-1]; h=gaussian_entropy(cov,base=base)
     parts=[]
     for i in range(n):
@@ -175,6 +180,7 @@ def o_information(covariance:torch.Tensor,*,base:float=2.0)->torch.Tensor:
     ----------
     - Rosas et al. (2019), *Physical Review E* 100, 032305.
     """
+    # Combine total and dual total correlation; the sign distinguishes redundancy- from synergy-dominated dependence.
     return total_correlation(covariance,base=base)-dual_total_correlation(covariance,base=base)
 
 

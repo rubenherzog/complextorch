@@ -405,6 +405,7 @@ def temporal_mvgc(
     ----------
     - Geweke (1982); Barnett and Seth (2014, 2015).
     """
+    # Compare full and reduced innovation covariance volumes to obtain Geweke time-domain Granger causality.
     return state_space_temporal_mvgc(
         as_innovations(model),
         source=source,
@@ -432,6 +433,7 @@ def spectral_mvgc(
     ----------
     - Geweke (1982); Barnett and Seth (2014, 2015).
     """
+    # Decompose the predictive covariance ratio over frequency using the model transfer function and spectrum.
     return state_space_spectral_mvgc(
         as_innovations(model),
         source=source,
@@ -463,6 +465,7 @@ def _transition_radius(model: Model) -> torch.Tensor:
     """
     transition = as_innovations(model).transition
     # Companion eigenvalues determine stationarity through their spectral radius.
+    # Obtain dynamical modes whose moduli determine stability and characteristic decay.
     return torch.linalg.eigvals(transition).abs().amax(-1)
 
 

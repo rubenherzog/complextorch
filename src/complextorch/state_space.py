@@ -123,6 +123,7 @@ def kalman_filter(
     - Kalman (1960).
     - Anderson, B. D. O. and Moore, J. B. (1979). *Optimal Filtering*.
     """
+    # Alternate state prediction and measurement update using the innovation covariance and Kalman gain.
 
     observations_tensor, single = _as_2d(observations)
     transition = (
@@ -229,6 +230,7 @@ def kalman_filter(
         )
 
         # Cholesky solves avoid explicitly inverting the innovation covariance.
+        # Factor the positive-definite covariance so whitening and solves use stable triangular algebra.
         cholesky = torch.linalg.cholesky(innovation_covariance)
         gain = torch.cholesky_solve(
             (
@@ -329,6 +331,7 @@ def kalman_smoother(observations, system):
     ----------
     - Rauch, Tung, and Striebel (1965).
     """
+    # Run the Rauch-Tung-Striebel backward recursion to condition filtered states on all observations.
 
     filtered = kalman_filter(observations, system)
     single = filtered.filtered_mean.ndim == 2
@@ -365,6 +368,7 @@ def kalman_smoother(observations, system):
     for time_index in range(filtered_mean.shape[1] - 2, -1, -1):
         # Solve P_pred * X = A * P_filt and transpose to obtain the RTS gain,
         # avoiding an explicit inverse of the predicted covariance.
+        # Solve the linear system directly instead of multiplying by an explicit inverse.
         smoother_gain = torch.linalg.solve(
             predicted_covariance[:, time_index + 1],
             transition @ filtered_covariance[:, time_index],
@@ -481,6 +485,7 @@ class N4SID(BaseEstimator):
             @ torch.linalg.pinv(gram)
             @ past_fit
         )
+        # Extract orthogonal latent modes; singular values quantify the variance or canonical dependence retained by each mode.
         left, singular_values, _ = torch.linalg.svd(projection, full_matrices=False)
         if self.n_states > singular_values.shape[-1]:
             raise ValueError("n_states exceeds identifiable subspace rank")
@@ -490,10 +495,12 @@ class N4SID(BaseEstimator):
 
         if self.mode == "pooled":
             common_observability = observability.expand(batch, -1, -1)
+            # Solve the linear least-squares problem without forming an explicit normal-equation inverse.
             state_columns = torch.linalg.lstsq(
                 common_observability, future
             ).solution
         else:
+            # Solve the linear least-squares problem without forming an explicit normal-equation inverse.
             state_columns = torch.linalg.lstsq(observability, future).solution
         states = state_columns.transpose(-1, -2)
         transition, observation, process_covariance, observation_covariance = (
@@ -613,6 +620,7 @@ class LarimoreStateSpace(BaseEstimator):
             raise ValueError("n_states exceeds identifiable subspace rank")
 
         if self.mode == "pooled":
+            # Apply the covariance or whitening solve through its triangular Cholesky factor.
             whitened_past = torch.linalg.solve_triangular(
                 cholesky_past.transpose(-1, -2), past_fit, upper=True
             )
@@ -622,6 +630,7 @@ class LarimoreStateSpace(BaseEstimator):
             ) @ whitened_past
             states = flat_states.squeeze(0).T.reshape(batch, n_columns, self.n_states)
         else:
+            # Apply the covariance or whitening solve through its triangular Cholesky factor.
             whitened_past = torch.linalg.solve_triangular(
                 cholesky_past.transpose(-1, -2), past, upper=True
             )
@@ -841,14 +850,18 @@ def _fit_general_state_space_from_states(values, states, *, observation_start, m
         x0 = previous.reshape(-1, previous.shape[-1])
         x1 = following.reshape(-1, following.shape[-1])
         y0 = observations.reshape(-1, observations.shape[-1])
+        # Solve the linear least-squares problem without forming an explicit normal-equation inverse.
         transition = torch.linalg.lstsq(x0, x1).solution.T
+        # Solve the linear least-squares problem without forming an explicit normal-equation inverse.
         observation = torch.linalg.lstsq(x0, y0).solution.T
         process_residual = x1 - x0 @ transition.T
         observation_residual = y0 - x0 @ observation.T
         process_covariance = _covariance_floor(_batch_covariance(process_residual.unsqueeze(0))[0], min_covar)
         observation_covariance = _covariance_floor(_batch_covariance(observation_residual.unsqueeze(0))[0], min_covar)
     else:
+        # Solve the linear least-squares problem without forming an explicit normal-equation inverse.
         transition = torch.linalg.lstsq(previous, following).solution.transpose(-1, -2)
+        # Solve the linear least-squares problem without forming an explicit normal-equation inverse.
         observation = torch.linalg.lstsq(previous, observations).solution.transpose(-1, -2)
         process_residual = following - previous @ transition.transpose(-1, -2)
         observation_residual = observations - previous @ observation.transpose(-1, -2)
@@ -859,18 +872,24 @@ def _fit_general_state_space_from_states(values, states, *, observation_start, m
 
 def _larimore_decomposition(past, future, *, ridge):
     """Return Larimore canonical correlations, right vectors and past factor."""
+    # Whiten past and future block covariances and SVD their cross-covariance to obtain canonical correlations.
     n_effective = past.shape[-1]
     covariance_past = past @ past.transpose(-1, -2) / n_effective
     covariance_future = future @ future.transpose(-1, -2) / n_effective
     cross_covariance = past @ future.transpose(-1, -2) / n_effective
     ip = torch.eye(covariance_past.shape[-1], dtype=past.dtype, device=past.device)
     iff = torch.eye(covariance_future.shape[-1], dtype=future.dtype, device=future.device)
+    # Factor the positive-definite covariance so whitening and solves use stable triangular algebra.
     lp = torch.linalg.cholesky(covariance_past + ridge * ip)
+    # Factor the positive-definite covariance so whitening and solves use stable triangular algebra.
     lf = torch.linalg.cholesky(covariance_future + ridge * iff)
+    # Apply the covariance or whitening solve through its triangular Cholesky factor.
     left = torch.linalg.solve_triangular(lf, cross_covariance.transpose(-1, -2), upper=False)
+    # Apply the covariance or whitening solve through its triangular Cholesky factor.
     whitened = torch.linalg.solve_triangular(
         lp, left.transpose(-1, -2), upper=False
     ).transpose(-1, -2)
+    # Extract orthogonal latent modes; singular values quantify the variance or canonical dependence retained by each mode.
     _, correlations, right = torch.linalg.svd(whitened, full_matrices=False)
     return correlations, right, lp
 
@@ -885,19 +904,25 @@ def _fit_innovations_state_space_from_states(values, states, *, observation_star
         x0 = previous.reshape(-1, previous.shape[-1])
         x1 = following.reshape(-1, following.shape[-1])
         y0 = observations.reshape(-1, observations.shape[-1])
+        # Solve the linear least-squares problem without forming an explicit normal-equation inverse.
         transition = torch.linalg.lstsq(x0, x1).solution.T
+        # Solve the linear least-squares problem without forming an explicit normal-equation inverse.
         observation = torch.linalg.lstsq(x0, y0).solution.T
         innovations_flat = y0 - x0 @ observation.T
         state_residual = x1 - x0 @ transition.T
+        # Solve the linear least-squares problem without forming an explicit normal-equation inverse.
         gain = torch.linalg.lstsq(innovations_flat, state_residual).solution.T
         denominator = max(1, innovations_flat.shape[0] - denominator_adjustment)
         innovation_covariance = symmetrise(innovations_flat.T @ innovations_flat / denominator)
         innovations = innovations_flat.reshape(values.shape[0], -1, values.shape[-1])
     else:
+        # Solve the linear least-squares problem without forming an explicit normal-equation inverse.
         transition = torch.linalg.lstsq(previous, following).solution.transpose(-1, -2)
+        # Solve the linear least-squares problem without forming an explicit normal-equation inverse.
         observation = torch.linalg.lstsq(previous, observations).solution.transpose(-1, -2)
         innovations = observations - previous @ observation.transpose(-1, -2)
         state_residual = following - previous @ transition.transpose(-1, -2)
+        # Solve the linear least-squares problem without forming an explicit normal-equation inverse.
         gain = torch.linalg.lstsq(innovations, state_residual).solution.transpose(-1, -2)
         denominator = max(1, innovations.shape[1] - denominator_adjustment)
         innovation_covariance = symmetrise(

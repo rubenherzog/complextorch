@@ -165,6 +165,7 @@ def spectral_radius(matrix: torch.Tensor) -> torch.Tensor:
     requirements before executing the numerical core.
     """
     # Companion eigenvalues determine stationarity through their spectral radius.
+    # Obtain dynamical modes whose moduli determine stability and characteristic decay.
     return torch.linalg.eigvals(matrix).abs().amax(-1)
 
 def solve_discrete_lyapunov(transition: torch.Tensor, noise_cov: torch.Tensor, *, method: str="doubling", rtol: float=1e-10, atol: float=1e-12, max_iter: int=100, check_stability: bool=True):
@@ -205,6 +206,7 @@ def solve_discrete_lyapunov(transition: torch.Tensor, noise_cov: torch.Tensor, *
     if method=="direct":
         batch,n,_=a.shape; eye=torch.eye(n*n,dtype=a.dtype,device=a.device).expand(batch,n*n,n*n)
         kron=torch.einsum("bij,bkl->bikjl",a,a).reshape(batch,n*n,n*n)
+        # Solve the linear system directly instead of multiplying by an explicit inverse.
         s=symmetrise(torch.linalg.solve(eye-kron,q.reshape(batch,n*n,1)).reshape(batch,n,n)); iterations=1
     elif method=="doubling":
         s=q.clone(); ap=a.clone(); converged=False

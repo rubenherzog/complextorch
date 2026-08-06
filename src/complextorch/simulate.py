@@ -145,6 +145,7 @@ def simulate_var(
     ----------
     Lütkepohl (2005); ComplexBox repository.
     """
+    # Generate samples from x_t = sum_k A_k x_(t-k) + epsilon_t.
     coef = _normalise_coefficients(coefficients)
     batch, order, n, _ = coef.shape
     q = _normalise_covariance(innovation_covariance, batch, n).to(coef)
@@ -161,6 +162,7 @@ def simulate_var(
     generator = torch.Generator(device=coef.device)
     generator.manual_seed(seed)
     # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
+    # Factor the positive-definite covariance so whitening and solves use stable triangular algebra.
     chol = torch.linalg.cholesky(q)
     total = n_times + burnin_value
     innovations = torch.randn(
@@ -300,6 +302,7 @@ def random_stable_var(batch:int,n_variables:int,order:int,*,spectral_radius_targ
     ----------
     Lütkepohl (2005); ComplexBox repository.
     """
+    # Rescale the coefficient companion matrix so its spectral radius is below one and the VAR is stationary.
     if not 0<spectral_radius_target<1: raise ValueError('spectral_radius_target must lie in (0,1)')
     gen=torch.Generator(device=torch.device(device)); gen.manual_seed(seed)
     raw=torch.randn((batch,order,n_variables,n_variables),generator=gen,dtype=dtype,device=device)/math.sqrt(n_variables*order)

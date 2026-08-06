@@ -198,6 +198,7 @@ class VAROrderSearchCV(_TemporalOrderSearchCV):
 
     def _evaluate_candidate(self, workspace, order, fold):
         """Fit and score one candidate and record its training IC values."""
+        # Fit each candidate on every training window and aggregate held-out predictive loss across folds.
 
         estimator = self._fit_var(workspace["training"], order)
         prediction = self._predict_block(

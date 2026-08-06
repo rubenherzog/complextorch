@@ -61,6 +61,7 @@ def discrete_entropy(x, *, base: float = 2.0) -> float:
     The implementation validates dimensional and positive-definiteness
     requirements before executing the numerical core.
     """
+    # Estimate Shannon entropy from empirical symbol probabilities, omitting zero-probability terms.
     codes = _codes(x)
     counts = Counter(codes)
     n = len(codes)
@@ -132,6 +133,7 @@ def lempel_ziv_complexity(sequence, *, normalize: bool = False) -> float:
     ----------
     - Lempel and Ziv (1976).
     """
+    # Count new phrases in the LZ76 parsing as a finite-sample proxy for algorithmic complexity.
     symbols = list(np.asarray(torch.as_tensor(sequence).detach().cpu()).ravel())
     n = len(symbols)
     if n == 0:

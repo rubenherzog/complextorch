@@ -115,6 +115,7 @@ class _TemporalOrderSearchCV(BaseEstimator):
 
     def _evaluate_candidate(self, workspace, order: int, fold: TemporalFold) -> float:
         """Fit and score one candidate; implemented by subclasses."""
+        # Fit each candidate on every training window and aggregate held-out predictive loss across folds.
 
         raise NotImplementedError
 
