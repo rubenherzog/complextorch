@@ -22,7 +22,7 @@ import numpy as np
 import torch
 from scipy.linalg import solve_discrete_are
 from .linalg import spd_logdet, spd_solve, symmetrise
-from .representations import LinearDynamicalSystem, VARSystem
+from .representations import StateSpaceModel, VARSystem
 
 
 def _batched(t: torch.Tensor, ndim: int) -> tuple[torch.Tensor, bool]:
@@ -122,7 +122,7 @@ class InnovationsForm:
     prediction_covariance: torch.Tensor
 
 
-def innovations_form(system: LinearDynamicalSystem) -> InnovationsForm:
+def innovations_form(system: StateSpaceModel) -> InnovationsForm:
     """Convert a linear Gaussian model to steady-state innovations form.
     
     References
@@ -212,26 +212,26 @@ def innovations_transfer_function(system: InnovationsStateSpace, frequencies: to
     return transfer[0] if single else transfer
 
 
-def reduce_state_space(system: LinearDynamicalSystem, indices) -> LinearDynamicalSystem:
+def reduce_state_space(system: StateSpaceModel, indices) -> StateSpaceModel:
     """Marginalise observations while preserving latent dynamics."""
     index = torch.as_tensor(indices, dtype=torch.long, device=system.observation.device)
     observation = system.observation.index_select(-2, index)
     noise = system.observation_covariance.index_select(-2, index).index_select(-1, index)
     names = None if system.channel_names is None else tuple(system.channel_names[i] for i in index.tolist())
-    return LinearDynamicalSystem(system.transition, observation, system.process_covariance, noise, system.state_covariance, system.sampling_frequency, names)
+    return StateSpaceModel(system.transition, observation, system.process_covariance, noise, system.state_covariance, system.sampling_frequency, names)
 
 
-def project_state_space(system: LinearDynamicalSystem, projection: torch.Tensor) -> LinearDynamicalSystem:
+def project_state_space(system: StateSpaceModel, projection: torch.Tensor) -> StateSpaceModel:
     """Apply a linear observation projection while sharing latent dynamics."""
     matrix = torch.as_tensor(projection, dtype=system.observation.dtype, device=system.observation.device)
     if matrix.ndim == 2 and system.observation.ndim == 3:
         matrix = matrix.unsqueeze(0)
     observation = matrix @ system.observation
     noise = symmetrise(matrix @ system.observation_covariance @ matrix.transpose(-1, -2))
-    return LinearDynamicalSystem(system.transition, observation, system.process_covariance, noise, system.state_covariance, system.sampling_frequency, None)
+    return StateSpaceModel(system.transition, observation, system.process_covariance, noise, system.state_covariance, system.sampling_frequency, None)
 
 
-def dynamical_dependence(system: LinearDynamicalSystem, *, base: float = 2.0):
+def dynamical_dependence(system: StateSpaceModel, *, base: float = 2.0):
     """Dynamical dependence.
     
     Parameters
@@ -260,7 +260,7 @@ def dynamical_dependence(system: LinearDynamicalSystem, *, base: float = 2.0):
     return 0.5 * (spd_logdet(stationary) - spd_logdet(innovations)) / np.log(base)
 
 
-def stochastic_interaction(system: LinearDynamicalSystem, groups, *, base: float = 2.0):
+def stochastic_interaction(system: StateSpaceModel, groups, *, base: float = 2.0):
     """SSDI/stochastic interaction using the common reduced-model path."""
     parts = torch.stack([dynamical_dependence(reduce_state_space(system, group), base=base) for group in groups], -1)
     return parts.sum(-1) - dynamical_dependence(system, base=base)
@@ -279,7 +279,7 @@ class ProjectionSearchResult:
     history: torch.Tensor
 
 
-def optimise_dynamical_dependence_projection(system: LinearDynamicalSystem, output_dimension: int, *, n_candidates: int = 256, seed: int = 0, minimise: bool = True) -> ProjectionSearchResult:
+def optimise_dynamical_dependence_projection(system: StateSpaceModel, output_dimension: int, *, n_candidates: int = 256, seed: int = 0, minimise: bool = True) -> ProjectionSearchResult:
     """Reproducible Stiefel search reusing projection, DARE and DD primitives."""
     n_observations = system.observation.shape[-2]
     if not 1 <= output_dimension <= n_observations:

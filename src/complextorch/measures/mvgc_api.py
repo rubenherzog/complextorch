@@ -13,13 +13,13 @@ import warnings
 import torch
 
 from ..control import InnovationsStateSpace
-from ..representations import LinearDynamicalSystem, VARSystem
+from ..representations import StateSpaceModel, VARSystem
 from .primary import spectral_mvgc as model_spectral_mvgc
 from .primary import temporal_mvgc as model_temporal_mvgc
 from .secondary import estimate_spectral_mvgc_from_observations
 from .secondary import estimate_temporal_mvgc_from_observations
 
-_MODEL_TYPES = (VARSystem, LinearDynamicalSystem, InnovationsStateSpace)
+_MODEL_TYPES = (VARSystem, StateSpaceModel, InnovationsStateSpace)
 
 
 def temporal_mvgc(model_or_observations, *args, **kwargs):

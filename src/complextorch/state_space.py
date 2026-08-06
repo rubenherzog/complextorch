@@ -28,7 +28,9 @@ import torch
 from sklearn.base import BaseEstimator
 
 from .linalg import symmetrise
-from .representations import LinearDynamicalSystem
+from .representations import StateSpaceModel
+from .control import InnovationsStateSpace
+from ._state_space_order import _block_hankel, _resolve_dtype
 
 
 @dataclass(frozen=True)
@@ -406,15 +408,17 @@ def kalman_smoother(observations, system):
 
 
 class N4SID(BaseEstimator):
-    """Estimate a linear state-space model by compact N4SID.
+    r"""Estimate linear Gaussian state-space systems by compact N4SID.
 
-    The algorithm forms block-Hankel past and future matrices, projects the
-    future onto the past row space, and truncates the resulting SVD to the
-    requested latent dimension.
+    The estimator accepts one trajectory ``(time, variables)`` or batch-first
+    observations ``(batch, time, variables)``. In ``mode="pooled"`` all
+    trajectories identify one common system, while preserving trial boundaries
+    when estimating state transitions. In ``mode="independent"`` one system is
+    estimated per trajectory using batched Torch linear algebra.
 
     References
     ----------
-    - Van Overschee and De Moor (1994).
+    - Van Overschee, P. and De Moor, B. (1994). N4SID.
     """
 
     def __init__(
@@ -422,122 +426,253 @@ class N4SID(BaseEstimator):
         n_states: int,
         block_rows: int = 10,
         ridge: float = 1e-8,
+        *,
+        mode: str = "pooled",
+        device: str | torch.device = "auto",
+        dtype: str | torch.dtype = "float64",
     ):
-        """Initialize the N4SID estimator.
-
-        Parameters
-        ----------
-        n_states
-            Latent state dimension retained from the singular-value
-            decomposition.
-        block_rows
-            Number of block rows in past and future Hankel matrices.
-        ridge
-            Diagonal regularization applied to the past Gram matrix.
-        """
-
+        """Initialize N4SID settings."""
         self.n_states = n_states
         self.block_rows = block_rows
         self.ridge = ridge
+        self.mode = mode
+        self.device = device
+        self.dtype = dtype
 
-    def fit(self, observations):
-        """Fit transition, observation and noise covariances.
+    def fit(self, observations, y=None):
+        """Fit one pooled system or one system per trajectory.
 
         Parameters
         ----------
         observations
-            Single trajectory with shape ``(time, variables)``.
-
-        Returns
-        -------
-        N4SID
-            Fitted estimator with ``system_``, ``singular_values_`` and
-            ``states_`` attributes.
+            Array with shape ``(time, variables)`` or
+            ``(batch, time, variables)``.
+        y
+            Unused scikit-learn compatibility target.
         """
-
-        values = torch.as_tensor(observations, dtype=torch.float64)
-        if values.ndim != 2:
-            raise ValueError("N4SID currently expects (time,variables)")
-        n_times, n_variables = values.shape
-        block_rows = self.block_rows
-        if n_times <= 2 * block_rows + 2:
+        del y
+        values, single = _normalise_ss_observations(
+            observations, device=self.device, dtype=self.dtype
+        )
+        if self.n_states < 1 or self.block_rows < 1 or self.ridge < 0:
+            raise ValueError("invalid N4SID settings")
+        if self.mode not in {"pooled", "independent"}:
+            raise ValueError("mode must be 'pooled' or 'independent'")
+        batch, n_times, n_variables = values.shape
+        if n_times <= 2 * self.block_rows + 2:
             raise ValueError("not enough samples for requested block_rows")
+        values = values - values.mean(dim=1, keepdim=True)
+        past, future = _block_hankel(values, self.block_rows, self.block_rows)
+        n_columns = past.shape[-1]
 
-        n_columns = n_times - 2 * block_rows + 1
-        hankel = torch.stack(
-            [values[offset : offset + n_columns].T for offset in range(2 * block_rows)],
-            dim=0,
-        )
-        past = hankel[:block_rows].reshape(
-            block_rows * n_variables, n_columns
-        )
-        future = hankel[block_rows:].reshape(
-            block_rows * n_variables, n_columns
-        )
+        if self.mode == "pooled":
+            past_fit = past.permute(1, 0, 2).reshape(past.shape[1], -1).unsqueeze(0)
+            future_fit = future.permute(1, 0, 2).reshape(future.shape[1], -1).unsqueeze(0)
+        else:
+            past_fit, future_fit = past, future
 
-        # Project future blocks onto the regularized row space of past blocks.
-        regularized_gram = past @ past.T + self.ridge * torch.eye(
-            block_rows * n_variables, dtype=values.dtype
+        identity = torch.eye(
+            past_fit.shape[-2], dtype=values.dtype, device=values.device
         )
-        projection = future @ past.T @ torch.linalg.pinv(
-            regularized_gram
-        ) @ past
-        left, singular_values, _ = torch.linalg.svd(
-            projection, full_matrices=False
+        gram = past_fit @ past_fit.transpose(-1, -2) + self.ridge * identity
+        projection = (
+            future_fit
+            @ past_fit.transpose(-1, -2)
+            @ torch.linalg.pinv(gram)
+            @ past_fit
         )
-        observability = left[:, : self.n_states] @ torch.diag(
-            torch.sqrt(singular_values[: self.n_states])
-        )
-        states = torch.linalg.lstsq(observability, future).solution.T
+        left, singular_values, _ = torch.linalg.svd(projection, full_matrices=False)
+        if self.n_states > singular_values.shape[-1]:
+            raise ValueError("n_states exceeds identifiable subspace rank")
+        observability = left[..., : self.n_states] * torch.sqrt(
+            singular_values[..., : self.n_states]
+        ).unsqueeze(-2)
 
-        previous_states = states[:-1]
-        next_states = states[1:]
-        aligned_observations = values[
-            block_rows : block_rows + states.shape[0] - 1
-        ]
-        transition = torch.linalg.lstsq(
-            previous_states, next_states
-        ).solution.T
-        observation = torch.linalg.lstsq(
-            previous_states, aligned_observations
-        ).solution.T
-        process_residual = next_states - previous_states @ transition.T
-        observation_residual = (
-            aligned_observations - previous_states @ observation.T
+        if self.mode == "pooled":
+            common_observability = observability.expand(batch, -1, -1)
+            state_columns = torch.linalg.lstsq(
+                common_observability, future
+            ).solution
+        else:
+            state_columns = torch.linalg.lstsq(observability, future).solution
+        states = state_columns.transpose(-1, -2)
+        transition, observation, process_covariance, observation_covariance = (
+            _fit_general_state_space_from_states(
+                values,
+                states,
+                observation_start=self.block_rows,
+                mode=self.mode,
+                min_covar=max(self.ridge, 1e-12),
+            )
         )
-        process_covariance = symmetrise(
-            process_residual.T
-            @ process_residual
-            / max(1, process_residual.shape[0] - 1)
+        state_covariance = (
+            _pooled_covariance(states) if self.mode == "pooled" else _batch_covariance(states)
         )
-        observation_covariance = symmetrise(
-            observation_residual.T
-            @ observation_residual
-            / max(1, observation_residual.shape[0] - 1)
-        )
-
-        self.system_ = LinearDynamicalSystem(
+        if single and self.mode == "independent":
+            transition = transition[0]
+            observation = observation[0]
+            process_covariance = process_covariance[0]
+            observation_covariance = observation_covariance[0]
+            state_covariance = state_covariance[0]
+        self.system_ = StateSpaceModel(
             transition,
             observation,
             process_covariance,
             observation_covariance,
-            state_covariance=torch.eye(self.n_states, dtype=values.dtype),
+            state_covariance=state_covariance,
         )
-        self.singular_values_ = singular_values
-        self.states_ = states
+        self.transition_ = transition
+        self.observation_ = observation
+        self.process_covariance_ = process_covariance
+        self.observation_covariance_ = observation_covariance
+        self.singular_values_ = singular_values.squeeze(0) if self.mode == "pooled" else singular_values
+        self.states_ = states[0] if single else states
+        self.n_states_ = self.n_states
+        return self
+
+
+class LarimoreStateSpace(BaseEstimator):
+    r"""Estimate an innovations-form state-space model by Larimore CVA.
+
+    The fitted model is
+
+    .. math::
+
+       z_{t+1}=Az_t+K\varepsilon_t,\qquad
+       y_t=Cz_t+\varepsilon_t,\quad
+       \varepsilon_t\sim\mathcal N(0,V).
+
+    Batch semantics match :class:`N4SID`: pooled mode estimates one common
+    system without connecting trial boundaries, while independent mode returns
+    a batched collection of systems.
+
+    References
+    ----------
+    - Larimore, W. E. (1990, 1996).
+    - Bauer, D. (2001), for the associated order-selection criterion.
+    - ComplexBox ``mvgc.ss.tsdata_to_ss``.
+    """
+
+    def __init__(
+        self,
+        n_states: int,
+        past_horizon: int,
+        *,
+        future_horizon: int | None = None,
+        ridge: float = 1e-12,
+        covariance: str = "unbiased",
+        mode: str = "pooled",
+        device: str | torch.device = "auto",
+        dtype: str | torch.dtype = "float64",
+    ):
+        """Initialize Larimore state-space identification settings."""
+        self.n_states = n_states
+        self.past_horizon = past_horizon
+        self.future_horizon = future_horizon
+        self.ridge = ridge
+        self.covariance = covariance
+        self.mode = mode
+        self.device = device
+        self.dtype = dtype
+
+    def fit(self, observations, y=None):
+        """Estimate ``A``, ``C``, ``K`` and ``V`` from observations."""
+        del y
+        values, single = _normalise_ss_observations(
+            observations, device=self.device, dtype=self.dtype
+        )
+        future_horizon = (
+            self.past_horizon
+            if self.future_horizon is None
+            else int(self.future_horizon)
+        )
+        if self.n_states < 1 or self.past_horizon < 1 or future_horizon < 1:
+            raise ValueError("state dimension and horizons must be positive")
+        if self.ridge < 0:
+            raise ValueError("ridge must be non-negative")
+        if self.mode not in {"pooled", "independent"}:
+            raise ValueError("mode must be 'pooled' or 'independent'")
+        if self.covariance not in {"mle", "unbiased"}:
+            raise ValueError("covariance must be 'mle' or 'unbiased'")
+        if self.past_horizon + future_horizon > values.shape[1]:
+            raise ValueError("past/future horizons are too large for the series")
+
+        values = values - values.mean(dim=1, keepdim=True)
+        past, future = _block_hankel(values, self.past_horizon, future_horizon)
+        batch, _, n_columns = past.shape
+        if self.mode == "pooled":
+            past_fit = past.permute(1, 0, 2).reshape(past.shape[1], -1).unsqueeze(0)
+            future_fit = future.permute(1, 0, 2).reshape(future.shape[1], -1).unsqueeze(0)
+        else:
+            past_fit, future_fit = past, future
+
+        correlations, right_vectors, cholesky_past = _larimore_decomposition(
+            past_fit, future_fit, ridge=self.ridge
+        )
+        if self.n_states > correlations.shape[-1]:
+            raise ValueError("n_states exceeds identifiable subspace rank")
+
+        if self.mode == "pooled":
+            whitened_past = torch.linalg.solve_triangular(
+                cholesky_past.transpose(-1, -2), past_fit, upper=True
+            )
+            flat_states = (
+                correlations[..., : self.n_states].unsqueeze(-1)
+                * right_vectors[..., : self.n_states, :]
+            ) @ whitened_past
+            states = flat_states.squeeze(0).T.reshape(batch, n_columns, self.n_states)
+        else:
+            whitened_past = torch.linalg.solve_triangular(
+                cholesky_past.transpose(-1, -2), past, upper=True
+            )
+            state_columns = (
+                correlations[..., : self.n_states].unsqueeze(-1)
+                * right_vectors[..., : self.n_states, :]
+            ) @ whitened_past
+            states = state_columns.transpose(-1, -2)
+
+        transition, observation, gain, innovation_covariance, innovations = (
+            _fit_innovations_state_space_from_states(
+                values,
+                states,
+                observation_start=self.past_horizon,
+                mode=self.mode,
+                covariance=self.covariance,
+                min_covar=max(self.ridge, 1e-12),
+            )
+        )
+        if single and self.mode == "independent":
+            transition = transition[0]
+            observation = observation[0]
+            gain = gain[0]
+            innovation_covariance = innovation_covariance[0]
+        self.system_ = InnovationsStateSpace(
+            transition, observation, gain, innovation_covariance
+        )
+        self.transition_ = transition
+        self.observation_ = observation
+        self.kalman_gain_ = gain
+        self.innovation_covariance_ = innovation_covariance
+        self.canonical_correlations_ = (
+            correlations.squeeze(0) if self.mode == "pooled" else correlations
+        )
+        self.states_ = states[0] if single else states
+        self.innovations_ = innovations[0] if single else innovations
+        self.n_states_ = self.n_states
         return self
 
 
 class LinearGaussianEM(BaseEstimator):
-    """Refine a linear Gaussian state-space model by EM.
+    r"""Refine linear Gaussian state-space systems by batched EM.
 
-    The E-step uses RTS-smoothed first and second moments. The M-step updates
-    ``A``, ``C``, ``Q`` and ``R`` by their closed-form Gaussian maximum-
-    likelihood expressions.
+    ``mode="pooled"`` estimates one system from independent trajectories by
+    summing sufficient statistics over batch and time. ``mode="independent"``
+    estimates one system per trajectory. Trial boundaries are never used as
+    state transitions.
 
     References
     ----------
-    - Shumway and Stoffer (1982).
+    - Shumway, R. H. and Stoffer, D. S. (1982).
     """
 
     def __init__(
@@ -545,112 +680,249 @@ class LinearGaussianEM(BaseEstimator):
         system,
         n_iter: int = 20,
         min_covar: float = 1e-7,
+        *,
+        mode: str = "pooled",
     ):
-        """Initialize EM refinement.
-
-        Parameters
-        ----------
-        system
-            Initial linear Gaussian state-space model.
-        n_iter
-            Number of EM iterations.
-        min_covar
-            Diagonal floor added to process and observation covariances.
-        """
-
+        """Initialize EM refinement."""
         self.system = system
         self.n_iter = n_iter
         self.min_covar = min_covar
+        self.mode = mode
 
-    def fit(self, observations):
-        """Run EM on one observed trajectory.
-
-        Parameters
-        ----------
-        observations
-            Observations with shape ``(time, variables)``.
-
-        Returns
-        -------
-        LinearGaussianEM
-            Fitted estimator with ``system_`` and
-            ``log_likelihood_history_`` attributes.
-        """
-
-        values = torch.as_tensor(
+    def fit(self, observations, y=None):
+        """Run EM on one trajectory or a batch of independent trajectories."""
+        del y
+        if self.n_iter < 1 or self.min_covar < 0:
+            raise ValueError("invalid EM settings")
+        if self.mode not in {"pooled", "independent"}:
+            raise ValueError("mode must be 'pooled' or 'independent'")
+        values, single = _normalise_ss_observations(
             observations,
-            dtype=self.system.transition.dtype,
             device=self.system.transition.device,
+            dtype=self.system.transition.dtype,
         )
         system = self.system
-        history = []
+        total_history = []
+        trajectory_history = []
 
         for _ in range(self.n_iter):
             smoothed = kalman_smoother(values, system)
             mean = smoothed.smoothed_mean
             covariance = smoothed.smoothed_covariance
             lag_covariance = smoothed.lag_covariance
-            second_moment = covariance + mean.unsqueeze(-1) * mean.unsqueeze(-2)
-
-            previous_second = second_moment[:-1].sum(0)
-            next_second = second_moment[1:].sum(0)
-            cross_moment = (
-                lag_covariance[1:]
-                + mean[1:].unsqueeze(-1) * mean[:-1].unsqueeze(-2)
-            ).sum(0)
-
-            # Closed-form M-step regressions from expected sufficient statistics.
-            transition = cross_moment @ torch.linalg.pinv(previous_second)
-            observation = (
-                values.T @ mean
-            ) @ torch.linalg.pinv(second_moment.sum(0))
-            process_covariance = symmetrise(
-                (
-                    next_second
-                    - transition @ cross_moment.T
-                    - cross_moment @ transition.T
-                    + transition @ previous_second @ transition.T
-                )
-                / (mean.shape[0] - 1)
+            if mean.ndim == 2:
+                mean = mean.unsqueeze(0)
+                covariance = covariance.unsqueeze(0)
+                lag_covariance = lag_covariance.unsqueeze(0)
+            second = covariance + mean.unsqueeze(-1) * mean.unsqueeze(-2)
+            cross = lag_covariance[:, 1:] + (
+                mean[:, 1:].unsqueeze(-1) * mean[:, :-1].unsqueeze(-2)
             )
-            residual = values - mean @ observation.T
-            observation_covariance = symmetrise(
-                (
-                    residual.T @ residual
-                    + torch.einsum(
-                        "ij,tjk,lk->il",
-                        observation,
-                        covariance,
-                        observation,
+
+            if self.mode == "pooled":
+                previous_second = second[:, :-1].sum(dim=(0, 1))
+                next_second = second[:, 1:].sum(dim=(0, 1))
+                cross_moment = cross.sum(dim=(0, 1))
+                transition = cross_moment @ torch.linalg.pinv(previous_second)
+                yz = torch.einsum("btm,btd->md", values, mean)
+                observation = yz @ torch.linalg.pinv(second.sum(dim=(0, 1)))
+                process_covariance = _em_process_covariance(
+                    previous_second,
+                    next_second,
+                    cross_moment,
+                    transition,
+                    values.shape[0] * (values.shape[1] - 1),
+                )
+                residual = values - torch.einsum("md,btd->btm", observation, mean)
+                observation_covariance = symmetrise(
+                    (
+                        torch.einsum("btm,btn->mn", residual, residual)
+                        + torch.einsum(
+                            "md,btdk,nk->mn", observation, covariance, observation
+                        )
                     )
+                    / (values.shape[0] * values.shape[1])
                 )
-                / mean.shape[0]
-            )
+                state_covariance = second.mean(dim=(0, 1))
+            else:
+                previous_second = second[:, :-1].sum(dim=1)
+                next_second = second[:, 1:].sum(dim=1)
+                cross_moment = cross.sum(dim=1)
+                transition = cross_moment @ torch.linalg.pinv(previous_second)
+                yz = torch.einsum("btm,btd->bmd", values, mean)
+                observation = yz @ torch.linalg.pinv(second.sum(dim=1))
+                process_covariance = _em_process_covariance(
+                    previous_second,
+                    next_second,
+                    cross_moment,
+                    transition,
+                    values.shape[1] - 1,
+                )
+                residual = values - torch.einsum("bmd,btd->btm", observation, mean)
+                observation_covariance = symmetrise(
+                    (
+                        torch.einsum("btm,btn->bmn", residual, residual)
+                        + torch.einsum(
+                            "bmd,btdk,bnk->bmn", observation, covariance, observation
+                        )
+                    )
+                    / values.shape[1]
+                )
+                state_covariance = second.mean(dim=1)
 
-            # A covariance floor prevents singular M-step estimates.
-            process_covariance = process_covariance + self.min_covar * torch.eye(
-                process_covariance.shape[-1],
-                dtype=process_covariance.dtype,
-                device=process_covariance.device,
+            process_covariance = _covariance_floor(process_covariance, self.min_covar)
+            observation_covariance = _covariance_floor(
+                observation_covariance, self.min_covar
             )
-            observation_covariance = (
-                observation_covariance
-                + self.min_covar
-                * torch.eye(
-                    observation_covariance.shape[-1],
-                    dtype=observation_covariance.dtype,
-                    device=observation_covariance.device,
-                )
-            )
-            system = LinearDynamicalSystem(
+            if single and self.mode == "independent":
+                transition = transition[0]
+                observation = observation[0]
+                process_covariance = process_covariance[0]
+                observation_covariance = observation_covariance[0]
+                state_covariance = state_covariance[0]
+            system = StateSpaceModel(
                 transition,
                 observation,
                 process_covariance,
                 observation_covariance,
-                state_covariance=second_moment.mean(0),
+                state_covariance=state_covariance,
             )
-            history.append(float(smoothed.log_likelihood))
+            likelihood = smoothed.log_likelihood
+            if likelihood.ndim == 0:
+                likelihood = likelihood.unsqueeze(0)
+            trajectory_history.append(likelihood.detach().clone())
+            total_history.append(float(likelihood.sum()))
 
         self.system_ = system
-        self.log_likelihood_history_ = history
+        self.log_likelihood_history_ = (
+            torch.stack(trajectory_history)
+            if self.mode == "independent"
+            else total_history
+        )
+        self.trajectory_log_likelihood_history_ = torch.stack(trajectory_history)
         return self
+
+
+def _normalise_ss_observations(observations, *, device, dtype):
+    """Normalize estimator input to batch-first floating-point observations."""
+    source = torch.as_tensor(observations)
+    target_device = source.device if device == "auto" else torch.device(device)
+    values = source.to(device=target_device, dtype=_resolve_dtype(dtype))
+    single = values.ndim == 2
+    if single:
+        values = values.unsqueeze(0)
+    if values.ndim != 3:
+        raise ValueError("observations must have shape (time,n) or (batch,time,n)")
+    if not torch.isfinite(values).all():
+        raise ValueError("observations must be finite")
+    return values, single
+
+
+def _batch_covariance(samples):
+    """Return one unbiased covariance matrix per batch."""
+    centered = samples - samples.mean(dim=1, keepdim=True)
+    denominator = max(1, samples.shape[1] - 1)
+    return symmetrise(centered.transpose(-1, -2) @ centered / denominator)
+
+
+def _pooled_covariance(samples):
+    """Return covariance after pooling samples without creating transitions."""
+    flat = samples.reshape(-1, samples.shape[-1])
+    centered = flat - flat.mean(dim=0, keepdim=True)
+    return symmetrise(centered.T @ centered / max(1, flat.shape[0] - 1))
+
+
+def _fit_general_state_space_from_states(values, states, *, observation_start, mode, min_covar):
+    """Estimate ``A,C,Q,R`` while respecting trajectory boundaries."""
+    previous = states[:, :-1]
+    following = states[:, 1:]
+    observations = values[:, observation_start : observation_start + previous.shape[1]]
+    if mode == "pooled":
+        x0 = previous.reshape(-1, previous.shape[-1])
+        x1 = following.reshape(-1, following.shape[-1])
+        y0 = observations.reshape(-1, observations.shape[-1])
+        transition = torch.linalg.lstsq(x0, x1).solution.T
+        observation = torch.linalg.lstsq(x0, y0).solution.T
+        process_residual = x1 - x0 @ transition.T
+        observation_residual = y0 - x0 @ observation.T
+        process_covariance = _covariance_floor(_batch_covariance(process_residual.unsqueeze(0))[0], min_covar)
+        observation_covariance = _covariance_floor(_batch_covariance(observation_residual.unsqueeze(0))[0], min_covar)
+    else:
+        transition = torch.linalg.lstsq(previous, following).solution.transpose(-1, -2)
+        observation = torch.linalg.lstsq(previous, observations).solution.transpose(-1, -2)
+        process_residual = following - previous @ transition.transpose(-1, -2)
+        observation_residual = observations - previous @ observation.transpose(-1, -2)
+        process_covariance = _covariance_floor(_batch_covariance(process_residual), min_covar)
+        observation_covariance = _covariance_floor(_batch_covariance(observation_residual), min_covar)
+    return transition, observation, process_covariance, observation_covariance
+
+
+def _larimore_decomposition(past, future, *, ridge):
+    """Return Larimore canonical correlations, right vectors and past factor."""
+    n_effective = past.shape[-1]
+    covariance_past = past @ past.transpose(-1, -2) / n_effective
+    covariance_future = future @ future.transpose(-1, -2) / n_effective
+    cross_covariance = past @ future.transpose(-1, -2) / n_effective
+    ip = torch.eye(covariance_past.shape[-1], dtype=past.dtype, device=past.device)
+    iff = torch.eye(covariance_future.shape[-1], dtype=future.dtype, device=future.device)
+    lp = torch.linalg.cholesky(covariance_past + ridge * ip)
+    lf = torch.linalg.cholesky(covariance_future + ridge * iff)
+    left = torch.linalg.solve_triangular(lf, cross_covariance.transpose(-1, -2), upper=False)
+    whitened = torch.linalg.solve_triangular(
+        lp, left.transpose(-1, -2), upper=False
+    ).transpose(-1, -2)
+    _, correlations, right = torch.linalg.svd(whitened, full_matrices=False)
+    return correlations, right, lp
+
+
+def _fit_innovations_state_space_from_states(values, states, *, observation_start, mode, covariance, min_covar):
+    """Estimate ``A,C,K,V`` while excluding between-trial transitions."""
+    previous = states[:, :-1]
+    following = states[:, 1:]
+    observations = values[:, observation_start : observation_start + previous.shape[1]]
+    denominator_adjustment = 1 if covariance == "unbiased" else 0
+    if mode == "pooled":
+        x0 = previous.reshape(-1, previous.shape[-1])
+        x1 = following.reshape(-1, following.shape[-1])
+        y0 = observations.reshape(-1, observations.shape[-1])
+        transition = torch.linalg.lstsq(x0, x1).solution.T
+        observation = torch.linalg.lstsq(x0, y0).solution.T
+        innovations_flat = y0 - x0 @ observation.T
+        state_residual = x1 - x0 @ transition.T
+        gain = torch.linalg.lstsq(innovations_flat, state_residual).solution.T
+        denominator = max(1, innovations_flat.shape[0] - denominator_adjustment)
+        innovation_covariance = symmetrise(innovations_flat.T @ innovations_flat / denominator)
+        innovations = innovations_flat.reshape(values.shape[0], -1, values.shape[-1])
+    else:
+        transition = torch.linalg.lstsq(previous, following).solution.transpose(-1, -2)
+        observation = torch.linalg.lstsq(previous, observations).solution.transpose(-1, -2)
+        innovations = observations - previous @ observation.transpose(-1, -2)
+        state_residual = following - previous @ transition.transpose(-1, -2)
+        gain = torch.linalg.lstsq(innovations, state_residual).solution.transpose(-1, -2)
+        denominator = max(1, innovations.shape[1] - denominator_adjustment)
+        innovation_covariance = symmetrise(
+            innovations.transpose(-1, -2) @ innovations / denominator
+        )
+    innovation_covariance = _covariance_floor(innovation_covariance, min_covar)
+    return transition, observation, gain, innovation_covariance, innovations
+
+
+def _em_process_covariance(previous, following, cross, transition, denominator):
+    """Evaluate the closed-form EM process-noise covariance update."""
+    return symmetrise(
+        (
+            following
+            - transition @ cross.transpose(-1, -2)
+            - cross @ transition.transpose(-1, -2)
+            + transition @ previous @ transition.transpose(-1, -2)
+        )
+        / denominator
+    )
+
+
+def _covariance_floor(covariance, floor):
+    """Symmetrise covariance and add a diagonal numerical floor."""
+    identity = torch.eye(
+        covariance.shape[-1], dtype=covariance.dtype, device=covariance.device
+    )
+    return symmetrise(covariance) + floor * identity

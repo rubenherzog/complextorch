@@ -25,7 +25,7 @@ from .linalg import LyapunovInfo, solve_discrete_lyapunov, spectral_radius
 
 
 @dataclass(frozen=True)
-class LinearDynamicalSystem:
+class StateSpaceModel:
     """Linear Gaussian state-space model.
 
     The optional ``state_covariance`` stores the stationary latent covariance
@@ -79,7 +79,7 @@ class VARSystem:
 
         return int(self.coefficients.shape[2])
 
-    def to_state_space(self) -> LinearDynamicalSystem:
+    def to_state_space(self) -> StateSpaceModel:
         """Return the exactly equivalent companion state-space model.
 
         The observation matrix selects the present VAR block from the companion
@@ -94,7 +94,7 @@ class VARSystem:
             dtype=self.companion.dtype,
             device=self.companion.device,
         )
-        return LinearDynamicalSystem(
+        return StateSpaceModel(
             self.companion,
             self.projection,
             self.companion_noise_covariance,

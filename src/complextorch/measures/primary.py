@@ -17,7 +17,7 @@ import math
 import torch
 
 from ..control import InnovationsStateSpace, dynamical_dependence, stochastic_interaction
-from ..representations import LinearDynamicalSystem, VARSystem
+from ..representations import StateSpaceModel, VARSystem
 from .backbone import (
     CovarianceModel,
     Model,
@@ -141,7 +141,7 @@ def build_measure_context(
     innovations = as_innovations(model)
     covariance = None
     autocovariance_sequence = None
-    if isinstance(model, (VARSystem, LinearDynamicalSystem)):
+    if isinstance(model, (VARSystem, StateSpaceModel)):
         autocovariance_sequence = observation_autocovariances(
             model, required_autocovariance_max_lag(model, config)
         )
@@ -540,7 +540,7 @@ def compute_all_model_measures(
         }
         result["available"].extend(["cross_spectral_density", "spectral_entropy"])
 
-    if isinstance(model, (VARSystem, LinearDynamicalSystem)):
+    if isinstance(model, (VARSystem, StateSpaceModel)):
         result["gaussian"] = gaussian_measures_from_model(
             model,
             base=config.base,
@@ -614,7 +614,7 @@ def compute_all_model_measures(
             )
         result["available"].append("mvgc")
 
-    if isinstance(model, LinearDynamicalSystem):
+    if isinstance(model, StateSpaceModel):
         result["control"] = {
             "dynamical_dependence": dynamical_dependence(model, base=config.base),
         }
@@ -627,7 +627,7 @@ def compute_all_model_measures(
         result["available"].append("control")
     else:
         result["not_available"]["control"] = (
-            "dynamical dependence requires an explicit latent LinearDynamicalSystem"
+            "dynamical dependence requires an explicit latent StateSpaceModel"
         )
 
     result["available"] = tuple(result["available"])
