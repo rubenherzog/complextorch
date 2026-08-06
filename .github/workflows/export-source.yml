@@ -1,9 +1,9 @@
 name: Export source checkout
 
 on:
-  push:
+  pull_request:
     branches:
-      - docs/internal-math-comments
+      - main
 
 jobs:
   export:
