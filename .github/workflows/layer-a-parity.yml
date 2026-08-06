@@ -1,0 +1,89 @@
+name: layer-a-parity
+
+on:
+  push:
+    branches:
+      - validation/layer-a-parity
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout original ComplexTorch repository
+        uses: actions/checkout@v4
+        with:
+          path: complextorch-repo
+          fetch-depth: 1
+
+      - name: Checkout original ComplexBox repository at pinned commit
+        uses: actions/checkout@v4
+        with:
+          repository: bmilinkovic/complexbox
+          ref: 87b5e2cd9bba22ddd978bade6f614da7d6190db2
+          path: complexbox-repo
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Record exact repository identities
+        run: |
+          mkdir -p results
+          git -C complextorch-repo rev-parse HEAD | tee results/complextorch_commit.txt
+          git -C complexbox-repo rev-parse HEAD | tee results/complexbox_commit.txt
+          test "$(cat results/complexbox_commit.txt)" = "87b5e2cd9bba22ddd978bade6f614da7d6190db2"
+
+      - name: Install original repositories
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ./complextorch-repo
+          python -m pip install -e ./complexbox-repo
+          python -m pip freeze | tee results/pip-freeze.txt
+
+      - name: Verify imports resolve to installed checkouts
+        run: |
+          python - <<'PY'
+          import pathlib
+          import complextorch
+          import complexbox
+          ct = pathlib.Path(complextorch.__file__).resolve()
+          cb = pathlib.Path(complexbox.__file__).resolve()
+          print("complextorch:", ct)
+          print("complexbox:", cb)
+          assert "complextorch-repo" in str(ct)
+          assert "complexbox-repo" in str(cb)
+          PY
+
+      - name: Run strict triplet parity
+        working-directory: complextorch-repo
+        run: |
+          python validation/layer_a/check_installed_repo_triplets.py \
+            ../results/python-${{ matrix.python-version }}
+
+      - name: Run full ComplexTorch test suite
+        working-directory: complextorch-repo
+        run: |
+          python -m pip install -e ".[dev]"
+          pytest -q
+
+      - name: Upload immutable diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: layer-a-original-repos-python-${{ matrix.python-version }}
+          path: results
+          if-no-files-found: error
