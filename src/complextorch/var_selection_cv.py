@@ -15,6 +15,8 @@ from .var import VAR
 
 @dataclass(frozen=True)
 class VAROrderScore:
+    """Held-out and information-criterion diagnostics for one VAR order."""
+
     order: int
     mean_score: float
     standard_error: float
@@ -30,12 +32,16 @@ class VAROrderScore:
 
 @dataclass(frozen=True)
 class VAROrderSearchResult:
+    """Immutable summary returned by temporal VAR order search."""
+
     best_order: int
     scores: tuple[VAROrderScore, ...]
     scoring: str
     selection_rule: str
 
     def as_records(self):
+        """Return records suitable for tabular serialization."""
+
         return [score.__dict__.copy() for score in self.scores]
 
 
@@ -67,10 +73,16 @@ class VAROrderSearchCV(_TemporalOrderSearchCV):
         refit: bool = True,
         hurvich_tsai: bool = False,
     ):
+        """Initialize temporal VAR order-search settings."""
+
         self._set_temporal_search_parameters(
-            orders=orders, cv=cv, scoring=scoring,
-            selection_rule=selection_rule, prediction_mode=prediction_mode,
-            gap_mode=gap_mode, refit=refit,
+            orders=orders,
+            cv=cv,
+            scoring=scoring,
+            selection_rule=selection_rule,
+            prediction_mode=prediction_mode,
+            gap_mode=gap_mode,
+            refit=refit,
         )
         self.alpha = alpha
         self.fit_intercept = fit_intercept
@@ -81,122 +93,194 @@ class VAROrderSearchCV(_TemporalOrderSearchCV):
         self.hurvich_tsai = hurvich_tsai
 
     def _begin_diagnostics(self, n_orders, n_folds):
+        """Allocate training-fold AIC, BIC, and HQC arrays."""
+
         self._aic = np.full((n_orders, n_folds), np.nan)
         self._bic = np.full((n_orders, n_folds), np.nan)
         self._hqc = np.full((n_orders, n_folds), np.nan)
 
     def _prepare_fold(self, data, fold, orders):
-        return {"data": data, "training": data[:, :fold.train_stop], "fold": fold}
+        """Return the raw series and training prefix for one fold."""
+
+        return {
+            "data": data,
+            "training": data[:, : fold.train_stop],
+            "fold": fold,
+            "orders": orders,
+        }
 
     def _fit_var(self, training, order):
+        """Fit one fixed-order VAR exclusively on the training prefix."""
+
         return VAR(
-            order=order, alpha=self.alpha, fit_intercept=self.fit_intercept,
-            mode=self.mode, solver=self.solver, covariance="unbiased",
-            device=self.device, dtype=self.dtype, stability="ignore",
+            order=order,
+            alpha=self.alpha,
+            fit_intercept=self.fit_intercept,
+            mode=self.mode,
+            solver=self.solver,
+            covariance="unbiased",
+            device=self.device,
+            dtype=self.dtype,
+            stability="ignore",
         ).fit(training)
 
     @staticmethod
     def _expand(matrix, batch):
+        """Broadcast a fitted parameter tensor over observation trajectories."""
+
         if matrix.shape[0] == 1 and batch > 1:
             return matrix.expand(batch, *matrix.shape[1:])
         return matrix
 
     def _predict_block(self, estimator, data, fold):
+        """Predict a validation block under configured update semantics."""
+
         batch = data.shape[0]
-        coef = self._expand(estimator.coef_, batch)
+        coefficients = self._expand(estimator.coef_, batch)
         intercept = self._expand(estimator.intercept_, batch)
-        p = estimator.order
-        history = data[:, :fold.train_stop].to(coef)
-        state = history[:, -p:].clone()
+        order = estimator.order
+        history = data[:, : fold.train_stop].to(coefficients)
+        state = history[:, -order:].clone()
         predictions = []
-        for t in range(fold.train_stop, fold.test_stop):
-            pred = intercept.clone()
-            for lag in range(p):
-                pred = pred + torch.einsum("bij,bj->bi", coef[:, lag], state[:, -(lag + 1)])
-            in_gap = t < fold.test_start
+        for time_index in range(fold.train_stop, fold.test_stop):
+            prediction = intercept.clone()
+            for lag in range(order):
+                prediction = prediction + torch.einsum(
+                    "bij,bj->bi",
+                    coefficients[:, lag],
+                    state[:, -(lag + 1)],
+                )
+            in_gap = time_index < fold.test_start
             if not in_gap:
-                predictions.append(pred)
+                predictions.append(prediction)
             use_observation = (
                 (in_gap and self.gap_mode == "warmup")
-                or ((not in_gap) and self.prediction_mode == "rolling")
+                or (
+                    (not in_gap)
+                    and self.prediction_mode == "rolling"
+                )
             )
-            next_value = data[:, t].to(pred) if use_observation else pred
-            state = torch.cat((state[:, 1:], next_value[:, None]), dim=1)
+            next_value = (
+                data[:, time_index].to(prediction)
+                if use_observation
+                else prediction
+            )
+            state = torch.cat(
+                (state[:, 1:], next_value[:, None]), dim=1
+            )
         return torch.stack(predictions, dim=1)
 
     def _score(self, errors, covariance):
+        """Return held-out RMSE or Gaussian NLL."""
+
         if self.scoring == "rmse":
             return float(torch.sqrt(errors.square().mean()))
         covariance = self._expand(covariance, errors.shape[0])
         chol, _ = stable_cholesky(covariance, jitter=1e-10)
-        solved = torch.cholesky_solve(errors.unsqueeze(-1), chol[:, None]).squeeze(-1)
+        solved = torch.cholesky_solve(
+            errors.unsqueeze(-1), chol[:, None]
+        ).squeeze(-1)
         values = 0.5 * (
             (errors * solved).sum(-1)
-            + 2.0 * torch.log(torch.diagonal(chol, dim1=-2, dim2=-1)).sum(-1)[:, None]
+            + 2.0
+            * torch.log(
+                torch.diagonal(chol, dim1=-2, dim2=-1)
+            ).sum(-1)[:, None]
             + errors.shape[-1] * np.log(2.0 * np.pi)
         )
         return float(values.mean())
 
-    def _evaluate_candidate(self, workspace, order, fold):
-        estimator = self._fit_var(workspace["training"], order)
-        prediction = self._predict_block(estimator, workspace["data"], fold)
-        target = workspace["data"][:, fold.test_start:fold.test_stop].to(prediction)
-        score = self._score(target - prediction, estimator.noise_covariance_)
-        order_index = list(self.orders_ if hasattr(self, "orders_") else sorted(set(self.orders))).index(order)
-        fold_index = list(self.folds_).index(fold) if hasattr(self, "folds_") else None
-        if fold_index is not None:
-            self._store_ic(estimator, workspace["training"], order, order_index, fold_index)
-        return score
-
     def _fold_diagnostics(self, workspace, orders, fold_index):
+        """Store fold and candidate indices needed by IC diagnostics."""
+
         workspace["fold_index"] = fold_index
         workspace["orders"] = orders
 
     def _evaluate_candidate(self, workspace, order, fold):
-        estimator = self._fit_var(workspace["training"], order)
-        prediction = self._predict_block(estimator, workspace["data"], fold)
-        target = workspace["data"][:, fold.test_start:fold.test_stop].to(prediction)
-        order_index = workspace["orders"].index(order)
-        self._store_ic(estimator, workspace["training"], order, order_index, workspace["fold_index"])
-        return self._score(target - prediction, estimator.noise_covariance_)
+        """Fit and score one candidate and record its training IC values."""
 
-    def _store_ic(self, estimator, training, order, oi, fi):
+        estimator = self._fit_var(workspace["training"], order)
+        prediction = self._predict_block(
+            estimator, workspace["data"], fold
+        )
+        target = workspace["data"][
+            :, fold.test_start : fold.test_stop
+        ].to(prediction)
+        order_index = workspace["orders"].index(order)
+        self._store_ic(
+            estimator,
+            workspace["training"],
+            order,
+            order_index,
+            workspace["fold_index"],
+        )
+        return self._score(
+            target - prediction, estimator.noise_covariance_
+        )
+
+    def _store_ic(self, estimator, training, order, order_index, fold_index):
+        """Compute and store training-only AIC, BIC, and HQC diagnostics."""
+
         n_trials, n_times, n_variables = training.shape
         logdet = spd_logdet(estimator.noise_covariance_)
-        loglik = -0.5 * (n_variables*np.log(2*np.pi) + float(logdet.mean()) + n_variables)
-        mult = n_trials if self.mode == "independent" else 1
-        aic, bic, hqc = _information_criteria(
-            loglik, mult*order*n_variables*n_variables,
-            n_trials*(n_times-order), hurvich_tsai=self.hurvich_tsai,
+        loglik = -0.5 * (
+            n_variables * np.log(2.0 * np.pi)
+            + float(logdet.mean())
+            + n_variables
         )
-        self._aic[oi, fi], self._bic[oi, fi], self._hqc[oi, fi] = float(aic), float(bic), float(hqc)
+        multiplier = n_trials if self.mode == "independent" else 1
+        aic, bic, hqc = _information_criteria(
+            loglik,
+            multiplier * order * n_variables * n_variables,
+            n_trials * (n_times - order),
+            hurvich_tsai=self.hurvich_tsai,
+        )
+        self._aic[order_index, fold_index] = float(aic)
+        self._bic[order_index, fold_index] = float(bic)
+        self._hqc[order_index, fold_index] = float(hqc)
 
     def _finalize_diagnostics(self, orders):
-        self.train_aic_, self.train_bic_, self.train_hqc_ = self._aic, self._bic, self._hqc
+        """Expose fold-level and mean IC diagnostics as fitted attributes."""
+
+        del orders
+        self.train_aic_ = self._aic
+        self.train_bic_ = self._bic
+        self.train_hqc_ = self._hqc
         self.mean_train_aic_ = np.nanmean(self._aic, axis=1)
         self.mean_train_bic_ = np.nanmean(self._bic, axis=1)
         self.mean_train_hqc_ = np.nanmean(self._hqc, axis=1)
 
     def _refit_best(self, data, order):
+        """Refit the selected VAR order on all observations."""
+
         return self._fit_var(data, order)
 
     def fit(self, X, y=None):
+        """Evaluate every candidate VAR order on every temporal fold."""
+
         del y
         summary = self._run_temporal_search(X)
         scores = tuple(
             VAROrderScore(
-                order=o, mean_score=float(summary.mean_scores[i]),
-                standard_error=float(summary.standard_errors[i]),
-                fold_scores=tuple(summary.fold_scores[i]),
-                failed_folds=int(summary.failed_folds[i]),
-                mean_train_aic=float(self.mean_train_aic_[i]),
-                mean_train_bic=float(self.mean_train_bic_[i]),
-                mean_train_hqc=float(self.mean_train_hqc_[i]),
-                fold_train_aic=tuple(self.train_aic_[i]),
-                fold_train_bic=tuple(self.train_bic_[i]),
-                fold_train_hqc=tuple(self.train_hqc_[i]),
-            ) for i, o in enumerate(summary.orders)
+                order=order,
+                mean_score=float(summary.mean_scores[index]),
+                standard_error=float(summary.standard_errors[index]),
+                fold_scores=tuple(summary.fold_scores[index]),
+                failed_folds=int(summary.failed_folds[index]),
+                mean_train_aic=float(self.mean_train_aic_[index]),
+                mean_train_bic=float(self.mean_train_bic_[index]),
+                mean_train_hqc=float(self.mean_train_hqc_[index]),
+                fold_train_aic=tuple(self.train_aic_[index]),
+                fold_train_bic=tuple(self.train_bic_[index]),
+                fold_train_hqc=tuple(self.train_hqc_[index]),
+            )
+            for index, order in enumerate(summary.orders)
         )
-        self.result_ = VAROrderSearchResult(summary.best_order, scores, self.scoring, self.selection_rule)
+        self.result_ = VAROrderSearchResult(
+            summary.best_order,
+            scores,
+            self.scoring,
+            self.selection_rule,
+        )
         self.cv_results_ = self.result_.as_records()
         return self
