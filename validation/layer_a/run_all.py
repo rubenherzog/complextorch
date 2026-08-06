@@ -24,6 +24,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    args.output = args.output.resolve()
 
     script_dir = Path(__file__).resolve().parent
     repository_root = script_dir.parents[1]
