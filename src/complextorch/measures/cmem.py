@@ -687,6 +687,7 @@ def compute_cmem(
     The implementation validates dimensional and positive-definiteness
     requirements before executing the numerical core.
     """
+    # Assemble covariance-memory terms from present covariance, innovations, and lagged Gaussian dependence.
     from .backbone import observation_autocovariances
     required = max(tau_max, system.order)
     gamma = (

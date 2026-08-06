@@ -90,6 +90,7 @@ class _LarimoreFoldWorkspace:
         ) = _larimore_decomposition(
             self.past_fit, self.future_fit, ridge=ridge
         )
+        # Apply the covariance or whitening solve through its triangular Cholesky factor.
         self.whitened_past = torch.linalg.solve_triangular(
             self.cholesky_past.transpose(-1, -2),
             self.past_fit,
@@ -411,6 +412,7 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
 
     def _evaluate_candidate(self, workspace, order, fold):
         """Fit one truncated candidate and evaluate its held-out loss."""
+        # Fit each candidate on every training window and aggregate held-out predictive loss across folds.
 
         if (
             type(self)._fit_and_score_fold

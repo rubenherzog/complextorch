@@ -74,6 +74,7 @@ def autocovariances(system:VARSystem,max_lag:int)->torch.Tensor:
     ----------
     Lütkepohl (2005); Anderson and Moore (1979).
     """
+    # Propagate stationary companion covariance to obtain Gamma(k)=E[x_t x_(t-k)^T] for successive lags.
     if max_lag<0: raise ValueError('max_lag must be nonnegative')
     power=torch.eye(system.companion.shape[-1],dtype=system.companion.dtype,device=system.companion.device).expand(system.batch_size,-1,-1)
     out=[]

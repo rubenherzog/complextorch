@@ -260,17 +260,21 @@ def _canonical_correlations(
     )
     # Ridge regularization is restricted to the whitening covariances; it does
     # not alter the cross-covariance or the subsequent Bauer criterion.
+    # Factor the positive-definite covariance so whitening and solves use stable triangular algebra.
     cholesky_past = torch.linalg.cholesky(
         covariance_past + ridge * identity_past
     )
+    # Factor the positive-definite covariance so whitening and solves use stable triangular algebra.
     cholesky_future = torch.linalg.cholesky(
         covariance_future + ridge * identity_future
     )
+    # Apply the covariance or whitening solve through its triangular Cholesky factor.
     left_whitened = torch.linalg.solve_triangular(
         cholesky_future,
         cross_covariance.transpose(-1, -2),
         upper=False,
     )
+    # Apply the covariance or whitening solve through its triangular Cholesky factor.
     whitened = torch.linalg.solve_triangular(
         cholesky_past,
         left_whitened.transpose(-1, -2),

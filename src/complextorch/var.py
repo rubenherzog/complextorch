@@ -70,6 +70,7 @@ def _lwr_single(trials: torch.Tensor, order: int) -> tuple[torch.Tensor, torch.T
     errors_all = x.reshape(n, n_trials * m)
     inverse_chol = torch.linalg.inv(
         # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
+        # Factor the positive-definite covariance so whitening and solves use stable triangular algebra.
         torch.linalg.cholesky(errors_all @ errors_all.transpose(-1, -2))
     )
     k = 1
@@ -86,12 +87,16 @@ def _lwr_single(trials: torch.Tensor, order: int) -> tuple[torch.Tensor, torch.T
         forward = af[:, :k * n] @ forward_block
         backward = ab[:, p1n - k * n:] @ backward_block
         # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
+        # Factor the positive-definite covariance so whitening and solves use stable triangular algebra.
         forward_chol = torch.linalg.cholesky(forward @ forward.transpose(-1, -2))
         # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
+        # Factor the positive-definite covariance so whitening and solves use stable triangular algebra.
         backward_chol = torch.linalg.cholesky(backward @ backward.transpose(-1, -2))
         # The normalised forward/backward cross-covariance is the lattice reflection coefficient.
         reflection = (
+            # Solve the linear system directly instead of multiplying by an explicit inverse.
             torch.linalg.solve(forward_chol, forward)
+            # Solve the linear system directly instead of multiplying by an explicit inverse.
             @ torch.linalg.solve(backward_chol, backward).transpose(-1, -2)
         )
         k += 1
@@ -100,12 +105,16 @@ def _lwr_single(trials: torch.Tensor, order: int) -> tuple[torch.Tensor, torch.T
         af_previous = af[:, :forward_end].clone()
         ab_previous = ab[:, backward_start:].clone()
         # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
+        # Factor the positive-definite covariance so whitening and solves use stable triangular algebra.
         forward_norm = torch.linalg.cholesky(identity - reflection @ reflection.transpose(-1, -2))
         # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
+        # Factor the positive-definite covariance so whitening and solves use stable triangular algebra.
         backward_norm = torch.linalg.cholesky(identity - reflection.transpose(-1, -2) @ reflection)
+        # Solve the linear system directly instead of multiplying by an explicit inverse.
         af[:, :forward_end] = torch.linalg.solve(
             forward_norm, af_previous - reflection @ ab_previous
         )
+        # Solve the linear system directly instead of multiplying by an explicit inverse.
         ab[:, backward_start:] = torch.linalg.solve(
             backward_norm, ab_previous - reflection.transpose(-1, -2) @ af_previous
         )
@@ -113,10 +122,12 @@ def _lwr_single(trials: torch.Tensor, order: int) -> tuple[torch.Tensor, torch.T
     if forward is None:
         raise RuntimeError("LWR failed to produce forward residuals")
     a0 = af[:, :n]
+    # Solve the linear system directly instead of multiplying by an explicit inverse.
     flat = -torch.linalg.solve(a0, af[:, n:p1n])
     coefficients = torch.stack(
         [flat[:, lag * n:(lag + 1) * n] for lag in range(order)], dim=0
     )
+    # Solve the linear system directly instead of multiplying by an explicit inverse.
     residuals = torch.linalg.solve(a0, forward)
     residuals = residuals.reshape(n, m - order, n_trials).permute(2, 1, 0).contiguous()
     mean_vector = mean.reshape(n)
@@ -418,6 +429,7 @@ class VAR(BaseEstimator):
         else:
             raise ValueError("mode must be 'independent' or 'pooled'")
         if solver == "lstsq":
+            # Solve the linear least-squares problem without forming an explicit normal-equation inverse.
             solution = torch.linalg.lstsq(design_fit, targets_fit).solution
         elif solver == "pinv":
             solution = torch.linalg.pinv(design_fit) @ targets_fit
