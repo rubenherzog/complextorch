@@ -1,4 +1,4 @@
-"""Canonical VAR and linear Gaussian state-space representations.
+r"""Canonical VAR and linear Gaussian state-space representations.
 
 A VAR(p) process is
 
@@ -16,18 +16,22 @@ References
 - Barnett, L. and Seth, A. K. (2015). Granger causality for state-space models.
 """
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 import torch
+
 from .linalg import LyapunovInfo, solve_discrete_lyapunov, spectral_radius
+
 
 @dataclass(frozen=True)
 class LinearDynamicalSystem:
-    """Linear Gaussian state-space model with optional stationary state covariance.
-    
-    Notes
-    -----
-    Public fitted attributes use the trailing-underscore convention.
+    """Linear Gaussian state-space model.
+
+    The optional ``state_covariance`` stores the stationary latent covariance
+    used by analytical observation-covariance and autocovariance calculations.
     """
+
     transition: torch.Tensor
     observation: torch.Tensor
     process_covariance: torch.Tensor
@@ -35,31 +39,18 @@ class LinearDynamicalSystem:
     state_covariance: torch.Tensor | None = None
     sampling_frequency: float | None = None
     channel_names: tuple[str, ...] | None = None
+
     @property
     def spectral_radius(self) -> torch.Tensor:
-        """Spectral radius.
-        
-        Returns
-        -------
-        object
-            Computed result; see the annotated return type and shape notes.
-        
-        Notes
-        -----
-        Batch dimensions are preserved unless explicitly documented otherwise.
-        The implementation validates dimensional and positive-definiteness
-        requirements before executing the numerical core.
-        """
+        """Return the largest absolute eigenvalue of the transition matrix."""
+
         return spectral_radius(self.transition)
+
 
 @dataclass(frozen=True)
 class VARSystem:
-    """Stationary Gaussian VAR process represented by coefficients and innovation covariance.
-    
-    Notes
-    -----
-    Public fitted attributes use the trailing-underscore convention.
-    """
+    """Stationary Gaussian VAR process and its companion-state primitives."""
+
     coefficients: torch.Tensor
     innovation_covariance: torch.Tensor
     companion: torch.Tensor
@@ -69,114 +60,190 @@ class VARSystem:
     present_covariance: torch.Tensor
     spectral_radius: torch.Tensor
     lyapunov_info: LyapunovInfo
-    @property
-    def batch_size(self) -> int: return int(self.coefficients.shape[0])
-    @property
-    def order(self) -> int: return int(self.coefficients.shape[1])
-    @property
-    def n_variables(self) -> int: return int(self.coefficients.shape[2])
-    def to_state_space(self) -> LinearDynamicalSystem:
-        """Convert to state space.
-        
-        Returns
-        -------
-        object
-            Equivalent linear state-space representation.
-        
-        Notes
-        -----
-        Batch dimensions are preserved unless explicitly documented otherwise.
-        The implementation validates dimensional and positive-definiteness
-        requirements before executing the numerical core.
-        """
-        batch = self.companion.shape[0]; n = self.n_variables
-        zero = torch.zeros((batch,n,n),dtype=self.companion.dtype,device=self.companion.device)
-        return LinearDynamicalSystem(self.companion,self.projection,self.companion_noise_covariance,zero,self.state_covariance)
 
-def _normalise_coefficients(coefficients: torch.Tensor) -> tuple[torch.Tensor,bool]:
-    """Normalise coefficients.
-    
-    Parameters
-    ----------
-    coefficients
-        VAR coefficient tensor ordered by lag, target and source.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
+    @property
+    def batch_size(self) -> int:
+        """Return the number of independently represented VAR systems."""
+
+        return int(self.coefficients.shape[0])
+
+    @property
+    def order(self) -> int:
+        """Return the autoregressive order ``p``."""
+
+        return int(self.coefficients.shape[1])
+
+    @property
+    def n_variables(self) -> int:
+        """Return the number of observed variables."""
+
+        return int(self.coefficients.shape[2])
+
+    def to_state_space(self) -> LinearDynamicalSystem:
+        """Return the exactly equivalent companion state-space model.
+
+        The observation matrix selects the present VAR block from the companion
+        state, and the observation-noise covariance is zero because the VAR
+        innovations enter through the companion process noise.
+        """
+
+        batch = self.companion.shape[0]
+        n_variables = self.n_variables
+        zero = torch.zeros(
+            (batch, n_variables, n_variables),
+            dtype=self.companion.dtype,
+            device=self.companion.device,
+        )
+        return LinearDynamicalSystem(
+            self.companion,
+            self.projection,
+            self.companion_noise_covariance,
+            zero,
+            self.state_covariance,
+        )
+
+
+def _normalise_coefficients(
+    coefficients: torch.Tensor,
+) -> tuple[torch.Tensor, bool]:
+    """Normalize VAR coefficients to ``(batch, lag, target, source)``.
+
+    Returns the normalized tensor and a flag indicating whether the original
+    input was unbatched.
     """
-    coef=torch.as_tensor(coefficients); unbatched=coef.ndim==3
-    if unbatched: coef=coef.unsqueeze(0)
-    if coef.ndim!=4 or coef.shape[-1]!=coef.shape[-2]: raise ValueError("coefficients must have shape (p,n,n) or (batch,p,n,n)")
-    return coef,unbatched
+
+    coefficient_tensor = torch.as_tensor(coefficients)
+    unbatched = coefficient_tensor.ndim == 3
+    if unbatched:
+        coefficient_tensor = coefficient_tensor.unsqueeze(0)
+    if (
+        coefficient_tensor.ndim != 4
+        or coefficient_tensor.shape[-1] != coefficient_tensor.shape[-2]
+    ):
+        raise ValueError(
+            "coefficients must have shape (p,n,n) or (batch,p,n,n)"
+        )
+    return coefficient_tensor, unbatched
+
 
 def companion_matrix(coefficients: torch.Tensor) -> torch.Tensor:
-    """Companion matrix.
-    
-    Parameters
-    ----------
-    coefficients
-        VAR coefficient tensor ordered by lag, target and source.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
-    coef,unbatched=_normalise_coefficients(coefficients); batch,order,n,_=coef.shape
-    out=torch.zeros((batch,order*n,order*n),dtype=coef.dtype,device=coef.device)
-    out[:,:n,:]=coef.permute(0,2,1,3).reshape(batch,n,order*n)
-    if order>1: out[:,n:,:(order-1)*n]=torch.eye((order-1)*n,dtype=coef.dtype,device=coef.device)
-    return out[0] if unbatched else out
+    r"""Construct the first-order companion transition of a VAR(p).
 
-def build_var_system(coefficients: torch.Tensor, innovation_covariance: torch.Tensor, *, lyapunov_method: str="doubling", rtol: float=1e-10, atol: float=1e-12) -> VARSystem:
-    """Build var system.
-    
+    The first block row contains ``[A_1, ..., A_p]`` and lower block rows shift
+    lagged observations forward by one step. See Lütkepohl (2005).
+    """
+
+    coefficient_tensor, unbatched = _normalise_coefficients(coefficients)
+    batch, order, n_variables, _ = coefficient_tensor.shape
+    companion = torch.zeros(
+        (batch, order * n_variables, order * n_variables),
+        dtype=coefficient_tensor.dtype,
+        device=coefficient_tensor.device,
+    )
+    companion[:, :n_variables, :] = coefficient_tensor.permute(
+        0, 2, 1, 3
+    ).reshape(batch, n_variables, order * n_variables)
+    if order > 1:
+        companion[:, n_variables:, : (order - 1) * n_variables] = torch.eye(
+            (order - 1) * n_variables,
+            dtype=coefficient_tensor.dtype,
+            device=coefficient_tensor.device,
+        )
+    return companion[0] if unbatched else companion
+
+
+def build_var_system(
+    coefficients: torch.Tensor,
+    innovation_covariance: torch.Tensor,
+    *,
+    lyapunov_method: str = "doubling",
+    rtol: float = 1e-10,
+    atol: float = 1e-12,
+) -> VARSystem:
+    r"""Build all stationary companion primitives for a Gaussian VAR.
+
+    The companion state covariance :math:`P` solves
+
+    .. math::
+
+       P = A_c P A_c^\top + Q_c.
+
     Parameters
     ----------
     coefficients
-        VAR coefficient tensor ordered by lag, target and source.
+        VAR coefficients in batched or unbatched ComplexTorch layout.
     innovation_covariance
-        Symmetric positive-definite covariance of model innovations.
+        Innovation covariance :math:`\Sigma`.
     lyapunov_method
-        Input required by this calculation.
-    rtol
-        Input required by this calculation.
-    atol
-        Input required by this calculation.
-    
+        Numerical method passed to the discrete Lyapunov solver.
+    rtol, atol
+        Relative and absolute convergence tolerances.
+
     Returns
     -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
+    VARSystem
+        Canonical stationary representation used by analytical measures.
+
+    References
+    ----------
+    - Lütkepohl (2005).
+    - Barnett and Seth (2015).
     """
-    coef,_=_normalise_coefficients(coefficients)
-    q=torch.as_tensor(innovation_covariance,dtype=coef.dtype,device=coef.device)
-    if q.ndim==2: q=q.unsqueeze(0)
-    if q.shape[0]==1 and coef.shape[0]>1: q=q.expand(coef.shape[0],-1,-1).contiguous()
-    if q.ndim!=3 or q.shape[1:]!=coef.shape[2:] or q.shape[0]!=coef.shape[0]: raise ValueError("invalid innovation covariance shape")
-    comp=companion_matrix(coef); batch,state_dim,_=comp.shape; n=coef.shape[-1]
-    process=torch.zeros_like(comp); process[:,:n,:n]=q
-    state_cov,info=solve_discrete_lyapunov(comp,process,method=lyapunov_method,rtol=rtol,atol=atol)
-    projection=torch.zeros((batch,n,state_dim),dtype=coef.dtype,device=coef.device); projection[:,:,:n]=torch.eye(n,dtype=coef.dtype,device=coef.device)
-    present=projection@state_cov@projection.transpose(-1,-2)
-    return VARSystem(coef,q,comp,process,state_cov,projection,present,spectral_radius(comp),info)
+
+    coefficient_tensor, _ = _normalise_coefficients(coefficients)
+    covariance = torch.as_tensor(
+        innovation_covariance,
+        dtype=coefficient_tensor.dtype,
+        device=coefficient_tensor.device,
+    )
+    if covariance.ndim == 2:
+        covariance = covariance.unsqueeze(0)
+    if covariance.shape[0] == 1 and coefficient_tensor.shape[0] > 1:
+        covariance = covariance.expand(
+            coefficient_tensor.shape[0], -1, -1
+        ).contiguous()
+    if (
+        covariance.ndim != 3
+        or covariance.shape[1:] != coefficient_tensor.shape[2:]
+        or covariance.shape[0] != coefficient_tensor.shape[0]
+    ):
+        raise ValueError("invalid innovation covariance shape")
+
+    companion = companion_matrix(coefficient_tensor)
+    batch, state_dimension, _ = companion.shape
+    n_variables = coefficient_tensor.shape[-1]
+    companion_noise = torch.zeros_like(companion)
+    companion_noise[:, :n_variables, :n_variables] = covariance
+
+    # The stationary companion covariance is the unique stable Lyapunov solution.
+    state_covariance, lyapunov_info = solve_discrete_lyapunov(
+        companion,
+        companion_noise,
+        method=lyapunov_method,
+        rtol=rtol,
+        atol=atol,
+    )
+    projection = torch.zeros(
+        (batch, n_variables, state_dimension),
+        dtype=coefficient_tensor.dtype,
+        device=coefficient_tensor.device,
+    )
+    projection[:, :, :n_variables] = torch.eye(
+        n_variables,
+        dtype=coefficient_tensor.dtype,
+        device=coefficient_tensor.device,
+    )
+    present_covariance = (
+        projection @ state_covariance @ projection.transpose(-1, -2)
+    )
+    return VARSystem(
+        coefficient_tensor,
+        covariance,
+        companion,
+        companion_noise,
+        state_covariance,
+        projection,
+        present_covariance,
+        spectral_radius(companion),
+        lyapunov_info,
+    )
