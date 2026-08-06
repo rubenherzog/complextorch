@@ -1,0 +1,47 @@
+name: Apply subspace refactor
+
+on:
+  push:
+    branches:
+      - refactor/centralize-subspace-primitives
+    paths:
+      - .github/workflows/apply-subspace-refactor.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout without external actions
+        shell: bash
+        run: |
+          git init .
+          git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          git fetch --depth=1 origin refactor/centralize-subspace-primitives
+          git checkout -B refactor/centralize-subspace-primitives FETCH_HEAD
+      - name: Apply clean refactor
+        shell: bash
+        run: |
+          base64 --decode .github/subspace-refactor.patch.gz.b64 | gzip -d > /tmp/refactor.patch
+          git apply --check /tmp/refactor.patch
+          git apply /tmp/refactor.patch
+          rm .github/subspace-refactor.patch.gz.b64
+          rm .github/workflows/apply-subspace-refactor.yml
+      - name: Install package
+        run: python -m pip install -e .
+      - name: Compile sources and tests
+        run: python -m compileall -q src tests
+      - name: Run full test suite
+        run: pytest -q
+      - name: Commit validated refactor
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- src/complextorch/_subspace.py src/complextorch/selection.py src/complextorch/state_space.py src/complextorch/state_space_selection.py tests/test_state_space_model_order.py
+          git rm --ignore-unmatch src/complextorch/_state_space_order.py
+          git add -u -- .github/subspace-refactor.patch.gz.b64 .github/workflows/apply-subspace-refactor.yml
+          git commit -m "Centralize state-space subspace primitives"
+          git push origin HEAD:refactor/centralize-subspace-primitives
