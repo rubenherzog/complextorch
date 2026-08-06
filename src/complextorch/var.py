@@ -94,6 +94,25 @@ References
   multichannel maximum entropy spectral estimation.
 - Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
 - ComplexBox repository: https://github.com/bmilinkovic/complexbox
+
+Notes
+-----
+Ordinary least squares minimises
+
+.. math::
+
+   \widehat B = rg\min_B \lVert Y-XB
+Vert_F^2,
+
+while the LWR route implements the Morf lattice-whitening recursion used by
+MVGC-compatible estimators.
+
+References
+----------
+- Morf, M., Vieira, A., Lee, D. T. L., and Kailath, T. (1978). Recursive
+  multichannel maximum entropy spectral estimation.
+- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
+- ComplexBox repository: https://github.com/bmilinkovic/complexbox
 """
 from __future__ import annotations
 
@@ -789,6 +808,12 @@ class VAR(BaseEstimator):
 
     def consistency(self, observations) -> float:
         """Ding-Bressler consistency statistic, matching ComplexBox/MVGC.
+                                                
+                                                Compute the Ding--Bressler VAR consistency diagnostic.
+                                                
+                                                References
+                                                ----------
+                                                Ding et al. (2000); Barnett and Seth (2014); ComplexBox repository.
                                         
                                         Compute the Ding--Bressler VAR consistency diagnostic.
                                         
