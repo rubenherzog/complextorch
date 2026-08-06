@@ -845,9 +845,9 @@ class StateSpaceOrderSelection(BaseEstimator):
     device, dtype
         Torch execution device and floating-point dtype.
     refit
-        Reserved for a future full state-space estimator. It must remain
-        ``False`` because this class performs order selection only and does not
-        estimate :math:`A,C,K,V`.
+        Whether to fit a :class:`complextorch.state_space.LarimoreStateSpace`
+        model at the selected order. Currently supported for pooled mode;
+        independent trajectories may select different dimensions.
 
     References
     ----------
@@ -906,10 +906,10 @@ class StateSpaceOrderSelection(BaseEstimator):
             raise ValueError("subspace_method must be 'larimore'")
         if self.criterion != "bauer":
             raise ValueError("criterion must be 'bauer'")
-        if self.refit:
+        if self.refit and self.mode != "pooled":
             raise ValueError(
-                "refit=True is unavailable until a full Larimore state-space "
-                "estimator is implemented"
+                "refit=True currently requires mode='pooled'; independent "
+                "trajectories may select different state dimensions"
             )
 
         computation = _larimore_state_space_order(
@@ -945,5 +945,17 @@ class StateSpaceOrderSelection(BaseEstimator):
             result.normalized_canonical_correlations
         )
         self.n_effective_ = result.n_effective
+        if self.refit:
+            from .state_space import LarimoreStateSpace
+
+            self.best_estimator_ = LarimoreStateSpace(
+                n_states=int(self.best_order_),
+                past_horizon=self.past_horizon,
+                future_horizon=self.future_horizon,
+                ridge=self.ridge,
+                mode='pooled',
+                device=self.device,
+                dtype=self.dtype,
+            ).fit(X)
         return self
 
