@@ -35,6 +35,24 @@ References
 - Cover, T. M. and Thomas, J. A. (2006). *Elements of Information Theory*.
 - Rosas, F. E. et al. (2019). Quantifying high-order interdependencies via the
   O-information. *Physical Review E*, 100, 032305.
+
+Notes
+-----
+For a :math:`d`-dimensional Gaussian variable with covariance :math:`\Sigma`,
+
+.. math::
+
+   H(X)=	frac12\log\left((2\pi e)^d\det\Sigma
+ight).
+
+Mutual informations and multivariate information measures are evaluated from
+log-determinant identities.
+
+References
+----------
+- Cover, T. M. and Thomas, J. A. (2006). *Elements of Information Theory*.
+- Rosas, F. E. et al. (2019). Quantifying high-order interdependencies via the
+  O-information. *Physical Review E*, 100, 032305.
 """
 from __future__ import annotations
 import math
@@ -44,6 +62,16 @@ from ..linalg import spd_logdet, spd_solve, symmetrise
 
 def gaussian_entropy(covariance: torch.Tensor, *, base: float = 2.0) -> torch.Tensor:
     """Compute differential entropy of a Gaussian covariance.
+            
+            The implemented identity is
+            
+            .. math:: H(X)=	frac12\log((2\pi e)^d\det\Sigma).
+            
+            References
+            ----------
+            Cover and Thomas (2006), *Elements of Information Theory*.
+        
+        Compute differential entropy of a Gaussian covariance.
         
         The implemented identity is
         
@@ -72,6 +100,14 @@ def gaussian_entropy(covariance: torch.Tensor, *, base: float = 2.0) -> torch.Te
 
 def conditional_covariance(joint_covariance: torch.Tensor, n_left: int) -> torch.Tensor:
     """Return the Gaussian conditional covariance via a Schur complement.
+            
+            .. math:: \Sigma_{X\mid Y}=\Sigma_{XX}-\Sigma_{XY}\Sigma_{YY}^{-1}\Sigma_{YX}.
+            
+            References
+            ----------
+            Cover and Thomas (2006).
+        
+        Return the Gaussian conditional covariance via a Schur complement.
         
         .. math:: \Sigma_{X\mid Y}=\Sigma_{XX}-\Sigma_{XY}\Sigma_{YY}^{-1}\Sigma_{YX}.
         
@@ -95,6 +131,15 @@ def conditional_covariance(joint_covariance: torch.Tensor, n_left: int) -> torch
 
 def gaussian_mutual_information(joint_covariance: torch.Tensor,n_left:int,*,base:float=2.0)->torch.Tensor:
     """Compute Gaussian mutual information from covariance blocks.
+            
+            .. math:: I(X;Y)=	frac12\log
+            rac{\det\Sigma_X\det\Sigma_Y}{\det\Sigma_{XY}}.
+            
+            References
+            ----------
+            Cover and Thomas (2006).
+        
+        Compute Gaussian mutual information from covariance blocks.
         
         .. math:: I(X;Y)=	frac12\log
         rac{\det\Sigma_X\det\Sigma_Y}{\det\Sigma_{XY}}.
@@ -210,6 +255,15 @@ def dual_total_correlation(covariance:torch.Tensor,*,base:float=2.0)->torch.Tens
 
 def o_information(covariance:torch.Tensor,*,base:float=2.0)->torch.Tensor:
     """Compute Gaussian O-information.
+            
+            Positive values indicate redundancy-dominated dependence and negative values
+            indicate synergy-dominated dependence.
+            
+            References
+            ----------
+            Rosas et al. (2019), *Physical Review E* 100, 032305.
+        
+        Compute Gaussian O-information.
         
         Positive values indicate redundancy-dominated dependence and negative values
         indicate synergy-dominated dependence.

@@ -31,6 +31,14 @@ _MODEL_TYPES = (VARSystem, LinearDynamicalSystem, InnovationsStateSpace)
 
 def temporal_mvgc(model_or_observations, *args, **kwargs):
     """Compute model-based MVGC, with deprecated observation-call dispatch.
+            
+            Compute conditional time-domain multivariate Granger causality.
+            
+            .. math:: F_{Y	o X\mid Z}=\log(\det\Sigma^R_{XX}/\det\Sigma_{XX}).
+            
+            References
+            ----------
+            Geweke (1982); Barnett and Seth (2014, 2015).
         
         Compute conditional time-domain multivariate Granger causality.
         
@@ -66,6 +74,15 @@ def temporal_mvgc(model_or_observations, *args, **kwargs):
 
 def spectral_mvgc(model_or_observations, *args, **kwargs):
     """Compute model-based spectral MVGC, with legacy observation dispatch.
+            
+            Compute conditional spectral multivariate Granger causality.
+            
+            The frequency-resolved decomposition is obtained from innovations-form transfer
+            functions and integrates to temporal GC.
+            
+            References
+            ----------
+            Geweke (1982); Barnett and Seth (2014, 2015).
         
         Compute conditional spectral multivariate Granger causality.
         

@@ -29,6 +29,21 @@ ho.
 References
 ----------
 - Lütkepohl, H. (2005), stability of VAR processes.
+
+Notes
+-----
+Stability diagnostics are derived from the companion eigenvalues. The dominant
+timescale associated with spectral radius :math:`
+ho<1` is
+
+.. math::
+
+   	au=-1/\log
+ho.
+
+References
+----------
+- Lütkepohl, H. (2005), stability of VAR processes.
 """
 from __future__ import annotations
 import torch

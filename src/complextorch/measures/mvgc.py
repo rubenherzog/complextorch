@@ -47,6 +47,28 @@ References
 - Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
 - Barnett, L. and Seth, A. K. (2015), state-space Granger causality.
 - MVGC repository: https://github.com/lcbarnett/MVGC1
+
+Notes
+-----
+Conditional time-domain Granger causality is the log ratio of reduced and full
+innovation generalised variances,
+
+.. math::
+
+   F_{Y	o X\mid Z}=\log
+rac{\det\Sigma^{R}_{XX}}
+                                {\det\Sigma_{XX}}.
+
+Spectral GC is computed from innovations-form transfer functions and integrates
+to the time-domain value under the Geweke decomposition.
+
+References
+----------
+- Geweke, J. (1982). Measurement of linear dependence and feedback between
+  multiple time series.
+- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
+- Barnett, L. and Seth, A. K. (2015), state-space Granger causality.
+- MVGC repository: https://github.com/lcbarnett/MVGC1
 """
 from __future__ import annotations
 import math
@@ -60,6 +82,14 @@ from .dynamics import transfer_function, cross_spectral_density
 
 def temporal_mvgc(observations: torch.Tensor, order: int, source, target, *, conditional=(), base: float = math.e, **var_kwargs) -> torch.Tensor:
     """Regression conditional group GC using separately fitted nested VARs.
+            
+            Compute conditional time-domain multivariate Granger causality.
+            
+            .. math:: F_{Y	o X\mid Z}=\log(\det\Sigma^R_{XX}/\det\Sigma_{XX}).
+            
+            References
+            ----------
+            Geweke (1982); Barnett and Seth (2014, 2015).
         
         Compute conditional time-domain multivariate Granger causality.
         
@@ -85,6 +115,15 @@ def temporal_mvgc(observations: torch.Tensor, order: int, source, target, *, con
 
 def spectral_mvgc(observations: torch.Tensor, order: int, source, target, frequencies: torch.Tensor, *, conditional=(), base: float = math.e, **var_kwargs) -> torch.Tensor:
     """Regression spectral GC from the same separately fitted full/reduced VARs.
+            
+            Compute conditional spectral multivariate Granger causality.
+            
+            The frequency-resolved decomposition is obtained from innovations-form transfer
+            functions and integrates to temporal GC.
+            
+            References
+            ----------
+            Geweke (1982); Barnett and Seth (2014, 2015).
         
         Compute conditional spectral multivariate Granger causality.
         
@@ -275,6 +314,17 @@ def state_space_spectral_mvgc(
 
 def integrate_spectral_mvgc(values: torch.Tensor, frequencies: torch.Tensor) -> torch.Tensor:
     """Integrate one-sided GC on normalized frequencies [0,.5] to time GC.
+            
+            Integrate one-sided spectral GC to its time-domain value.
+            
+            For normalised frequencies :math:`f\in[0,1/2]`, the implementation evaluates
+            :math:`2\int_0^{1/2} f_{Y	o X}(
+            u)\,d
+            u`.
+            
+            References
+            ----------
+            Geweke (1982); Barnett and Seth (2014).
         
         Integrate one-sided spectral GC to its time-domain value.
         

@@ -33,6 +33,23 @@ References
 ----------
 - Lütkepohl, H. (2005), Chapters 2--3.
 - ComplexBox repository: https://github.com/bmilinkovic/complexbox
+
+Notes
+-----
+VAR simulations implement the recursion
+
+.. math::
+
+   x_t = c + \sum_{k=1}^{p} A_k x_{t-k} + 
+arepsilon_t.
+
+The automatic burn-in uses the companion spectral radius to suppress initial
+conditions below a prescribed tolerance.
+
+References
+----------
+- Lütkepohl, H. (2005), Chapters 2--3.
+- ComplexBox repository: https://github.com/bmilinkovic/complexbox
 """
 from __future__ import annotations
 import math
@@ -103,6 +120,11 @@ def _normalise_covariance(covariance, batch, n):
 
 def automatic_burnin(coefficients, *, epsilon: float | None = None) -> int:
     """MVGC-style transient length ceil(-log(eps)/-log(rho)).
+            
+            Choose burn-in length from the companion spectral radius.
+            
+            The smallest integer :math:`T` satisfying :math:`
+            ho^T<\epsilon` is used.
         
         Choose burn-in length from the companion spectral radius.
         
@@ -134,6 +156,12 @@ def simulate_var(
     return_innovations: bool = False,
 ):
     """Simulate one or more Gaussian VAR trajectories.
+            
+            References
+            ----------
+            Lütkepohl (2005); ComplexBox repository.
+        
+        Simulate one or more Gaussian VAR trajectories.
         
         References
         ----------
@@ -265,6 +293,12 @@ def random_positive_definite_covariance(
 
 def random_stable_var(batch:int,n_variables:int,order:int,*,spectral_radius_target:float=.85,noise_scale:float=1.,seed:int=0,dtype=torch.float64,device='cpu'):
     """Generate random VAR coefficients scaled to a target spectral radius.
+            
+            References
+            ----------
+            Lütkepohl (2005); ComplexBox repository.
+        
+        Generate random VAR coefficients scaled to a target spectral radius.
         
         References
         ----------
