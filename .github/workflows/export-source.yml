@@ -11,8 +11,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Archive repository checkout
-        run: tar --exclude=.git -czf complextorch-source.tar.gz .
+        run: tar --exclude=.git -czf /tmp/complextorch-source.tar.gz .
       - uses: actions/upload-artifact@v4
         with:
           name: complextorch-source
-          path: complextorch-source.tar.gz
+          path: /tmp/complextorch-source.tar.gz
