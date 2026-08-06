@@ -1,0 +1,31 @@
+name: implement-batched-state-space
+
+on:
+  push:
+    branches: [refactor/unify-order-selection]
+    paths:
+      - scripts/implement_batched_state_space_estimators.py
+      - .github/workflows/implement-batched-state-space.yml
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/unify-order-selection
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Apply implementation
+        run: python scripts/implement_batched_state_space_estimators.py
+      - name: Commit source changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- src/complextorch/state_space.py src/complextorch/selection.py src/complextorch/__init__.py pyproject.toml tests/test_state_space_estimators_batch.py
+          git commit -m "Add batched state-space estimators and Larimore refit"
+          git push origin HEAD:refactor/unify-order-selection
