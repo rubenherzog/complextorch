@@ -1,14 +1,14 @@
 import torch
 from complextorch.control import solve_dare, innovations_form, reduce_state_space, dynamical_dependence, stochastic_interaction
 from complextorch.state_space import kalman_filter, kalman_smoother, N4SID, LinearGaussianEM
-from complextorch.representations import LinearDynamicalSystem, build_var_system
+from complextorch.representations import StateSpaceModel, build_var_system
 from complextorch.simulate import simulate_var
 from complextorch.measures import temporal_mvgc, pairwise_spectral_gc, discrete_entropy, discrete_mutual_information, discrete_total_correlation, lempel_ziv_complexity, gaussian_phiid_mmi
 
 
 def latent_system():
     dtype=torch.float64
-    return LinearDynamicalSystem(torch.tensor([[.8,.1],[0.,.65]],dtype=dtype),torch.tensor([[1.,0.],[.2,1.]],dtype=dtype),.05*torch.eye(2,dtype=dtype),.1*torch.eye(2,dtype=dtype),state_covariance=torch.eye(2,dtype=dtype))
+    return StateSpaceModel(torch.tensor([[.8,.1],[0.,.65]],dtype=dtype),torch.tensor([[1.,0.],[.2,1.]],dtype=dtype),.05*torch.eye(2,dtype=dtype),.1*torch.eye(2,dtype=dtype),state_covariance=torch.eye(2,dtype=dtype))
 
 
 def simulate_ssm(system,n=400):

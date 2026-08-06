@@ -22,11 +22,11 @@ from ..control import (
     var_to_innovations_state_space,
 )
 from ..linalg import spd_logdet, spd_solve, symmetrise
-from ..representations import LinearDynamicalSystem, VARSystem
+from ..representations import StateSpaceModel, VARSystem
 from .gaussian import gaussian_entropy, gaussian_mutual_information, total_correlation
 
-Model = VARSystem | LinearDynamicalSystem | InnovationsStateSpace
-CovarianceModel = VARSystem | LinearDynamicalSystem
+Model = VARSystem | StateSpaceModel | InnovationsStateSpace
+CovarianceModel = VARSystem | StateSpaceModel
 
 
 def as_innovations(model: Model) -> InnovationsStateSpace:
@@ -35,7 +35,7 @@ def as_innovations(model: Model) -> InnovationsStateSpace:
         return model
     if isinstance(model, VARSystem):
         return var_to_innovations_state_space(model)
-    if isinstance(model, LinearDynamicalSystem):
+    if isinstance(model, StateSpaceModel):
         form = innovations_form(model)
         return InnovationsStateSpace(
             model.transition,
@@ -86,7 +86,7 @@ def observation_autocovariances(model: CovarianceModel, max_lag: int = 1) -> tor
         single = False
     else:
         if model.state_covariance is None:
-            raise ValueError("LinearDynamicalSystem.state_covariance is required")
+            raise ValueError("StateSpaceModel.state_covariance is required")
         transition, transition_single = _batched_matrix(model.transition)
         observation, observation_single = _batched_matrix(model.observation)
         state_covariance, covariance_single = _batched_matrix(model.state_covariance)

@@ -1,6 +1,6 @@
 """Torch-first batched linear-dynamics inference and complexity measures."""
 from .adapters import from_complexbox_timeseries, from_complexbox_var, to_complexbox_timeseries, to_complexbox_var
-from .representations import LinearDynamicalSystem, VARSystem, build_var_system, companion_matrix
+from .representations import StateSpaceModel, VARSystem, build_var_system, companion_matrix
 from .selection import EpochTimeSeriesSplit, VAROrderSearchCV, VAROrderSearchResult, VAROrderSelectionIC, VARInformationCriteriaResult, StateSpaceOrderSelection, StateSpaceOrderSelectionResult
 from .simulate import demo_var, random_stable_var, simulate_var, automatic_burnin, random_correlation_matrix, random_positive_definite_covariance
 from .var import VAR, VARParameters
@@ -10,7 +10,7 @@ from .measures.primary import ModelMeasureConfig, ModelMeasureContext, build_mea
 from .measures.secondary import WhitenessResult, consistency, residual_whiteness, mvgc_pvalue, significance
 
 __all__ = [
-    "VAR", "VARParameters", "VARSystem", "LinearDynamicalSystem", "build_var_system", "companion_matrix",
+    "VAR", "VARParameters", "VARSystem", "StateSpaceModel", "build_var_system", "companion_matrix",
     "EpochTimeSeriesSplit", "VAROrderSearchCV", "VAROrderSearchResult", "VAROrderSelectionIC", "VARInformationCriteriaResult",
     "StateSpaceOrderSelection", "StateSpaceOrderSelectionResult",
     "simulate_var", "automatic_burnin", "random_stable_var", "random_correlation_matrix", "random_positive_definite_covariance", "demo_var",

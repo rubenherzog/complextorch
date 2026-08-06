@@ -28,7 +28,7 @@ from sklearn.base import BaseEstimator
 
 from ._typing import ArrayLike
 from .linalg import stable_cholesky
-from .representations import LinearDynamicalSystem, VARSystem, build_var_system
+from .representations import StateSpaceModel, VARSystem, build_var_system
 
 
 @dataclass(frozen=True)
@@ -749,7 +749,7 @@ class VAR(BaseEstimator):
             self.coef_, self.noise_covariance_, lyapunov_method=lyapunov_method
         )
 
-    def to_state_space(self, *, lyapunov_method="doubling") -> LinearDynamicalSystem:
+    def to_state_space(self, *, lyapunov_method="doubling") -> StateSpaceModel:
         """Convert to state space.
         
         Parameters

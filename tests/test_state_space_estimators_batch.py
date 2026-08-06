@@ -7,7 +7,7 @@ from complextorch import (
     N4SID,
     StateSpaceOrderSelection,
 )
-from complextorch.representations import LinearDynamicalSystem
+from complextorch.representations import StateSpaceModel
 
 
 def _data(batch=3, time=120, variables=2):
@@ -48,7 +48,7 @@ def test_state_space_selector_refits_larimore_in_pooled_mode():
 
 def test_linear_gaussian_em_accepts_batched_trajectories():
     x = _data(batch=2, time=60)
-    system = LinearDynamicalSystem(
+    system = StateSpaceModel(
         transition=torch.eye(2, dtype=torch.float64) * 0.5,
         observation=torch.eye(2, dtype=torch.float64),
         process_covariance=torch.eye(2, dtype=torch.float64),

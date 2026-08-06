@@ -1,5 +1,5 @@
 import torch
-from complextorch import LinearDynamicalSystem, optimise_dynamical_dependence_projection
+from complextorch import StateSpaceModel, optimise_dynamical_dependence_projection
 from complextorch.simulate import random_stable_var, simulate_var
 from complextorch.measures import temporal_mvgc, spectral_mvgc, gaussian_phiid_atoms
 
@@ -26,7 +26,7 @@ def test_projection_search_reuses_state_space_control_pipeline():
     observation = torch.tensor([[1.0, 0.0], [0.2, 1.0]], dtype=torch.float64)
     process_noise = 0.05 * torch.eye(2, dtype=torch.float64)
     observation_noise = 0.1 * torch.eye(2, dtype=torch.float64)
-    system = LinearDynamicalSystem(transition, observation, process_noise, observation_noise, state_covariance=torch.eye(2, dtype=torch.float64))
+    system = StateSpaceModel(transition, observation, process_noise, observation_noise, state_covariance=torch.eye(2, dtype=torch.float64))
     result = optimise_dynamical_dependence_projection(system, 1, n_candidates=16, seed=5)
     assert result.projection.shape == (1, 2)
     assert result.history.shape[0] == 16

@@ -28,7 +28,7 @@ import torch
 from sklearn.base import BaseEstimator
 
 from .linalg import symmetrise
-from .representations import LinearDynamicalSystem
+from .representations import StateSpaceModel
 from .control import InnovationsStateSpace
 from ._state_space_order import _block_hankel, _resolve_dtype
 
@@ -514,7 +514,7 @@ class N4SID(BaseEstimator):
             process_covariance = process_covariance[0]
             observation_covariance = observation_covariance[0]
             state_covariance = state_covariance[0]
-        self.system_ = LinearDynamicalSystem(
+        self.system_ = StateSpaceModel(
             transition,
             observation,
             process_covariance,
@@ -780,7 +780,7 @@ class LinearGaussianEM(BaseEstimator):
                 process_covariance = process_covariance[0]
                 observation_covariance = observation_covariance[0]
                 state_covariance = state_covariance[0]
-            system = LinearDynamicalSystem(
+            system = StateSpaceModel(
                 transition,
                 observation,
                 process_covariance,
