@@ -1,7 +1,8 @@
 """Torch-first batched linear-dynamics inference and complexity measures."""
 from .adapters import from_complexbox_timeseries, from_complexbox_var, to_complexbox_timeseries, to_complexbox_var
 from .representations import StateSpaceModel, VARSystem, build_var_system, companion_matrix
-from .selection import EpochTimeSeriesSplit, VAROrderSearchCV, VAROrderSearchResult, VAROrderSelectionIC, VARInformationCriteriaResult, StateSpaceOrderSelection, StateSpaceOrderSelectionResult
+from .selection import EpochTimeSeriesSplit, VAROrderSelectionIC, VARInformationCriteriaResult, StateSpaceOrderSelection, StateSpaceOrderSelectionResult
+from .var_selection_cv import VAROrderSearchCV, VAROrderSearchResult, VAROrderScore
 from .state_space_selection import StateSpaceOrderSearchCV, StateSpaceOrderSearchResult, StateSpaceOrderScore
 from .simulate import demo_var, random_stable_var, simulate_var, automatic_burnin, random_correlation_matrix, random_positive_definite_covariance
 from .var import VAR, VARParameters
@@ -12,7 +13,7 @@ from .measures.secondary import WhitenessResult, consistency, residual_whiteness
 
 __all__ = [
     "VAR", "VARParameters", "VARSystem", "StateSpaceModel", "build_var_system", "companion_matrix",
-    "EpochTimeSeriesSplit", "VAROrderSearchCV", "VAROrderSearchResult", "VAROrderSelectionIC", "VARInformationCriteriaResult",
+    "EpochTimeSeriesSplit", "VAROrderSearchCV", "VAROrderSearchResult", "VAROrderScore", "VAROrderSelectionIC", "VARInformationCriteriaResult",
     "StateSpaceOrderSelection", "StateSpaceOrderSelectionResult", "StateSpaceOrderSearchCV", "StateSpaceOrderSearchResult", "StateSpaceOrderScore",
     "simulate_var", "automatic_burnin", "random_stable_var", "random_correlation_matrix", "random_positive_definite_covariance", "demo_var",
     "from_complexbox_timeseries", "to_complexbox_timeseries", "from_complexbox_var", "to_complexbox_var",
