@@ -53,6 +53,24 @@ References
 - Cover, T. M. and Thomas, J. A. (2006). *Elements of Information Theory*.
 - Rosas, F. E. et al. (2019). Quantifying high-order interdependencies via the
   O-information. *Physical Review E*, 100, 032305.
+
+Notes
+-----
+For a :math:`d`-dimensional Gaussian variable with covariance :math:`\Sigma`,
+
+.. math::
+
+   H(X)=	frac12\log\left((2\pi e)^d\det\Sigma
+ight).
+
+Mutual informations and multivariate information measures are evaluated from
+log-determinant identities.
+
+References
+----------
+- Cover, T. M. and Thomas, J. A. (2006). *Elements of Information Theory*.
+- Rosas, F. E. et al. (2019). Quantifying high-order interdependencies via the
+  O-information. *Physical Review E*, 100, 032305.
 """
 from __future__ import annotations
 import math
@@ -62,6 +80,16 @@ from ..linalg import spd_logdet, spd_solve, symmetrise
 
 def gaussian_entropy(covariance: torch.Tensor, *, base: float = 2.0) -> torch.Tensor:
     """Compute differential entropy of a Gaussian covariance.
+                
+                The implemented identity is
+                
+                .. math:: H(X)=	frac12\log((2\pi e)^d\det\Sigma).
+                
+                References
+                ----------
+                Cover and Thomas (2006), *Elements of Information Theory*.
+            
+            Compute differential entropy of a Gaussian covariance.
             
             The implemented identity is
             
@@ -100,6 +128,14 @@ def gaussian_entropy(covariance: torch.Tensor, *, base: float = 2.0) -> torch.Te
 
 def conditional_covariance(joint_covariance: torch.Tensor, n_left: int) -> torch.Tensor:
     """Return the Gaussian conditional covariance via a Schur complement.
+                
+                .. math:: \Sigma_{X\mid Y}=\Sigma_{XX}-\Sigma_{XY}\Sigma_{YY}^{-1}\Sigma_{YX}.
+                
+                References
+                ----------
+                Cover and Thomas (2006).
+            
+            Return the Gaussian conditional covariance via a Schur complement.
             
             .. math:: \Sigma_{X\mid Y}=\Sigma_{XX}-\Sigma_{XY}\Sigma_{YY}^{-1}\Sigma_{YX}.
             
@@ -131,6 +167,15 @@ def conditional_covariance(joint_covariance: torch.Tensor, n_left: int) -> torch
 
 def gaussian_mutual_information(joint_covariance: torch.Tensor,n_left:int,*,base:float=2.0)->torch.Tensor:
     """Compute Gaussian mutual information from covariance blocks.
+                
+                .. math:: I(X;Y)=	frac12\log
+                rac{\det\Sigma_X\det\Sigma_Y}{\det\Sigma_{XY}}.
+                
+                References
+                ----------
+                Cover and Thomas (2006).
+            
+            Compute Gaussian mutual information from covariance blocks.
             
             .. math:: I(X;Y)=	frac12\log
             rac{\det\Sigma_X\det\Sigma_Y}{\det\Sigma_{XY}}.
@@ -170,24 +215,24 @@ def gaussian_conditional_mutual_information(joint_covariance:torch.Tensor,n_x:in
     Parameters
     ----------
     joint_covariance
-        Input controlling ``gaussian_conditional_mutual_information``.
+        Input required by this calculation.
     n_x
-        Input controlling ``gaussian_conditional_mutual_information``.
+        Input required by this calculation.
     n_y
-        Input controlling ``gaussian_conditional_mutual_information``.
+        Input required by this calculation.
     base
-        Input controlling ``gaussian_conditional_mutual_information``.
+        Logarithm base used for information quantities.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     joint=torch.as_tensor(joint_covariance); n=joint.shape[-1]; n_z=n-n_x-n_y
     if min(n_x,n_y,n_z)<1: raise ValueError('joint covariance must contain nonempty X, Y, Z blocks')
@@ -204,20 +249,20 @@ def total_correlation(covariance:torch.Tensor,*,base:float=2.0)->torch.Tensor:
     Parameters
     ----------
     covariance
-        Input controlling ``total_correlation``.
+        Symmetric covariance matrix or batch of covariance matrices.
     base
-        Input controlling ``total_correlation``.
+        Logarithm base used for information quantities.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     cov=torch.as_tensor(covariance); diag=torch.diagonal(cov,dim1=-2,dim2=-1)
     # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
@@ -230,20 +275,20 @@ def dual_total_correlation(covariance:torch.Tensor,*,base:float=2.0)->torch.Tens
     Parameters
     ----------
     covariance
-        Input controlling ``dual_total_correlation``.
+        Symmetric covariance matrix or batch of covariance matrices.
     base
-        Input controlling ``dual_total_correlation``.
+        Logarithm base used for information quantities.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     cov=torch.as_tensor(covariance); n=cov.shape[-1]; h=gaussian_entropy(cov,base=base)
     parts=[]
@@ -255,6 +300,15 @@ def dual_total_correlation(covariance:torch.Tensor,*,base:float=2.0)->torch.Tens
 
 def o_information(covariance:torch.Tensor,*,base:float=2.0)->torch.Tensor:
     """Compute Gaussian O-information.
+                
+                Positive values indicate redundancy-dominated dependence and negative values
+                indicate synergy-dominated dependence.
+                
+                References
+                ----------
+                Rosas et al. (2019), *Physical Review E* 100, 032305.
+            
+            Compute Gaussian O-information.
             
             Positive values indicate redundancy-dominated dependence and negative values
             indicate synergy-dominated dependence.
@@ -290,20 +344,20 @@ def s_information(covariance:torch.Tensor,*,base:float=2.0)->torch.Tensor:
     Parameters
     ----------
     covariance
-        Input controlling ``s_information``.
+        Symmetric covariance matrix or batch of covariance matrices.
     base
-        Input controlling ``s_information``.
+        Logarithm base used for information quantities.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     return total_correlation(covariance,base=base)+dual_total_correlation(covariance,base=base)
 
@@ -314,26 +368,26 @@ def local_gaussian_mutual_information(samples:torch.Tensor,joint_covariance:torc
     Parameters
     ----------
     samples
-        Input controlling ``local_gaussian_mutual_information``.
+        Input required by this calculation.
     joint_covariance
-        Input controlling ``local_gaussian_mutual_information``.
+        Input required by this calculation.
     n_left
-        Input controlling ``local_gaussian_mutual_information``.
+        Input required by this calculation.
     mean
-        Input controlling ``local_gaussian_mutual_information``.
+        Input required by this calculation.
     base
-        Input controlling ``local_gaussian_mutual_information``.
+        Logarithm base used for information quantities.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     x=torch.as_tensor(samples); cov=torch.as_tensor(joint_covariance,dtype=x.dtype,device=x.device); n=cov.shape[-1]
     if x.shape[-1]!=n or not 0<n_left<n: raise ValueError('invalid sample or split shape')

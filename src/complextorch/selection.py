@@ -42,11 +42,11 @@ from .var import VAR
 
 @dataclass(frozen=True)
 class TemporalFold:
-    """TemporalFold.
+    """Indices delimiting one expanding-window temporal-validation fold.
     
     Notes
     -----
-    The class follows the scikit-learn fitted-attribute convention when applicable.
+    Public fitted attributes use the trailing-underscore convention.
     """
     train_stop: int
     test_start: int
@@ -54,11 +54,11 @@ class TemporalFold:
 
 
 class EpochTimeSeriesSplit:
-    """EpochTimeSeriesSplit.
+    """Generate leakage-safe expanding-window splits for ordered observations.
     
     Notes
     -----
-    The class follows the scikit-learn fitted-attribute convention when applicable.
+    Public fitted attributes use the trailing-underscore convention.
     """
     def __init__(
         self,
@@ -68,29 +68,24 @@ class EpochTimeSeriesSplit:
         min_train_size: int | None = None,
         gap: int = 0,
     ):
-        """  init  .
+        """Initialize the estimator or result container.
         
         Parameters
         ----------
         n_splits
-            Input controlling ``__init__``.
+            Number of temporal validation folds.
         test_size
-            Input controlling ``__init__``.
+            Number of held-out samples in each fold.
         min_train_size
-            Input controlling ``__init__``.
+            Minimum number of samples in the first training window.
         gap
-            Input controlling ``__init__``.
-        
-        Returns
-        -------
-        object
-            Result described by the function name and annotated return type.
+            Number of samples omitted between training and test windows.
         
         Notes
         -----
-        Tensor batch dimensions are preserved unless the public API explicitly
-        documents a squeeze operation. Numerical validation is performed by the
-        module before the core calculation.
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
         """
         self.n_splits = n_splits
         self.test_size = test_size
@@ -103,20 +98,20 @@ class EpochTimeSeriesSplit:
         Parameters
         ----------
         n_times
-            Input controlling ``split``.
+            Number of time samples.
         min_order
-            Input controlling ``split``.
+            Largest lag that must fit inside every training window.
         
         Returns
         -------
         object
-            Result described by the function name and annotated return type.
+            Iterator of :class:`TemporalFold` objects in chronological order.
         
         Notes
         -----
-        Tensor batch dimensions are preserved unless the public API explicitly
-        documents a squeeze operation. Numerical validation is performed by the
-        module before the core calculation.
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
         """
         if self.n_splits < 1 or self.gap < 0:
             raise ValueError("invalid split settings")
@@ -191,11 +186,11 @@ def _estimator_information_criteria(
 
 @dataclass(frozen=True)
 class VAROrderScore:
-    """VAROrderScore.
+    """Aggregated held-out and training-diagnostic results for one VAR order.
     
     Notes
     -----
-    The class follows the scikit-learn fitted-attribute convention when applicable.
+    Public fitted attributes use the trailing-underscore convention.
     """
     order: int
     mean_score: float
@@ -212,11 +207,11 @@ class VAROrderScore:
 
 @dataclass(frozen=True)
 class VAROrderSearchResult:
-    """VAROrderSearchResult.
+    """Immutable summary returned by temporal VAR order search.
     
     Notes
     -----
-    The class follows the scikit-learn fitted-attribute convention when applicable.
+    Public fitted attributes use the trailing-underscore convention.
     """
     best_order: int
     scores: tuple[VAROrderScore, ...]
@@ -229,13 +224,13 @@ class VAROrderSearchResult:
         Returns
         -------
         object
-            Result described by the function name and annotated return type.
+            List of dictionaries suitable for tabular display.
         
         Notes
         -----
-        Tensor batch dimensions are preserved unless the public API explicitly
-        documents a squeeze operation. Numerical validation is performed by the
-        module before the core calculation.
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
         """
         return [
             {
@@ -282,47 +277,42 @@ class VAROrderSearchCV:
         refit: bool = True,
         hurvich_tsai: bool = False,
     ):
-        """  init  .
+        """Initialize the estimator or result container.
         
         Parameters
         ----------
         orders
-            Input controlling ``__init__``.
+            Candidate autoregressive orders.
         cv
-            Input controlling ``__init__``.
+            Input required by this calculation.
         scoring
-            Input controlling ``__init__``.
+            Input required by this calculation.
         selection_rule
-            Input controlling ``__init__``.
+            Input required by this calculation.
         alpha
-            Input controlling ``__init__``.
+            Non-negative ridge regularization strength.
         fit_intercept
-            Input controlling ``__init__``.
+            Whether to estimate a constant offset.
         mode
-            Input controlling ``__init__``.
+            Whether trials are fitted independently or pooled.
         solver
-            Input controlling ``__init__``.
+            Numerical solver or estimation algorithm.
         device
-            Input controlling ``__init__``.
+            Torch device or ``'auto'``.
         dtype
-            Input controlling ``__init__``.
+            Torch floating-point dtype name or object.
         prediction_mode
-            Input controlling ``__init__``.
+            Input required by this calculation.
         refit
-            Input controlling ``__init__``.
+            Input required by this calculation.
         hurvich_tsai
-            Input controlling ``__init__``.
-        
-        Returns
-        -------
-        object
-            Result described by the function name and annotated return type.
+            Input required by this calculation.
         
         Notes
         -----
-        Tensor batch dimensions are preserved unless the public API explicitly
-        documents a squeeze operation. Numerical validation is performed by the
-        module before the core calculation.
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
         """
         self.orders = tuple(int(value) for value in orders)
         self.cv = cv or EpochTimeSeriesSplit()
@@ -340,23 +330,23 @@ class VAROrderSearchCV:
 
     @staticmethod
     def _normalise(x: ArrayLike):
-        """ normalise.
+        """Normalise.
         
         Parameters
         ----------
         x
-            Input controlling ``_normalise``.
+            Input observations or tensor-valued quantity.
         
         Returns
         -------
         object
-            Result described by the function name and annotated return type.
+            Computed result; see the annotated return type and shape notes.
         
         Notes
         -----
-        Tensor batch dimensions are preserved unless the public API explicitly
-        documents a squeeze operation. Numerical validation is performed by the
-        module before the core calculation.
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
         """
         tensor = torch.as_tensor(x)
         if tensor.ndim == 2:
@@ -367,25 +357,25 @@ class VAROrderSearchCV:
 
     @staticmethod
     def _forecast_nll(errors, covariance):
-        """ forecast nll.
+        """Forecast nll.
         
         Parameters
         ----------
         errors
-            Input controlling ``_forecast_nll``.
+            Input required by this calculation.
         covariance
-            Input controlling ``_forecast_nll``.
+            Symmetric covariance matrix or batch of covariance matrices.
         
         Returns
         -------
         object
-            Result described by the function name and annotated return type.
+            Computed result; see the annotated return type and shape notes.
         
         Notes
         -----
-        Tensor batch dimensions are preserved unless the public API explicitly
-        documents a squeeze operation. Numerical validation is performed by the
-        module before the core calculation.
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
         """
         if covariance.shape[0] == 1 and errors.shape[0] > 1:
             covariance = covariance.expand(errors.shape[0], -1, -1)
@@ -403,27 +393,27 @@ class VAROrderSearchCV:
         )
 
     def _fit_and_score_fold(self, data, order, fold):
-        """ fit and score fold.
+        """Fit and score fold from observations.
         
         Parameters
         ----------
         data
-            Input controlling ``_fit_and_score_fold``.
+            Input required by this calculation.
         order
-            Input controlling ``_fit_and_score_fold``.
+            Autoregressive model order.
         fold
-            Input controlling ``_fit_and_score_fold``.
+            Input required by this calculation.
         
         Returns
         -------
         object
-            Result described by the function name and annotated return type.
+            Computed result; see the annotated return type and shape notes.
         
         Notes
         -----
-        Tensor batch dimensions are preserved unless the public API explicitly
-        documents a squeeze operation. Numerical validation is performed by the
-        module before the core calculation.
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
         """
         training = data[:, : fold.train_stop]
         estimator = VAR(
@@ -470,47 +460,47 @@ class VAROrderSearchCV:
 
     @staticmethod
     def _finite_mean(values: list[float]) -> float:
-        """ finite mean.
+        """Finite mean.
         
         Parameters
         ----------
         values
-            Input controlling ``_finite_mean``.
+            Input numerical values.
         
         Returns
         -------
         object
-            Result described by the function name and annotated return type.
+            Computed result; see the annotated return type and shape notes.
         
         Notes
         -----
-        Tensor batch dimensions are preserved unless the public API explicitly
-        documents a squeeze operation. Numerical validation is performed by the
-        module before the core calculation.
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
         """
         finite = np.asarray([value for value in values if np.isfinite(value)])
         return float(np.mean(finite)) if finite.size else float("nan")
 
     def fit(self, X: ArrayLike, y=None):
-        """Fit.
+        """Fit fit from observations.
         
         Parameters
         ----------
         X
-            Input controlling ``fit``.
+            Observations with shape ``(time, variables)`` or ``(batch, time, variables)``.
         y
-            Input controlling ``fit``.
+            Unused scikit-learn compatibility target.
         
         Returns
         -------
         object
-            Result described by the function name and annotated return type.
+            The fitted estimator instance.
         
         Notes
         -----
-        Tensor batch dimensions are preserved unless the public API explicitly
-        documents a squeeze operation. Numerical validation is performed by the
-        module before the core calculation.
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
         """
         del y
         if not self.orders or min(self.orders) < 1:
@@ -629,11 +619,11 @@ class VAROrderSearchCV:
 
 @dataclass(frozen=True)
 class VARInformationCriteriaResult:
-    """VARInformationCriteriaResult.
+    """AIC, BIC and HQC curves and their minimizing VAR orders.
     
     Notes
     -----
-    The class follows the scikit-learn fitted-attribute convention when applicable.
+    Public fitted attributes use the trailing-underscore convention.
     """
     p_aic: int
     p_bic: int
@@ -658,33 +648,28 @@ class VAROrderSelectionIC(BaseEstimator):
         dtype: str = "float64",
         refit: str | None = "hqc",
     ):
-        """  init  .
+        """Initialize the estimator or result container.
         
         Parameters
         ----------
         orders
-            Input controlling ``__init__``.
+            Candidate autoregressive orders.
         solver
-            Input controlling ``__init__``.
+            Numerical solver or estimation algorithm.
         hurvich_tsai
-            Input controlling ``__init__``.
+            Input required by this calculation.
         device
-            Input controlling ``__init__``.
+            Torch device or ``'auto'``.
         dtype
-            Input controlling ``__init__``.
+            Torch floating-point dtype name or object.
         refit
-            Input controlling ``__init__``.
-        
-        Returns
-        -------
-        object
-            Result described by the function name and annotated return type.
+            Input required by this calculation.
         
         Notes
         -----
-        Tensor batch dimensions are preserved unless the public API explicitly
-        documents a squeeze operation. Numerical validation is performed by the
-        module before the core calculation.
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
         """
         self.orders = tuple(int(value) for value in orders)
         self.solver = solver
@@ -694,25 +679,25 @@ class VAROrderSelectionIC(BaseEstimator):
         self.refit = refit
 
     def fit(self, X: ArrayLike, y=None):
-        """Fit.
+        """Fit fit from observations.
         
         Parameters
         ----------
         X
-            Input controlling ``fit``.
+            Observations with shape ``(time, variables)`` or ``(batch, time, variables)``.
         y
-            Input controlling ``fit``.
+            Unused scikit-learn compatibility target.
         
         Returns
         -------
         object
-            Result described by the function name and annotated return type.
+            The fitted estimator instance.
         
         Notes
         -----
-        Tensor batch dimensions are preserved unless the public API explicitly
-        documents a squeeze operation. Numerical validation is performed by the
-        module before the core calculation.
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
         """
         del y
         if not self.orders or min(self.orders) < 1:

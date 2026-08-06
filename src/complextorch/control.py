@@ -29,25 +29,25 @@ from .representations import LinearDynamicalSystem, VARSystem
 
 
 def _batched(t: torch.Tensor, ndim: int) -> tuple[torch.Tensor, bool]:
-    """ batched.
+    """Batched.
     
     Parameters
     ----------
     t
-        Input controlling ``_batched``.
+        Input required by this calculation.
     ndim
-        Input controlling ``_batched``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     x = torch.as_tensor(t)
     single = x.ndim == ndim - 1
@@ -56,6 +56,13 @@ def _batched(t: torch.Tensor, ndim: int) -> tuple[torch.Tensor, bool]:
 
 def solve_dare(transition, observation, process_covariance, observation_covariance):
     """Solve the filtering discrete algebraic Riccati equation.
+                
+                Solve a discrete algebraic Riccati equation for steady-state covariance.
+                
+                References
+                ----------
+                Anderson and Moore (1979), *Optimal Filtering*; SciPy/PyTorch-compatible control
+                implementations.
             
             Solve a discrete algebraic Riccati equation for steady-state covariance.
             
@@ -104,10 +111,16 @@ def solve_generalized_dare(
     max_iter: int = 10000,
 ) -> torch.Tensor:
     """Solve the filtering DARE with correlated process/observation noise.
-            
-                Iterates
-                P = A P A' + Q - (A P C' + S)(C P C' + R)^-1(A P C' + S)'.
-                This form is required when marginalising an innovations state-space model.
+                
+                    Iterates
+                    P = A P A' + Q - (A P C' + S)(C P C' + R)^-1(A P C' + S)'.
+                    This form is required when marginalising an innovations state-space model.
+                
+                Solve the generalised DARE with process--observation cross covariance.
+                
+                References
+                ----------
+                Anderson and Moore (1979); Barnett and Seth (2015).
             
             Solve the generalised DARE with process--observation cross covariance.
             
@@ -149,11 +162,11 @@ def solve_generalized_dare(
 
 @dataclass(frozen=True)
 class InnovationsForm:
-    """InnovationsForm.
+    """Innovationsform.
     
     Notes
     -----
-    The class follows the scikit-learn fitted-attribute convention when applicable.
+    Public fitted attributes use the trailing-underscore convention.
     """
     covariance: torch.Tensor
     gain: torch.Tensor
@@ -162,6 +175,12 @@ class InnovationsForm:
 
 def innovations_form(system: LinearDynamicalSystem) -> InnovationsForm:
     """Return steady-state innovations covariance and Kalman gain.
+                
+                Convert a linear Gaussian state-space model to steady-state innovations form.
+                
+                References
+                ----------
+                Kalman (1960); Anderson and Moore (1979); Barnett and Seth (2015).
             
             Convert a linear Gaussian state-space model to steady-state innovations form.
             
@@ -206,6 +225,12 @@ class InnovationsStateSpace:
 
 def var_to_innovations_state_space(system: VARSystem) -> InnovationsStateSpace:
     """Convert a VAR exactly to predictor-form innovations state space.
+                
+                Convert a VAR(p) exactly to companion innovations state space.
+                
+                References
+                ----------
+                Lütkepohl (2005); Barnett and Seth (2015).
             
             Convert a VAR(p) exactly to companion innovations state space.
             
@@ -303,20 +328,20 @@ def dynamical_dependence(system: LinearDynamicalSystem, *, base: float = 2.0):
     Parameters
     ----------
     system
-        Input controlling ``dynamical_dependence``.
+        Canonical VAR or state-space system.
     base
-        Input controlling ``dynamical_dependence``.
+        Logarithm base used for information quantities.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     if system.state_covariance is None:
         raise ValueError("state_covariance is required")
@@ -334,11 +359,11 @@ def stochastic_interaction(system: LinearDynamicalSystem, groups, *, base: float
 
 @dataclass(frozen=True)
 class ProjectionSearchResult:
-    """ProjectionSearchResult.
+    """Result of optimizing a macroscopic state-space projection.
     
     Notes
     -----
-    The class follows the scikit-learn fitted-attribute convention when applicable.
+    Public fitted attributes use the trailing-underscore convention.
     """
     projection: torch.Tensor
     objective: torch.Tensor

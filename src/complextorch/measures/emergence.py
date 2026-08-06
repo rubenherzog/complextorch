@@ -19,25 +19,25 @@ from ..representations import VARSystem
 
 
 def _projection(macro_projection:torch.Tensor,system:VARSystem)->torch.Tensor:
-    """ projection.
+    """Projection.
     
     Parameters
     ----------
     macro_projection
-        Input controlling ``_projection``.
+        Linear map defining macroscopic variables.
     system
-        Input controlling ``_projection``.
+        Canonical VAR or state-space system.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     m=torch.as_tensor(macro_projection,dtype=system.coefficients.dtype,device=system.coefficients.device)
     if m.ndim==2: m=m.unsqueeze(0)
@@ -47,27 +47,27 @@ def _projection(macro_projection:torch.Tensor,system:VARSystem)->torch.Tensor:
 
 
 def _mi_from_cov(a:torch.Tensor,b:torch.Tensor,cross:torch.Tensor)->torch.Tensor:
-    """ mi from cov.
+    """Mi from cov.
     
     Parameters
     ----------
     a
-        Input controlling ``_mi_from_cov``.
+        Input required by this calculation.
     b
-        Input controlling ``_mi_from_cov``.
+        Input required by this calculation.
     cross
-        Input controlling ``_mi_from_cov``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     cond=symmetrise(a-cross@spd_solve(b,cross.transpose(-1,-2)))
     # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
@@ -115,18 +115,18 @@ def emergence_from_observations(current:torch.Tensor,past:torch.Tensor,macro_pro
         Parameters
         ----------
         v
-            Input controlling ``cov``.
+            Input required by this calculation.
         
         Returns
         -------
         object
-            Result described by the function name and annotated return type.
+            Computed result; see the annotated return type and shape notes.
         
         Notes
         -----
-        Tensor batch dimensions are preserved unless the public API explicitly
-        documents a squeeze operation. Numerical validation is performed by the
-        module before the core calculation.
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
         """
         v=v-v.mean(0); return v.T@v/(v.shape[0]-1)
     sy=cov(y); sz=cov(z); joint=torch.cat([y,z],-1); sj=cov(joint); cross=sj[:y.shape[1],y.shape[1]:]

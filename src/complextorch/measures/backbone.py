@@ -49,23 +49,23 @@ def as_innovations(model: Model) -> InnovationsStateSpace:
 
 
 def _batched_matrix(value: torch.Tensor) -> tuple[torch.Tensor, bool]:
-    """ batched matrix.
+    """Batched matrix.
     
     Parameters
     ----------
     value
-        Input controlling ``_batched_matrix``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     value = torch.as_tensor(value)
     single = value.ndim == 2
@@ -226,20 +226,20 @@ def covariance_amplification_from_model(
     Parameters
     ----------
     model
-        Input controlling ``covariance_amplification_from_model``.
+        VAR or linear state-space model.
     observation_covariance
-        Input controlling ``covariance_amplification_from_model``.
+        Observation-noise covariance matrix.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     covariance = (
         observation_autocovariances(model, 0)[..., 0, :, :]

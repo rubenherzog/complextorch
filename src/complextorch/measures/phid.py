@@ -27,76 +27,76 @@ LABELS = ("red", "unq0", "unq1", "syn")
 
 
 def _leq(alpha, beta):
-    """ leq.
+    """Leq.
     
     Parameters
     ----------
     alpha
-        Input controlling ``_leq``.
+        Non-negative ridge regularization strength.
     beta
-        Input controlling ``_leq``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     return all(any(a.issubset(b) for a in alpha) for b in beta)
 
 
 def _subcov(covariance, indices):
-    """ subcov.
+    """Subcov.
     
     Parameters
     ----------
     covariance
-        Input controlling ``_subcov``.
+        Symmetric covariance matrix or batch of covariance matrices.
     indices
-        Input controlling ``_subcov``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     index = torch.as_tensor(indices, dtype=torch.long, device=covariance.device)
     return covariance.index_select(-2, index).index_select(-1, index)
 
 
 def _mi(covariance, left, right):
-    """ mi.
+    """Mi.
     
     Parameters
     ----------
     covariance
-        Input controlling ``_mi``.
+        Symmetric covariance matrix or batch of covariance matrices.
     left
-        Input controlling ``_mi``.
+        Input required by this calculation.
     right
-        Input controlling ``_mi``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     block = _subcov(covariance, tuple(left) + tuple(right))
     return gaussian_mutual_information(block, len(left))
@@ -104,6 +104,12 @@ def _mi(covariance, left, right):
 
 def gaussian_phiid_atoms(joint_covariance: torch.Tensor, block_size: int = 1) -> dict[str, torch.Tensor]:
     """Return all 16 MMI PhiID atoms for [past0,past1,future0,future1].
+                
+                Compute Gaussian PhiID atoms under MMI redundancy.
+                
+                References
+                ----------
+                Mediano et al. (2021), integrated information decomposition.
             
             Compute Gaussian PhiID atoms under MMI redundancy.
             

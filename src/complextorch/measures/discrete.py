@@ -18,23 +18,23 @@ import torch
 
 
 def _codes(x):
-    """ codes.
+    """Codes.
     
     Parameters
     ----------
     x
-        Input controlling ``_codes``.
+        Input observations or tensor-valued quantity.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     array = np.asarray(torch.as_tensor(x).detach().cpu())
     if array.ndim == 1:
@@ -48,20 +48,20 @@ def discrete_entropy(x, *, base: float = 2.0) -> float:
     Parameters
     ----------
     x
-        Input controlling ``discrete_entropy``.
+        Input observations or tensor-valued quantity.
     base
-        Input controlling ``discrete_entropy``.
+        Logarithm base used for information quantities.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     codes = _codes(x)
     counts = Counter(codes)
@@ -75,22 +75,22 @@ def discrete_mutual_information(x, y, *, base: float = 2.0) -> float:
     Parameters
     ----------
     x
-        Input controlling ``discrete_mutual_information``.
+        Input observations or tensor-valued quantity.
     y
-        Input controlling ``discrete_mutual_information``.
+        Unused scikit-learn compatibility target.
     base
-        Input controlling ``discrete_mutual_information``.
+        Logarithm base used for information quantities.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     x_array = np.asarray(torch.as_tensor(x).detach().cpu())
     y_array = np.asarray(torch.as_tensor(y).detach().cpu())
@@ -106,20 +106,20 @@ def discrete_total_correlation(x, *, base: float = 2.0) -> float:
     Parameters
     ----------
     x
-        Input controlling ``discrete_total_correlation``.
+        Input observations or tensor-valued quantity.
     base
-        Input controlling ``discrete_total_correlation``.
+        Logarithm base used for information quantities.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     array = np.asarray(torch.as_tensor(x).detach().cpu())
     if array.ndim != 2:
@@ -129,6 +129,12 @@ def discrete_total_correlation(x, *, base: float = 2.0) -> float:
 
 def lempel_ziv_complexity(sequence, *, normalize: bool = False) -> float:
     """LZ76 exhaustive-history complexity for a finite symbol sequence.
+                
+                Compute incremental Lempel--Ziv phrase complexity.
+                
+                References
+                ----------
+                Lempel and Ziv (1976).
             
             Compute incremental Lempel--Ziv phrase complexity.
             

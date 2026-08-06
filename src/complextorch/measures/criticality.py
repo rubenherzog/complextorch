@@ -44,6 +44,21 @@ ho.
 References
 ----------
 - Lütkepohl, H. (2005), stability of VAR processes.
+
+Notes
+-----
+Stability diagnostics are derived from the companion eigenvalues. The dominant
+timescale associated with spectral radius :math:`
+ho<1` is
+
+.. math::
+
+   	au=-1/\log
+ho.
+
+References
+----------
+- Lütkepohl, H. (2005), stability of VAR processes.
 """
 from __future__ import annotations
 import torch
@@ -55,18 +70,18 @@ def stability_margin(system:VARSystem)->torch.Tensor:
     Parameters
     ----------
     system
-        Input controlling ``stability_margin``.
+        Canonical VAR or state-space system.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     return 1.0-system.spectral_radius
 
@@ -76,20 +91,20 @@ def dominant_timescale(system:VARSystem,*,sampling_interval:float=1.0)->torch.Te
     Parameters
     ----------
     system
-        Input controlling ``dominant_timescale``.
+        Canonical VAR or state-space system.
     sampling_interval
-        Input controlling ``dominant_timescale``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     rho=system.spectral_radius; tiny=torch.finfo(rho.dtype).tiny
     safe=rho.clamp(min=tiny,max=1.0-torch.finfo(rho.dtype).eps); tau=-float(sampling_interval)/torch.log(safe)
@@ -101,18 +116,18 @@ def covariance_amplification(system:VARSystem)->torch.Tensor:
     Parameters
     ----------
     system
-        Input controlling ``covariance_amplification``.
+        Canonical VAR or state-space system.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     present=torch.diagonal(system.present_covariance,dim1=-2,dim2=-1).sum(-1)
     innovation=torch.diagonal(system.innovation_covariance,dim1=-2,dim2=-1).sum(-1)

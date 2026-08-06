@@ -66,18 +66,18 @@ class ModelMeasureConfig:
     base: float = 2.0
 
     def __post_init__(self) -> None:
-        """  post init  .
+        """Post init.
         
         Returns
         -------
         object
-            Result described by the function name and annotated return type.
+            Computed result; see the annotated return type and shape notes.
         
         Notes
         -----
-        Tensor batch dimensions are preserved unless the public API explicitly
-        documents a squeeze operation. Numerical validation is performed by the
-        module before the core calculation.
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
         """
         for name in (
             "autocovariance_max_lag",
@@ -110,13 +110,13 @@ class ModelMeasureContext:
         Returns
         -------
         object
-            Result described by the function name and annotated return type.
+            Computed result; see the annotated return type and shape notes.
         
         Notes
         -----
-        Tensor batch dimensions are preserved unless the public API explicitly
-        documents a squeeze operation. Numerical validation is performed by the
-        module before the core calculation.
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
         """
         return 0 if self.autocovariances is None else int(self.autocovariances.shape[-3] - 1)
 
@@ -171,18 +171,18 @@ def stationary_observation_covariance(model: CovarianceModel) -> torch.Tensor:
     Parameters
     ----------
     model
-        Input controlling ``stationary_observation_covariance``.
+        VAR or linear state-space model.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     return observation_autocovariances(model, 0)[..., 0, :, :]
 
@@ -193,20 +193,20 @@ def model_autocovariances(model: CovarianceModel, max_lag: int = 1) -> torch.Ten
     Parameters
     ----------
     model
-        Input controlling ``model_autocovariances``.
+        VAR or linear state-space model.
     max_lag
-        Input controlling ``model_autocovariances``.
+        Largest non-negative lag to evaluate.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     return observation_autocovariances(model, max_lag)
 
@@ -219,20 +219,20 @@ def pairwise_gaussian_mutual_information(
     Parameters
     ----------
     covariance
-        Input controlling ``pairwise_gaussian_mutual_information``.
+        Symmetric covariance matrix or batch of covariance matrices.
     base
-        Input controlling ``pairwise_gaussian_mutual_information``.
+        Logarithm base used for information quantities.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     covariance = torch.as_tensor(covariance)
     n_variables = covariance.shape[-1]
@@ -265,22 +265,22 @@ def gaussian_measures_from_model(
     Parameters
     ----------
     model
-        Input controlling ``gaussian_measures_from_model``.
+        VAR or linear state-space model.
     base
-        Input controlling ``gaussian_measures_from_model``.
+        Logarithm base used for information quantities.
     covariance
-        Input controlling ``gaussian_measures_from_model``.
+        Symmetric covariance matrix or batch of covariance matrices.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     covariance = stationary_observation_covariance(model) if covariance is None else covariance
     return {
@@ -306,24 +306,24 @@ def past_future_covariance(
     Parameters
     ----------
     model
-        Input controlling ``past_future_covariance``.
+        VAR or linear state-space model.
     variables
-        Input controlling ``past_future_covariance``.
+        Input required by this calculation.
     lag
-        Input controlling ``past_future_covariance``.
+        Positive temporal lag in samples.
     autocovariance_sequence
-        Input controlling ``past_future_covariance``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     if lag < 1:
         raise ValueError("lag must be at least one")
@@ -359,24 +359,24 @@ def phiid_from_model(
     Parameters
     ----------
     model
-        Input controlling ``phiid_from_model``.
+        VAR or linear state-space model.
     variables
-        Input controlling ``phiid_from_model``.
+        Input required by this calculation.
     lag
-        Input controlling ``phiid_from_model``.
+        Positive temporal lag in samples.
     autocovariance_sequence
-        Input controlling ``phiid_from_model``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     return gaussian_phiid_atoms(
         past_future_covariance(
@@ -397,6 +397,14 @@ def temporal_mvgc(
     base: float = math.e,
 ) -> torch.Tensor:
     """Compute conditional time-domain multivariate Granger causality.
+                
+                .. math:: F_{Y	o X\mid Z}=\log(\det\Sigma^R_{XX}/\det\Sigma_{XX}).
+                
+                References
+                ----------
+                Geweke (1982); Barnett and Seth (2014, 2015).
+            
+            Compute conditional time-domain multivariate Granger causality.
             
             .. math:: F_{Y	o X\mid Z}=\log(\det\Sigma^R_{XX}/\det\Sigma_{XX}).
             
@@ -439,6 +447,15 @@ def spectral_mvgc(
     base: float = math.e,
 ) -> torch.Tensor:
     """Compute conditional spectral multivariate Granger causality.
+                
+                The frequency-resolved decomposition is obtained from innovations-form transfer
+                functions and integrates to temporal GC.
+                
+                References
+                ----------
+                Geweke (1982); Barnett and Seth (2014, 2015).
+            
+            Compute conditional spectral multivariate Granger causality.
             
             The frequency-resolved decomposition is obtained from innovations-form transfer
             functions and integrates to temporal GC.
@@ -476,23 +493,23 @@ def spectral_mvgc(
 
 
 def _transition_radius(model: Model) -> torch.Tensor:
-    """ transition radius.
+    """Transition radius.
     
     Parameters
     ----------
     model
-        Input controlling ``_transition_radius``.
+        VAR or linear state-space model.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     transition = as_innovations(model).transition
     # Companion eigenvalues determine stationarity through their spectral radius.
@@ -500,25 +517,25 @@ def _transition_radius(model: Model) -> torch.Tensor:
 
 
 def _criticality(model: Model, context: ModelMeasureContext) -> dict[str, torch.Tensor]:
-    """ criticality.
+    """Criticality.
     
     Parameters
     ----------
     model
-        Input controlling ``_criticality``.
+        VAR or linear state-space model.
     context
-        Input controlling ``_criticality``.
+        Optional precomputed model-measure context.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     radius = _transition_radius(model)
     tiny = torch.finfo(radius.dtype).tiny

@@ -56,6 +56,25 @@ References
 ----------
 - Lütkepohl, H. (2005). *New Introduction to Multiple Time Series Analysis*.
 - Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
+
+Notes
+-----
+A VAR(p) process is represented as
+
+.. math::
+
+   x_t = \sum_{k=1}^{p} A_k x_{t-k} + 
+arepsilon_t,
+   \qquad 
+arepsilon_t \sim \mathcal N(0,\Sigma).
+
+Its companion-form state transition is used to connect VAR and linear
+state-space calculations.
+
+References
+----------
+- Lütkepohl, H. (2005). *New Introduction to Multiple Time Series Analysis*.
+- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -64,11 +83,11 @@ from .linalg import LyapunovInfo, solve_discrete_lyapunov, spectral_radius
 
 @dataclass(frozen=True)
 class LinearDynamicalSystem:
-    """LinearDynamicalSystem.
+    """Linear Gaussian state-space model with optional stationary state covariance.
     
     Notes
     -----
-    The class follows the scikit-learn fitted-attribute convention when applicable.
+    Public fitted attributes use the trailing-underscore convention.
     """
     transition: torch.Tensor
     observation: torch.Tensor
@@ -84,23 +103,23 @@ class LinearDynamicalSystem:
         Returns
         -------
         object
-            Result described by the function name and annotated return type.
+            Computed result; see the annotated return type and shape notes.
         
         Notes
         -----
-        Tensor batch dimensions are preserved unless the public API explicitly
-        documents a squeeze operation. Numerical validation is performed by the
-        module before the core calculation.
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
         """
         return spectral_radius(self.transition)
 
 @dataclass(frozen=True)
 class VARSystem:
-    """VARSystem.
+    """Stationary Gaussian VAR process represented by coefficients and innovation covariance.
     
     Notes
     -----
-    The class follows the scikit-learn fitted-attribute convention when applicable.
+    Public fitted attributes use the trailing-underscore convention.
     """
     coefficients: torch.Tensor
     innovation_covariance: torch.Tensor
@@ -118,41 +137,41 @@ class VARSystem:
     @property
     def n_variables(self) -> int: return int(self.coefficients.shape[2])
     def to_state_space(self) -> LinearDynamicalSystem:
-        """To state space.
+        """Convert to state space.
         
         Returns
         -------
         object
-            Result described by the function name and annotated return type.
+            Equivalent linear state-space representation.
         
         Notes
         -----
-        Tensor batch dimensions are preserved unless the public API explicitly
-        documents a squeeze operation. Numerical validation is performed by the
-        module before the core calculation.
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
         """
         batch = self.companion.shape[0]; n = self.n_variables
         zero = torch.zeros((batch,n,n),dtype=self.companion.dtype,device=self.companion.device)
         return LinearDynamicalSystem(self.companion,self.projection,self.companion_noise_covariance,zero,self.state_covariance)
 
 def _normalise_coefficients(coefficients: torch.Tensor) -> tuple[torch.Tensor,bool]:
-    """ normalise coefficients.
+    """Normalise coefficients.
     
     Parameters
     ----------
     coefficients
-        Input controlling ``_normalise_coefficients``.
+        VAR coefficient tensor ordered by lag, target and source.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     coef=torch.as_tensor(coefficients); unbatched=coef.ndim==3
     if unbatched: coef=coef.unsqueeze(0)
@@ -165,18 +184,18 @@ def companion_matrix(coefficients: torch.Tensor) -> torch.Tensor:
     Parameters
     ----------
     coefficients
-        Input controlling ``companion_matrix``.
+        VAR coefficient tensor ordered by lag, target and source.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     coef,unbatched=_normalise_coefficients(coefficients); batch,order,n,_=coef.shape
     out=torch.zeros((batch,order*n,order*n),dtype=coef.dtype,device=coef.device)
@@ -190,26 +209,26 @@ def build_var_system(coefficients: torch.Tensor, innovation_covariance: torch.Te
     Parameters
     ----------
     coefficients
-        Input controlling ``build_var_system``.
+        VAR coefficient tensor ordered by lag, target and source.
     innovation_covariance
-        Input controlling ``build_var_system``.
+        Symmetric positive-definite covariance of model innovations.
     lyapunov_method
-        Input controlling ``build_var_system``.
+        Input required by this calculation.
     rtol
-        Input controlling ``build_var_system``.
+        Input required by this calculation.
     atol
-        Input controlling ``build_var_system``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     coef,_=_normalise_coefficients(coefficients)
     q=torch.as_tensor(innovation_covariance,dtype=coef.dtype,device=coef.device)

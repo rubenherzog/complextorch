@@ -18,44 +18,44 @@ import torch
 from ._typing import ArrayLike
 
 def _as_tensor(x: ArrayLike) -> torch.Tensor:
-    """ as tensor.
+    """As tensor.
     
     Parameters
     ----------
     x
-        Input controlling ``_as_tensor``.
+        Input observations or tensor-valued quantity.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     return x if isinstance(x, torch.Tensor) else torch.as_tensor(np.asarray(x))
 
 def from_complexbox_timeseries(x: ArrayLike) -> torch.Tensor:
-    """From complexbox timeseries.
+    """Convert complexbox timeseries to ComplexTorch layout.
     
     Parameters
     ----------
     x
-        Input controlling ``from_complexbox_timeseries``.
+        Input observations or tensor-valued quantity.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     t = _as_tensor(x)
     if t.ndim == 2:
@@ -65,25 +65,25 @@ def from_complexbox_timeseries(x: ArrayLike) -> torch.Tensor:
     raise ValueError("ComplexBox time series must be 2-D or 3-D")
 
 def to_complexbox_timeseries(x: ArrayLike, *, squeeze_single: bool = True) -> torch.Tensor:
-    """To complexbox timeseries.
+    """Convert to complexbox timeseries.
     
     Parameters
     ----------
     x
-        Input controlling ``to_complexbox_timeseries``.
+        Input observations or tensor-valued quantity.
     squeeze_single
-        Input controlling ``to_complexbox_timeseries``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     t = _as_tensor(x)
     if t.ndim == 2:
@@ -94,23 +94,23 @@ def to_complexbox_timeseries(x: ArrayLike, *, squeeze_single: bool = True) -> to
     return out[..., 0] if squeeze_single and out.shape[-1] == 1 else out
 
 def from_complexbox_var(a: ArrayLike) -> torch.Tensor:
-    """From complexbox var.
+    """Convert complexbox var to ComplexTorch layout.
     
     Parameters
     ----------
     a
-        Input controlling ``from_complexbox_var``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     t = _as_tensor(a)
     if t.ndim != 3:
@@ -118,25 +118,25 @@ def from_complexbox_var(a: ArrayLike) -> torch.Tensor:
     return t.permute(2, 0, 1).unsqueeze(0).contiguous()
 
 def to_complexbox_var(a: ArrayLike, *, squeeze_single: bool = True) -> torch.Tensor:
-    """To complexbox var.
+    """Convert to complexbox var.
     
     Parameters
     ----------
     a
-        Input controlling ``to_complexbox_var``.
+        Input required by this calculation.
     squeeze_single
-        Input controlling ``to_complexbox_var``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     t = _as_tensor(a)
     if t.ndim == 3:

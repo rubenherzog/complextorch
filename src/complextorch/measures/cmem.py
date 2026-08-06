@@ -24,11 +24,11 @@ from .gaussian import gaussian_mutual_information, total_correlation
 
 @dataclass(frozen=True)
 class CMemResult:
-    """CMemResult.
+    """Container for covariance-memory totals, curves and decompositions.
     
     Notes
     -----
-    The class follows the scikit-learn fitted-attribute convention when applicable.
+    Public fitted attributes use the trailing-underscore convention.
     """
     cmem3_total: torch.Tensor
     cmem1_total: torch.Tensor
@@ -40,23 +40,23 @@ class CMemResult:
 
 
 def _batched_gamma(values: torch.Tensor) -> tuple[torch.Tensor, bool]:
-    """ batched gamma.
+    """Batched gamma.
     
     Parameters
     ----------
     values
-        Input controlling ``_batched_gamma``.
+        Input numerical values.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     gamma = torch.as_tensor(values)
     single = gamma.ndim == 3
@@ -68,27 +68,27 @@ def _batched_gamma(values: torch.Tensor) -> tuple[torch.Tensor, bool]:
 
 
 def _batched_covariance(values: torch.Tensor, batch: int, n: int) -> torch.Tensor:
-    """ batched covariance.
+    """Batched covariance.
     
     Parameters
     ----------
     values
-        Input controlling ``_batched_covariance``.
+        Input numerical values.
     batch
-        Input controlling ``_batched_covariance``.
+        Input required by this calculation.
     n
-        Input controlling ``_batched_covariance``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     covariance = torch.as_tensor(values)
     if covariance.ndim == 2:
@@ -111,20 +111,20 @@ def cmem3_total_from_covariances(
     Parameters
     ----------
     observation_covariance
-        Input controlling ``cmem3_total_from_covariances``.
+        Observation-noise covariance matrix.
     innovation_covariance
-        Input controlling ``cmem3_total_from_covariances``.
+        Symmetric positive-definite covariance of model innovations.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     return total_correlation(innovation_covariance) - total_correlation(observation_covariance)
 
@@ -138,20 +138,20 @@ def cmem1_total_from_covariances(
     Parameters
     ----------
     observation_covariance
-        Input controlling ``cmem1_total_from_covariances``.
+        Observation-noise covariance matrix.
     innovation_covariance
-        Input controlling ``cmem1_total_from_covariances``.
+        Symmetric positive-definite covariance of model innovations.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     full = 0.5 * (
         # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
@@ -165,25 +165,25 @@ def cmem1_total_from_covariances(
 
 
 def _joint_from_gamma(sigma: torch.Tensor, gamma: torch.Tensor) -> torch.Tensor:
-    """ joint from gamma.
+    """Joint from gamma.
     
     Parameters
     ----------
     sigma
-        Input controlling ``_joint_from_gamma``.
+        Input required by this calculation.
     gamma
-        Input controlling ``_joint_from_gamma``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     return torch.cat(
         [
@@ -195,25 +195,25 @@ def _joint_from_gamma(sigma: torch.Tensor, gamma: torch.Tensor) -> torch.Tensor:
 
 
 def _self_mi(joint: torch.Tensor, n: int) -> torch.Tensor:
-    """ self mi.
+    """Self mi.
     
     Parameters
     ----------
     joint
-        Input controlling ``_self_mi``.
+        Input required by this calculation.
     n
-        Input controlling ``_self_mi``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     a = torch.diagonal(joint[..., :n, :n], dim1=-2, dim2=-1)
     b = torch.diagonal(joint[..., n:, n:], dim1=-2, dim2=-1)
@@ -231,20 +231,20 @@ def cmem3_curve_from_autocovariances(
     Parameters
     ----------
     autocovariances
-        Input controlling ``cmem3_curve_from_autocovariances``.
+        Input required by this calculation.
     tau_max
-        Input controlling ``cmem3_curve_from_autocovariances``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     if tau_max < 1:
         raise ValueError("tau_max must be at least one")
@@ -274,20 +274,20 @@ def cmem1_curve_from_autocovariances(
     Parameters
     ----------
     autocovariances
-        Input controlling ``cmem1_curve_from_autocovariances``.
+        Input required by this calculation.
     tau_max
-        Input controlling ``cmem1_curve_from_autocovariances``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     if tau_max < 1:
         raise ValueError("tau_max must be at least one")
@@ -307,25 +307,25 @@ def cmem1_curve_from_autocovariances(
 
 
 def _joint_cov_lags(gammas: torch.Tensor, tau: int) -> torch.Tensor:
-    """ joint cov lags.
+    """Joint cov lags.
     
     Parameters
     ----------
     gammas
-        Input controlling ``_joint_cov_lags``.
+        Input required by this calculation.
     tau
-        Input controlling ``_joint_cov_lags``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     blocks = []
     for left in range(tau + 1):
@@ -339,25 +339,25 @@ def _joint_cov_lags(gammas: torch.Tensor, tau: int) -> torch.Tensor:
 
 
 def _node_vs_vector_mi(joint: torch.Tensor, n: int) -> torch.Tensor:
-    """ node vs vector mi.
+    """Node vs vector mi.
     
     Parameters
     ----------
     joint
-        Input controlling ``_node_vs_vector_mi``.
+        Input required by this calculation.
     n
-        Input controlling ``_node_vs_vector_mi``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     past = joint[..., n:, n:]
     # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
@@ -376,25 +376,25 @@ def _node_vs_vector_mi(joint: torch.Tensor, n: int) -> torch.Tensor:
 
 
 def _cmem3_lag_one(gammas: torch.Tensor, tau: int) -> torch.Tensor:
-    """ cmem3 lag one.
+    """Cmem3 lag one.
     
     Parameters
     ----------
     gammas
-        Input controlling ``_cmem3_lag_one``.
+        Input required by this calculation.
     tau
-        Input controlling ``_cmem3_lag_one``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     n = gammas.shape[-1]
     full = _joint_cov_lags(gammas, tau)
@@ -429,20 +429,20 @@ def cmem3_lag_decomposition_from_autocovariances(
     Parameters
     ----------
     autocovariances
-        Input controlling ``cmem3_lag_decomposition_from_autocovariances``.
+        Input required by this calculation.
     max_lag
-        Input controlling ``cmem3_lag_decomposition_from_autocovariances``.
+        Largest non-negative lag to evaluate.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     if max_lag < 1:
         raise ValueError("max_lag must be at least one")
@@ -468,26 +468,26 @@ def compute_cmem_from_primitives(
     Parameters
     ----------
     observation_covariance
-        Input controlling ``compute_cmem_from_primitives``.
+        Observation-noise covariance matrix.
     innovation_covariance
-        Input controlling ``compute_cmem_from_primitives``.
+        Symmetric positive-definite covariance of model innovations.
     autocovariances
-        Input controlling ``compute_cmem_from_primitives``.
+        Input required by this calculation.
     curve_max_lag
-        Input controlling ``compute_cmem_from_primitives``.
+        Input required by this calculation.
     decomposition_max_lag
-        Input controlling ``compute_cmem_from_primitives``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     gamma, single = _batched_gamma(autocovariances)
     batch, _, n, _ = gamma.shape
@@ -514,18 +514,18 @@ def cmem3_total(system: VARSystem) -> torch.Tensor:
     Parameters
     ----------
     system
-        Input controlling ``cmem3_total``.
+        Canonical VAR or state-space system.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     return cmem3_total_from_covariances(
         system.present_covariance, system.innovation_covariance
@@ -538,18 +538,18 @@ def cmem1_total(system: VARSystem) -> torch.Tensor:
     Parameters
     ----------
     system
-        Input controlling ``cmem1_total``.
+        Canonical VAR or state-space system.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     return cmem1_total_from_covariances(
         system.present_covariance, system.innovation_covariance
@@ -567,22 +567,22 @@ def cmem3_curve(
     Parameters
     ----------
     system
-        Input controlling ``cmem3_curve``.
+        Canonical VAR or state-space system.
     tau_max
-        Input controlling ``cmem3_curve``.
+        Input required by this calculation.
     autocovariance_sequence
-        Input controlling ``cmem3_curve``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     from .backbone import observation_autocovariances
     gamma = (
@@ -603,22 +603,22 @@ def cmem1_curve(
     Parameters
     ----------
     system
-        Input controlling ``cmem1_curve``.
+        Canonical VAR or state-space system.
     tau_max
-        Input controlling ``cmem1_curve``.
+        Input required by this calculation.
     autocovariance_sequence
-        Input controlling ``cmem1_curve``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     from .backbone import observation_autocovariances
     gamma = (
@@ -638,20 +638,20 @@ def cmem3_lag_decomposition(
     Parameters
     ----------
     system
-        Input controlling ``cmem3_lag_decomposition``.
+        Canonical VAR or state-space system.
     autocovariance_sequence
-        Input controlling ``cmem3_lag_decomposition``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     from .backbone import observation_autocovariances
     gamma = (
@@ -672,22 +672,22 @@ def compute_cmem(
     Parameters
     ----------
     system
-        Input controlling ``compute_cmem``.
+        Canonical VAR or state-space system.
     tau_max
-        Input controlling ``compute_cmem``.
+        Input required by this calculation.
     autocovariance_sequence
-        Input controlling ``compute_cmem``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     from .backbone import observation_autocovariances
     required = max(tau_max, system.order)

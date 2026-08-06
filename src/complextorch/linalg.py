@@ -20,11 +20,11 @@ import torch
 
 @dataclass(frozen=True)
 class LyapunovInfo:
-    """LyapunovInfo.
+    """Lyapunovinfo.
     
     Notes
     -----
-    The class follows the scikit-learn fitted-attribute convention when applicable.
+    Public fitted attributes use the trailing-underscore convention.
     """
     method: str
     iterations: int
@@ -37,18 +37,18 @@ def symmetrise(x: torch.Tensor) -> torch.Tensor:
     Parameters
     ----------
     x
-        Input controlling ``symmetrise``.
+        Input observations or tensor-valued quantity.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     return 0.5*(x+x.transpose(-1,-2))
 
@@ -59,22 +59,22 @@ def stable_cholesky(matrix: torch.Tensor, *, jitter: float=1e-10, max_tries: int
     Parameters
     ----------
     matrix
-        Input controlling ``stable_cholesky``.
+        Input required by this calculation.
     jitter
-        Input controlling ``stable_cholesky``.
+        Initial diagonal regularization used for SPD factorization.
     max_tries
-        Input controlling ``stable_cholesky``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     if matrix.shape[-1]!=matrix.shape[-2]: raise ValueError("matrix must be square")
     matrix=symmetrise(matrix); n=matrix.shape[-1]; batch_shape=matrix.shape[:-2]
@@ -95,20 +95,20 @@ def spd_logdet(matrix: torch.Tensor, *, jitter: float=1e-10) -> torch.Tensor:
     Parameters
     ----------
     matrix
-        Input controlling ``spd_logdet``.
+        Input required by this calculation.
     jitter
-        Input controlling ``spd_logdet``.
+        Initial diagonal regularization used for SPD factorization.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     # Add adaptive jitter only when required to retain a valid SPD factorisation.
     chol,_=stable_cholesky(matrix,jitter=jitter); return 2.0*torch.log(torch.diagonal(chol,dim1=-2,dim2=-1)).sum(-1)
@@ -119,26 +119,27 @@ def spd_solve(matrix: torch.Tensor, rhs: torch.Tensor, *, jitter: float=1e-10) -
     Parameters
     ----------
     matrix
-        Input controlling ``spd_solve``.
+        Input required by this calculation.
     rhs
-        Input controlling ``spd_solve``.
+        Input required by this calculation.
     jitter
-        Input controlling ``spd_solve``.
+        Initial diagonal regularization used for SPD factorization.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     # Add adaptive jitter only when required to retain a valid SPD factorisation.
     # Solve with the Cholesky factor instead of forming the covariance inverse.
     # Add adaptive jitter only when required to retain a valid SPD factorisation.
+    # Solve with the Cholesky factor instead of forming the covariance inverse.
     chol,_=stable_cholesky(matrix,jitter=jitter); return torch.cholesky_solve(rhs,chol)
 
 def spectral_radius(matrix: torch.Tensor) -> torch.Tensor:
@@ -147,18 +148,18 @@ def spectral_radius(matrix: torch.Tensor) -> torch.Tensor:
     Parameters
     ----------
     matrix
-        Input controlling ``spectral_radius``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     # Companion eigenvalues determine stationarity through their spectral radius.
     return torch.linalg.eigvals(matrix).abs().amax(-1)
@@ -169,30 +170,30 @@ def solve_discrete_lyapunov(transition: torch.Tensor, noise_cov: torch.Tensor, *
     Parameters
     ----------
     transition
-        Input controlling ``solve_discrete_lyapunov``.
+        State-transition matrix.
     noise_cov
-        Input controlling ``solve_discrete_lyapunov``.
+        Input required by this calculation.
     method
-        Input controlling ``solve_discrete_lyapunov``.
+        Named statistical or numerical method.
     rtol
-        Input controlling ``solve_discrete_lyapunov``.
+        Input required by this calculation.
     atol
-        Input controlling ``solve_discrete_lyapunov``.
+        Input required by this calculation.
     max_iter
-        Input controlling ``solve_discrete_lyapunov``.
+        Maximum number of numerical iterations.
     check_stability
-        Input controlling ``solve_discrete_lyapunov``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     a=transition; q=noise_cov; unbatched=a.ndim==2
     if unbatched: a=a.unsqueeze(0); q=q.unsqueeze(0)

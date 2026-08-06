@@ -26,34 +26,34 @@ spectral_mvgc = estimate_spectral_mvgc_from_observations
 
 @dataclass(frozen=True)
 class WhitenessResult:
-    """WhitenessResult.
+    """Residual-whiteness statistic, p-value and method label.
     
     Notes
     -----
-    The class follows the scikit-learn fitted-attribute convention when applicable.
+    Public fitted attributes use the trailing-underscore convention.
     """
     statistic: torch.Tensor
     pvalue: torch.Tensor
     method: str
 
 def _trials(value):
-    """ trials.
+    """Trials.
     
     Parameters
     ----------
     value
-        Input controlling ``_trials``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     x=torch.as_tensor(value,dtype=torch.float64)
     if x.ndim==2: x=x.unsqueeze(0)
@@ -62,6 +62,12 @@ def _trials(value):
 
 def consistency(observations,residuals,*,order:int)->float:
     """Compute the Ding--Bressler VAR consistency diagnostic.
+                
+                References
+                ----------
+                Ding et al. (2000); Barnett and Seth (2014); ComplexBox repository.
+            
+            Compute the Ding--Bressler VAR consistency diagnostic.
             
             References
             ----------
@@ -86,25 +92,25 @@ def consistency(observations,residuals,*,order:int)->float:
     return float(1-torch.linalg.matrix_norm(rs-rr)/torch.linalg.matrix_norm(rr))
 
 def _dw(design,residual):
-    """ dw.
+    """Dw.
     
     Parameters
     ----------
     design
-        Input controlling ``_dw``.
+        Input required by this calculation.
     residual
-        Input controlling ``_dw``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     n,m=design.shape; dw=float(np.sum(np.diff(residual)**2)/np.sum(residual**2)); a=design@design.T; b=np.zeros_like(design.T); xt=design.T
     b[0]=-xt[0]
@@ -117,6 +123,11 @@ def _dw(design,residual):
 
 def residual_whiteness(observations,residuals,*,order:int,method:str='durbin_watson')->WhitenessResult:
     """Test residual serial correlation with the requested method.
+                
+                The current Durbin--Watson route follows the ComplexBox/MVGC-compatible
+                approximation while retaining an extensible ``method`` argument.
+            
+            Test residual serial correlation with the requested method.
             
             The current Durbin--Watson route follows the ComplexBox/MVGC-compatible
             approximation while retaining an extensible ``method`` argument.
@@ -138,6 +149,12 @@ def residual_whiteness(observations,residuals,*,order:int,method:str='durbin_wat
 
 def mvgc_pvalue(statistic,*,method:str='F',n_target:int,n_source:int,n_conditional:int,order:int,n_times:int,n_trials:int=1):
     """Compute asymptotic MVGC p-values using MVGC2 conventions.
+                
+                References
+                ----------
+                Barnett and Seth (2014); MVGC repository.
+            
+            Compute asymptotic MVGC p-values using MVGC2 conventions.
             
             References
             ----------
@@ -166,6 +183,12 @@ def mvgc_pvalue(statistic,*,method:str='F',n_target:int,n_source:int,n_condition
 
 def significance(pvalues,*,alpha:float=.05,method:str='fdr_bh'):
     """Apply uncorrected or Benjamini--Hochberg FDR significance testing.
+                
+                References
+                ----------
+                Benjamini and Hochberg (1995).
+            
+            Apply uncorrected or Benjamini--Hochberg FDR significance testing.
             
             References
             ----------

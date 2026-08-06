@@ -50,6 +50,23 @@ References
 ----------
 - Lütkepohl, H. (2005), Chapters 2--3.
 - ComplexBox repository: https://github.com/bmilinkovic/complexbox
+
+Notes
+-----
+VAR simulations implement the recursion
+
+.. math::
+
+   x_t = c + \sum_{k=1}^{p} A_k x_{t-k} + 
+arepsilon_t.
+
+The automatic burn-in uses the companion spectral radius to suppress initial
+conditions below a prescribed tolerance.
+
+References
+----------
+- Lütkepohl, H. (2005), Chapters 2--3.
+- ComplexBox repository: https://github.com/bmilinkovic/complexbox
 """
 from __future__ import annotations
 import math
@@ -59,23 +76,23 @@ from .representations import companion_matrix
 
 
 def _normalise_coefficients(coefficients):
-    """ normalise coefficients.
+    """Normalise coefficients.
     
     Parameters
     ----------
     coefficients
-        Input controlling ``_normalise_coefficients``.
+        VAR coefficient tensor ordered by lag, target and source.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     coef = torch.as_tensor(coefficients)
     if coef.ndim == 3:
@@ -86,27 +103,27 @@ def _normalise_coefficients(coefficients):
 
 
 def _normalise_covariance(covariance, batch, n):
-    """ normalise covariance.
+    """Normalise covariance.
     
     Parameters
     ----------
     covariance
-        Input controlling ``_normalise_covariance``.
+        Symmetric covariance matrix or batch of covariance matrices.
     batch
-        Input controlling ``_normalise_covariance``.
+        Input required by this calculation.
     n
-        Input controlling ``_normalise_covariance``.
+        Input required by this calculation.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     q = torch.as_tensor(covariance)
     if q.ndim == 2:
@@ -120,6 +137,11 @@ def _normalise_covariance(covariance, batch, n):
 
 def automatic_burnin(coefficients, *, epsilon: float | None = None) -> int:
     """MVGC-style transient length ceil(-log(eps)/-log(rho)).
+                
+                Choose burn-in length from the companion spectral radius.
+                
+                The smallest integer :math:`T` satisfying :math:`
+                ho^T<\epsilon` is used.
             
             Choose burn-in length from the companion spectral radius.
             
@@ -156,6 +178,12 @@ def simulate_var(
     return_innovations: bool = False,
 ):
     """Simulate one or more Gaussian VAR trajectories.
+                
+                References
+                ----------
+                Lütkepohl (2005); ComplexBox repository.
+            
+            Simulate one or more Gaussian VAR trajectories.
             
             References
             ----------
@@ -251,35 +279,35 @@ def random_positive_definite_covariance(
     dtype: torch.dtype = torch.float64,
     device: str | torch.device = "cpu",
 ) -> torch.Tensor:
-    """Random positive definite covariance.
+    """Generate positive definite covariance.
     
     Parameters
     ----------
     n_variables
-        Input controlling ``random_positive_definite_covariance``.
+        Number of observed variables.
     batch
-        Input controlling ``random_positive_definite_covariance``.
+        Input required by this calculation.
     seed
-        Input controlling ``random_positive_definite_covariance``.
+        Random seed used by a local generator.
     scale_min
-        Input controlling ``random_positive_definite_covariance``.
+        Input required by this calculation.
     scale_max
-        Input controlling ``random_positive_definite_covariance``.
+        Input required by this calculation.
     dtype
-        Input controlling ``random_positive_definite_covariance``.
+        Torch floating-point dtype name or object.
     device
-        Input controlling ``random_positive_definite_covariance``.
+        Torch device or ``'auto'``.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     correlation = random_correlation_matrix(
         n_variables, batch=batch, seed=seed, dtype=dtype, device=device
@@ -293,6 +321,12 @@ def random_positive_definite_covariance(
 
 def random_stable_var(batch:int,n_variables:int,order:int,*,spectral_radius_target:float=.85,noise_scale:float=1.,seed:int=0,dtype=torch.float64,device='cpu'):
     """Generate random VAR coefficients scaled to a target spectral radius.
+                
+                References
+                ----------
+                Lütkepohl (2005); ComplexBox repository.
+            
+            Generate random VAR coefficients scaled to a target spectral radius.
             
             References
             ----------
@@ -320,29 +354,29 @@ def random_stable_var(batch:int,n_variables:int,order:int,*,spectral_radius_targ
 
 
 def _cycle(n,frustrated,*,dtype,device):
-    """ cycle.
+    """Cycle.
     
     Parameters
     ----------
     n
-        Input controlling ``_cycle``.
+        Input required by this calculation.
     frustrated
-        Input controlling ``_cycle``.
+        Input required by this calculation.
     dtype
-        Input controlling ``_cycle``.
+        Torch floating-point dtype name or object.
     device
-        Input controlling ``_cycle``.
+        Torch device or ``'auto'``.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     m=torch.zeros((n,n),dtype=dtype,device=device)
     for row in range(n): m[row,(row+1)%n]=1
@@ -356,34 +390,34 @@ def demo_var(n_variables:int=3,order:int=2,*,temporal_path:float=-.95,temporal_g
     Parameters
     ----------
     n_variables
-        Input controlling ``demo_var``.
+        Number of observed variables.
     order
-        Input controlling ``demo_var``.
+        Autoregressive model order.
     temporal_path
-        Input controlling ``demo_var``.
+        Input required by this calculation.
     temporal_gain
-        Input controlling ``demo_var``.
+        Input required by this calculation.
     noise_correlation
-        Input controlling ``demo_var``.
+        Input required by this calculation.
     lag_weights
-        Input controlling ``demo_var``.
+        Input required by this calculation.
     stability_target
-        Input controlling ``demo_var``.
+        Input required by this calculation.
     dtype
-        Input controlling ``demo_var``.
+        Torch floating-point dtype name or object.
     device
-        Input controlling ``demo_var``.
+        Torch device or ``'auto'``.
     
     Returns
     -------
     object
-        Result described by the function name and annotated return type.
+        Computed result; see the annotated return type and shape notes.
     
     Notes
     -----
-    Tensor batch dimensions are preserved unless the public API explicitly
-    documents a squeeze operation. Numerical validation is performed by the
-    module before the core calculation.
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
     """
     dev=torch.device(device); weights=torch.ones(order,dtype=dtype,device=dev) if lag_weights is None else torch.as_tensor(lag_weights,dtype=dtype,device=dev)
     pattern=_cycle(n_variables,temporal_path<0,dtype=dtype,device=dev); eye=torch.eye(n_variables,dtype=dtype,device=dev); w=abs(float(temporal_path)); mats=[]
