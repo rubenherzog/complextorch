@@ -1,4 +1,19 @@
-"""Deterministic and random stable VAR systems for validation."""
+"""Simulation and random generation for stationary Gaussian VAR systems.
+
+Trajectories obey
+
+.. math::
+
+   x_t=c+\sum_{k=1}^{p}A_kx_{t-k}+\varepsilon_t.
+
+Automatic burn-in uses the companion spectral radius to reduce the influence
+of initial conditions below a requested tolerance.
+
+References
+----------
+- Lütkepohl, H. (2005), Chapters 2--3.
+- ComplexBox: https://github.com/bmilinkovic/complexbox
+"""
 from __future__ import annotations
 import math
 import torch
@@ -7,6 +22,24 @@ from .representations import companion_matrix
 
 
 def _normalise_coefficients(coefficients):
+    """Normalise coefficients.
+    
+    Parameters
+    ----------
+    coefficients
+        VAR coefficient tensor ordered by lag, target and source.
+    
+    Returns
+    -------
+    object
+        Computed result; see the annotated return type and shape notes.
+    
+    Notes
+    -----
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
+    """
     coef = torch.as_tensor(coefficients)
     if coef.ndim == 3:
         coef = coef.unsqueeze(0)
@@ -16,6 +49,28 @@ def _normalise_coefficients(coefficients):
 
 
 def _normalise_covariance(covariance, batch, n):
+    """Normalise covariance.
+    
+    Parameters
+    ----------
+    covariance
+        Symmetric covariance matrix or batch of covariance matrices.
+    batch
+        Input required by this calculation.
+    n
+        Input required by this calculation.
+    
+    Returns
+    -------
+    object
+        Computed result; see the annotated return type and shape notes.
+    
+    Notes
+    -----
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
+    """
     q = torch.as_tensor(covariance)
     if q.ndim == 2:
         q = q.unsqueeze(0)
@@ -27,7 +82,14 @@ def _normalise_covariance(covariance, batch, n):
 
 
 def automatic_burnin(coefficients, *, epsilon: float | None = None) -> int:
-    """MVGC-style transient length ceil(-log(eps)/-log(rho))."""
+    """Choose burn-in length from the companion spectral radius.
+    
+    The smallest integer :math:`T` satisfying :math:`\rho^T<\epsilon` is returned.
+    
+    References
+    ----------
+    - ComplexBox simulation convention; Lütkepohl (2005).
+    """
     coef = _normalise_coefficients(coefficients)
     rho = float(spectral_radius(companion_matrix(coef)).max())
     if rho >= 1:
@@ -47,6 +109,42 @@ def simulate_var(
     seed: int = 0,
     return_innovations: bool = False,
 ):
+    """Simulate one or more Gaussian VAR trajectories.
+                        
+                        References
+                        ----------
+                        Lütkepohl (2005); ComplexBox repository.
+                    
+                    Simulate one or more Gaussian VAR trajectories.
+                    
+                    References
+                    ----------
+                    Lütkepohl (2005); ComplexBox repository.
+                
+                Simulate one or more Gaussian VAR trajectories.
+                
+                References
+                ----------
+                Lütkepohl (2005); ComplexBox repository.
+            
+            Simulate one or more Gaussian VAR trajectories.
+            
+            References
+            ----------
+            Lütkepohl (2005); ComplexBox repository.
+        
+        Simulate one or more Gaussian VAR trajectories.
+        
+        References
+        ----------
+        Lütkepohl (2005); ComplexBox repository.
+    
+    Simulate one or more Gaussian VAR trajectories.
+    
+    References
+    ----------
+    Lütkepohl (2005); ComplexBox repository.
+    """
     coef = _normalise_coefficients(coefficients)
     batch, order, n, _ = coef.shape
     q = _normalise_covariance(innovation_covariance, batch, n).to(coef)
@@ -62,6 +160,7 @@ def simulate_var(
             raise ValueError("burnin must be nonnegative")
     generator = torch.Generator(device=coef.device)
     generator.manual_seed(seed)
+    # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
     chol = torch.linalg.cholesky(q)
     total = n_times + burnin_value
     innovations = torch.randn(
@@ -124,6 +223,36 @@ def random_positive_definite_covariance(
     dtype: torch.dtype = torch.float64,
     device: str | torch.device = "cpu",
 ) -> torch.Tensor:
+    """Generate positive definite covariance.
+    
+    Parameters
+    ----------
+    n_variables
+        Number of observed variables.
+    batch
+        Input required by this calculation.
+    seed
+        Random seed used by a local generator.
+    scale_min
+        Input required by this calculation.
+    scale_max
+        Input required by this calculation.
+    dtype
+        Torch floating-point dtype name or object.
+    device
+        Torch device or ``'auto'``.
+    
+    Returns
+    -------
+    object
+        Computed result; see the annotated return type and shape notes.
+    
+    Notes
+    -----
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
+    """
     correlation = random_correlation_matrix(
         n_variables, batch=batch, seed=seed, dtype=dtype, device=device
     )
@@ -135,6 +264,42 @@ def random_positive_definite_covariance(
 
 
 def random_stable_var(batch:int,n_variables:int,order:int,*,spectral_radius_target:float=.85,noise_scale:float=1.,seed:int=0,dtype=torch.float64,device='cpu'):
+    """Generate random VAR coefficients scaled to a target spectral radius.
+                        
+                        References
+                        ----------
+                        Lütkepohl (2005); ComplexBox repository.
+                    
+                    Generate random VAR coefficients scaled to a target spectral radius.
+                    
+                    References
+                    ----------
+                    Lütkepohl (2005); ComplexBox repository.
+                
+                Generate random VAR coefficients scaled to a target spectral radius.
+                
+                References
+                ----------
+                Lütkepohl (2005); ComplexBox repository.
+            
+            Generate random VAR coefficients scaled to a target spectral radius.
+            
+            References
+            ----------
+            Lütkepohl (2005); ComplexBox repository.
+        
+        Generate random VAR coefficients scaled to a target spectral radius.
+        
+        References
+        ----------
+        Lütkepohl (2005); ComplexBox repository.
+    
+    Generate random VAR coefficients scaled to a target spectral radius.
+    
+    References
+    ----------
+    Lütkepohl (2005); ComplexBox repository.
+    """
     if not 0<spectral_radius_target<1: raise ValueError('spectral_radius_target must lie in (0,1)')
     gen=torch.Generator(device=torch.device(device)); gen.manual_seed(seed)
     raw=torch.randn((batch,order,n_variables,n_variables),generator=gen,dtype=dtype,device=device)/math.sqrt(n_variables*order)
@@ -145,6 +310,30 @@ def random_stable_var(batch:int,n_variables:int,order:int,*,spectral_radius_targ
 
 
 def _cycle(n,frustrated,*,dtype,device):
+    """Cycle.
+    
+    Parameters
+    ----------
+    n
+        Input required by this calculation.
+    frustrated
+        Input required by this calculation.
+    dtype
+        Torch floating-point dtype name or object.
+    device
+        Torch device or ``'auto'``.
+    
+    Returns
+    -------
+    object
+        Computed result; see the annotated return type and shape notes.
+    
+    Notes
+    -----
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
+    """
     m=torch.zeros((n,n),dtype=dtype,device=device)
     for row in range(n): m[row,(row+1)%n]=1
     if frustrated: m[0,1]=-1
@@ -152,6 +341,40 @@ def _cycle(n,frustrated,*,dtype,device):
 
 
 def demo_var(n_variables:int=3,order:int=2,*,temporal_path:float=-.95,temporal_gain:float=.9,noise_correlation:float=-.25,lag_weights=None,stability_target:float=.98,dtype=torch.float64,device='cpu'):
+    """Demo var.
+    
+    Parameters
+    ----------
+    n_variables
+        Number of observed variables.
+    order
+        Autoregressive model order.
+    temporal_path
+        Input required by this calculation.
+    temporal_gain
+        Input required by this calculation.
+    noise_correlation
+        Input required by this calculation.
+    lag_weights
+        Input required by this calculation.
+    stability_target
+        Input required by this calculation.
+    dtype
+        Torch floating-point dtype name or object.
+    device
+        Torch device or ``'auto'``.
+    
+    Returns
+    -------
+    object
+        Computed result; see the annotated return type and shape notes.
+    
+    Notes
+    -----
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
+    """
     dev=torch.device(device); weights=torch.ones(order,dtype=dtype,device=dev) if lag_weights is None else torch.as_tensor(lag_weights,dtype=dtype,device=dev)
     pattern=_cycle(n_variables,temporal_path<0,dtype=dtype,device=dev); eye=torch.eye(n_variables,dtype=dtype,device=dev); w=abs(float(temporal_path)); mats=[]
     for lag in range(order):

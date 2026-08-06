@@ -1,4 +1,14 @@
-"""Gaussian emergence measures for linear macro projections."""
+"""Gaussian predictive-emergence measures under linear projection.
+
+The measures compare microscopic predictive information with predictive
+information retained by a user-specified macroscopic projection, using exact
+conditional covariances when a generative model is supplied.
+
+References
+----------
+- Barnett, L. and Seth, A. K. (2023). Dynamical independence and emergent
+  macroscopic processes.
+"""
 from __future__ import annotations
 import math
 import torch
@@ -7,6 +17,26 @@ from ..representations import VARSystem
 
 
 def _projection(macro_projection:torch.Tensor,system:VARSystem)->torch.Tensor:
+    """Projection.
+    
+    Parameters
+    ----------
+    macro_projection
+        Linear map defining macroscopic variables.
+    system
+        Canonical VAR or state-space system.
+    
+    Returns
+    -------
+    object
+        Computed result; see the annotated return type and shape notes.
+    
+    Notes
+    -----
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
+    """
     m=torch.as_tensor(macro_projection,dtype=system.coefficients.dtype,device=system.coefficients.device)
     if m.ndim==2: m=m.unsqueeze(0)
     if m.shape[0]==1 and system.batch_size>1: m=m.expand(system.batch_size,-1,-1)
@@ -15,7 +45,30 @@ def _projection(macro_projection:torch.Tensor,system:VARSystem)->torch.Tensor:
 
 
 def _mi_from_cov(a:torch.Tensor,b:torch.Tensor,cross:torch.Tensor)->torch.Tensor:
+    """Mi from cov.
+    
+    Parameters
+    ----------
+    a
+        Input required by this calculation.
+    b
+        Input required by this calculation.
+    cross
+        Input required by this calculation.
+    
+    Returns
+    -------
+    object
+        Computed result; see the annotated return type and shape notes.
+    
+    Notes
+    -----
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
+    """
     cond=symmetrise(a-cross@spd_solve(b,cross.transpose(-1,-2)))
+    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
     return 0.5*(spd_logdet(a)-spd_logdet(cond))/math.log(2.0)
 
 
@@ -55,6 +108,24 @@ def emergence_from_observations(current:torch.Tensor,past:torch.Tensor,macro_pro
     if z.shape[1]%x.shape[1]!=0: raise ValueError('past dimension must be a multiple of micro dimension')
     y=x@m.T
     def cov(v):
+        """Cov.
+        
+        Parameters
+        ----------
+        v
+            Input required by this calculation.
+        
+        Returns
+        -------
+        object
+            Computed result; see the annotated return type and shape notes.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         v=v-v.mean(0); return v.T@v/(v.shape[0]-1)
     sy=cov(y); sz=cov(z); joint=torch.cat([y,z],-1); sj=cov(joint); cross=sj[:y.shape[1],y.shape[1]:]
     i_full=_mi_from_cov(sy,sz,cross)

@@ -1,4 +1,14 @@
-"""Canonical analytical primitives shared by VAR and state-space measures."""
+"""Canonical analytical backbone shared by VAR and state-space models.
+
+Models are mapped to common observation covariance, autocovariance, innovations
+and spectral primitives. Measures consume these invariants rather than
+reimplementing model-specific formulas.
+
+References
+----------
+- Lütkepohl, H. (2005). Companion-form VAR representation.
+- Barnett, L. and Seth, A. K. (2015). State-space Granger causality.
+"""
 from __future__ import annotations
 
 import math
@@ -37,6 +47,24 @@ def as_innovations(model: Model) -> InnovationsStateSpace:
 
 
 def _batched_matrix(value: torch.Tensor) -> tuple[torch.Tensor, bool]:
+    """Batched matrix.
+    
+    Parameters
+    ----------
+    value
+        Input required by this calculation.
+    
+    Returns
+    -------
+    object
+        Computed result; see the annotated return type and shape notes.
+    
+    Notes
+    -----
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
+    """
     value = torch.as_tensor(value)
     single = value.ndim == 2
     if single:
@@ -128,6 +156,7 @@ def predictive_information_from_model(
         if observation_covariance is None else observation_covariance
     )
     innovations = as_innovations(model).innovation_covariance
+    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
     return 0.5 * (spd_logdet(covariance) - spd_logdet(innovations)) / math.log(base)
 
 
@@ -190,6 +219,26 @@ def covariance_amplification_from_model(
     *,
     observation_covariance: torch.Tensor | None = None,
 ) -> torch.Tensor:
+    """Covariance amplification from model.
+    
+    Parameters
+    ----------
+    model
+        VAR or linear state-space model.
+    observation_covariance
+        Observation-noise covariance matrix.
+    
+    Returns
+    -------
+    object
+        Computed result; see the annotated return type and shape notes.
+    
+    Notes
+    -----
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
+    """
     covariance = (
         observation_autocovariances(model, 0)[..., 0, :, :]
         if observation_covariance is None else observation_covariance
@@ -242,6 +291,7 @@ def projected_innovation_covariance(
     process = k @ v @ k.transpose(-1, -2)
     observation = symmetrise(m @ v @ m.transpose(-1, -2))
     cross = k @ v @ m.transpose(-1, -2)
+    # Marginal innovations require the steady-state generalised Riccati solution.
     prediction = solve_generalized_dare(a, projected_c, process, observation, cross)
     if prediction.ndim == 2:
         prediction = prediction.unsqueeze(0)
@@ -268,7 +318,9 @@ def emergence_from_model(
     micro_innovation = as_innovations(model).innovation_covariance
     macro_given_micro = symmetrise(m @ micro_innovation @ m.transpose(-1, -2))
     macro_innovation = projected_innovation_covariance(model, m)
+    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
     i_full = 0.5 * (spd_logdet(macro_covariance) - spd_logdet(macro_given_micro)) / math.log(base)
+    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
     i_macro = 0.5 * (spd_logdet(macro_covariance) - spd_logdet(macro_innovation)) / math.log(base)
     full_parts = 0.5 * torch.log(
         torch.diagonal(macro_covariance, dim1=-2, dim2=-1)

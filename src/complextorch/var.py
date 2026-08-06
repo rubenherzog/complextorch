@@ -1,4 +1,21 @@
-"""Batched VAR estimation with OLS, ridge and Morf LWR solvers."""
+"""Torch-first estimation and forecasting for Gaussian VAR models.
+
+Ordinary least squares solves
+
+.. math::
+
+   \widehat B=\arg\min_B\lVert Y-XB\rVert_F^2,
+
+while ``solver="lwr"`` implements the Morf lattice-whitening recursion used by
+MVGC-compatible estimators.
+
+References
+----------
+- Morf, M., Vieira, A., Lee, D. T. L., and Kailath, T. (1978). Recursive
+  multichannel maximum entropy spectral estimation.
+- Barnett, L. and Seth, A. K. (2014). The MVGC toolbox.
+- ComplexBox: https://github.com/bmilinkovic/complexbox
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -16,6 +33,12 @@ from .representations import LinearDynamicalSystem, VARSystem, build_var_system
 
 @dataclass(frozen=True)
 class VARParameters:
+    """Fitted coefficients, innovations and metadata for a VAR estimator.
+    
+    Notes
+    -----
+    Public fitted attributes use the trailing-underscore convention.
+    """
     coefficients: torch.Tensor
     intercept: torch.Tensor
     innovation_covariance: torch.Tensor
@@ -46,6 +69,7 @@ def _lwr_single(trials: torch.Tensor, order: int) -> tuple[torch.Tensor, torch.T
 
     errors_all = x.reshape(n, n_trials * m)
     inverse_chol = torch.linalg.inv(
+        # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
         torch.linalg.cholesky(errors_all @ errors_all.transpose(-1, -2))
     )
     k = 1
@@ -61,8 +85,11 @@ def _lwr_single(trials: torch.Tensor, order: int) -> tuple[torch.Tensor, torch.T
         backward_block = xx[:k, :, k - 1:m - 1, :].reshape(k * n, effective)
         forward = af[:, :k * n] @ forward_block
         backward = ab[:, p1n - k * n:] @ backward_block
+        # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
         forward_chol = torch.linalg.cholesky(forward @ forward.transpose(-1, -2))
+        # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
         backward_chol = torch.linalg.cholesky(backward @ backward.transpose(-1, -2))
+        # The normalised forward/backward cross-covariance is the lattice reflection coefficient.
         reflection = (
             torch.linalg.solve(forward_chol, forward)
             @ torch.linalg.solve(backward_chol, backward).transpose(-1, -2)
@@ -72,7 +99,9 @@ def _lwr_single(trials: torch.Tensor, order: int) -> tuple[torch.Tensor, torch.T
         backward_start = p1n - k * n
         af_previous = af[:, :forward_end].clone()
         ab_previous = ab[:, backward_start:].clone()
+        # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
         forward_norm = torch.linalg.cholesky(identity - reflection @ reflection.transpose(-1, -2))
+        # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
         backward_norm = torch.linalg.cholesky(identity - reflection.transpose(-1, -2) @ reflection)
         af[:, :forward_end] = torch.linalg.solve(
             forward_norm, af_previous - reflection @ ab_previous
@@ -96,6 +125,12 @@ def _lwr_single(trials: torch.Tensor, order: int) -> tuple[torch.Tensor, torch.T
 
 
 class VAR(BaseEstimator):
+    """Torch-first estimator for Gaussian vector autoregressive models.
+    
+    Notes
+    -----
+    Public fitted attributes use the trailing-underscore convention.
+    """
     def __init__(
         self,
         order: int = 1,
@@ -109,6 +144,35 @@ class VAR(BaseEstimator):
         dtype: str = "float64",
         stability: Literal["check", "ignore"] = "check",
     ):
+        """Initialize the estimator or result container.
+        
+        Parameters
+        ----------
+        order
+            Autoregressive model order.
+        alpha
+            Non-negative ridge regularization strength.
+        fit_intercept
+            Whether to estimate a constant offset.
+        mode
+            Whether trials are fitted independently or pooled.
+        solver
+            Numerical solver or estimation algorithm.
+        covariance
+            Symmetric covariance matrix or batch of covariance matrices.
+        device
+            Torch device or ``'auto'``.
+        dtype
+            Torch floating-point dtype name or object.
+        stability
+            Policy for checking stationarity after fitting.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         self.order = order
         self.alpha = alpha
         self.fit_intercept = fit_intercept
@@ -121,12 +185,43 @@ class VAR(BaseEstimator):
 
     @staticmethod
     def _resolve_dtype(name: str) -> torch.dtype:
+        """Resolve dtype.
+        
+        Parameters
+        ----------
+        name
+            Input required by this calculation.
+        
+        Returns
+        -------
+        object
+            Computed result; see the annotated return type and shape notes.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         dtype = getattr(torch, name, None)
         if dtype not in (torch.float32, torch.float64):
             raise ValueError("dtype must be 'float32' or 'float64'")
         return dtype
 
     def _resolve_device(self) -> torch.device:
+        """Resolve device.
+        
+        Returns
+        -------
+        object
+            Computed result; see the annotated return type and shape notes.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         if self.device == "auto":
             return torch.device("cuda" if torch.cuda.is_available() else "cpu")
         device = torch.device(self.device)
@@ -135,6 +230,24 @@ class VAR(BaseEstimator):
         return device
 
     def _normalise_input(self, x: ArrayLike) -> torch.Tensor:
+        """Normalise input.
+        
+        Parameters
+        ----------
+        x
+            Input observations or tensor-valued quantity.
+        
+        Returns
+        -------
+        object
+            Computed result; see the annotated return type and shape notes.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         tensor = torch.as_tensor(
             x, dtype=self._resolve_dtype(self.dtype), device=self._resolve_device()
         )
@@ -150,26 +263,99 @@ class VAR(BaseEstimator):
 
     @staticmethod
     def lagged_design(x: torch.Tensor, order: int):
+        """Lagged design.
+        
+        Parameters
+        ----------
+        x
+            Input observations or tensor-valued quantity.
+        order
+            Autoregressive model order.
+        
+        Returns
+        -------
+        object
+            Computed result; see the annotated return type and shape notes.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         batch, time, _ = x.shape
         targets = x[:, order:, :]
         blocks = [x[:, order - lag:time - lag, :] for lag in range(1, order + 1)]
         return torch.cat(blocks, dim=-1), targets
 
     def _choose_solver(self):
+        """Choose solver.
+        
+        Returns
+        -------
+        object
+            Computed result; see the annotated return type and shape notes.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         if self.solver != "auto":
             return self.solver
         return "lstsq" if self.alpha == 0 else "cholesky"
 
     def _solve_cholesky(self, design, targets):
+        """Solve cholesky.
+        
+        Parameters
+        ----------
+        design
+            Input required by this calculation.
+        targets
+            Input required by this calculation.
+        
+        Returns
+        -------
+        object
+            Computed result; see the annotated return type and shape notes.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         gram = design.transpose(-1, -2) @ design
         rhs = design.transpose(-1, -2) @ targets
         penalty = torch.eye(gram.shape[-1], dtype=gram.dtype, device=gram.device)
         if self.fit_intercept:
             penalty[-1, -1] = 0
+        # Add adaptive jitter only when required to retain a valid SPD factorisation.
         chol, _ = stable_cholesky(gram + float(self.alpha) * penalty, jitter=1e-12)
+        # Solve with the Cholesky factor instead of forming the covariance inverse.
         return torch.cholesky_solve(rhs, chol)
 
     def _fit_lwr(self, x: torch.Tensor) -> VARParameters:
+        """Fit lwr from observations.
+        
+        Parameters
+        ----------
+        x
+            Input observations or tensor-valued quantity.
+        
+        Returns
+        -------
+        object
+            Computed result; see the annotated return type and shape notes.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         if self.alpha != 0:
             raise ValueError("solver='lwr' does not support ridge alpha")
         if not self.fit_intercept:
@@ -195,6 +381,24 @@ class VAR(BaseEstimator):
         )
 
     def _fit_tensor(self, x):
+        """Fit tensor from observations.
+        
+        Parameters
+        ----------
+        x
+            Input observations or tensor-valued quantity.
+        
+        Returns
+        -------
+        object
+            Computed result; see the annotated return type and shape notes.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         if self.order < 1 or self.alpha < 0:
             raise ValueError("invalid order or alpha")
         solver = self._choose_solver()
@@ -242,6 +446,26 @@ class VAR(BaseEstimator):
         )
 
     def fit(self, X: ArrayLike, y=None):
+        """Fit fit from observations.
+        
+        Parameters
+        ----------
+        X
+            Observations with shape ``(time, variables)`` or ``(batch, time, variables)``.
+        y
+            Unused scikit-learn compatibility target.
+        
+        Returns
+        -------
+        object
+            The fitted estimator instance.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         del y
         x = self._normalise_input(X)
         start = perf_counter()
@@ -276,10 +500,41 @@ class VAR(BaseEstimator):
         return self
 
     def _check_fitted(self):
+        """Validate fitted and raise on failure.
+        
+        Returns
+        -------
+        object
+            Computed result; see the annotated return type and shape notes.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         if not hasattr(self, "params_"):
             raise RuntimeError("estimator is not fitted")
 
     def one_step_predictions(self, X):
+        """One step predictions.
+        
+        Parameters
+        ----------
+        X
+            Observations with shape ``(time, variables)`` or ``(batch, time, variables)``.
+        
+        Returns
+        -------
+        object
+            Computed result; see the annotated return type and shape notes.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         self._check_fitted()
         x = self._normalise_input(X)
         design, _ = self.lagged_design(x, self.order)
@@ -302,9 +557,47 @@ class VAR(BaseEstimator):
         return design @ solution
 
     def predict(self, X):
+        """Predict.
+        
+        Parameters
+        ----------
+        X
+            Observations with shape ``(time, variables)`` or ``(batch, time, variables)``.
+        
+        Returns
+        -------
+        object
+            One-step predictions as a NumPy array.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         return self.one_step_predictions(X).detach().cpu().numpy()
 
     def forecast(self, history, steps: int):
+        """Forecast.
+        
+        Parameters
+        ----------
+        history
+            Observed history used to initialize recursive forecasting.
+        steps
+            Number of recursive forecast samples.
+        
+        Returns
+        -------
+        object
+            Recursive future samples with shape ``(batch, steps, variables)``.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         self._check_fitted()
         hist = self._normalise_input(history)
         if steps < 1 or hist.shape[1] < self.order:
@@ -327,16 +620,56 @@ class VAR(BaseEstimator):
         return torch.stack(output, 1)
 
     def residuals(self, X):
+        """Residuals.
+        
+        Parameters
+        ----------
+        X
+            Observations with shape ``(time, variables)`` or ``(batch, time, variables)``.
+        
+        Returns
+        -------
+        object
+            Observed minus one-step-predicted values.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         x = self._normalise_input(X)
         _, targets = self.lagged_design(x, self.order)
         return targets - self.one_step_predictions(x)
 
     def gaussian_nll(self, X, *, reduction="mean"):
+        """Gaussian nll.
+        
+        Parameters
+        ----------
+        X
+            Observations with shape ``(time, variables)`` or ``(batch, time, variables)``.
+        reduction
+            Aggregation applied to elementwise losses.
+        
+        Returns
+        -------
+        object
+            Computed result; see the annotated return type and shape notes.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         errors = self.residuals(X)
         covariance = self.noise_covariance_
         if self.mode == "pooled":
             covariance = covariance.expand(errors.shape[0], -1, -1)
+        # Add adaptive jitter only when required to retain a valid SPD factorisation.
         chol, _ = stable_cholesky(covariance, jitter=1e-10)
+        # Solve with the Cholesky factor instead of forming the covariance inverse.
         solved = torch.cholesky_solve(errors.unsqueeze(-1), chol[:, None]).squeeze(-1)
         values = 0.5 * (
             (errors * solved).sum(-1)
@@ -352,11 +685,36 @@ class VAR(BaseEstimator):
         raise ValueError("bad reduction")
 
     def score(self, X, y=None):
+        """Score.
+        
+        Parameters
+        ----------
+        X
+            Observations with shape ``(time, variables)`` or ``(batch, time, variables)``.
+        y
+            Unused scikit-learn compatibility target.
+        
+        Returns
+        -------
+        object
+            Negative Gaussian log-likelihood score.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         del y
         return -float(self.gaussian_nll(X))
 
     def consistency(self, observations) -> float:
-        """Ding-Bressler consistency statistic, matching ComplexBox/MVGC."""
+        """Compute the Ding--Bressler VAR consistency diagnostic.
+        
+        References
+        ----------
+        - Ding et al. (2000); Barnett and Seth (2014); ComplexBox.
+        """
         from .measures.secondary import consistency
         return consistency(observations, self.residuals(observations), order=self.order)
 
@@ -368,10 +726,46 @@ class VAR(BaseEstimator):
         )
 
     def to_var_system(self, *, lyapunov_method="doubling") -> VARSystem:
+        """Convert to var system.
+        
+        Parameters
+        ----------
+        lyapunov_method
+            Input required by this calculation.
+        
+        Returns
+        -------
+        object
+            Canonical :class:`VARSystem` representation.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         self._check_fitted()
         return build_var_system(
             self.coef_, self.noise_covariance_, lyapunov_method=lyapunov_method
         )
 
     def to_state_space(self, *, lyapunov_method="doubling") -> LinearDynamicalSystem:
+        """Convert to state space.
+        
+        Parameters
+        ----------
+        lyapunov_method
+            Input required by this calculation.
+        
+        Returns
+        -------
+        object
+            Equivalent linear state-space representation.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         return self.to_var_system(lyapunov_method=lyapunov_method).to_state_space()

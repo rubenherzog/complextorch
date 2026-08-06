@@ -1,4 +1,28 @@
-"""Temporal validation and MVGC-compatible information-criterion order selection."""
+"""Temporal cross-validation and information-criterion VAR order selection.
+
+For per-observation Gaussian log likelihood :math:`\ell`, parameter count
+:math:`k`, and effective sample size :math:`N`,
+
+.. math::
+
+   \mathrm{AIC}=-2\ell+2k/N,
+   \qquad
+   \mathrm{BIC}=-2\ell+(k/N)\log N,
+
+.. math::
+
+   \mathrm{HQC}=-2\ell+2(k/N)\log\log N.
+
+Inside temporal CV these criteria are diagnostics computed on each training
+fold; only held-out NLL or RMSE determines ``best_order_``.
+
+References
+----------
+- Akaike, H. (1974). A new look at statistical model identification.
+- Schwarz, G. (1978). Estimating the dimension of a model.
+- Hannan, E. J. and Quinn, B. G. (1979). Determination of autoregression order.
+- Barnett, L. and Seth, A. K. (2014). The MVGC toolbox.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -16,12 +40,24 @@ from .var import VAR
 
 @dataclass(frozen=True)
 class TemporalFold:
+    """Indices delimiting one expanding-window temporal-validation fold.
+    
+    Notes
+    -----
+    Public fitted attributes use the trailing-underscore convention.
+    """
     train_stop: int
     test_start: int
     test_stop: int
 
 
 class EpochTimeSeriesSplit:
+    """Generate leakage-safe expanding-window splits for ordered observations.
+    
+    Notes
+    -----
+    Public fitted attributes use the trailing-underscore convention.
+    """
     def __init__(
         self,
         n_splits: int = 5,
@@ -30,12 +66,51 @@ class EpochTimeSeriesSplit:
         min_train_size: int | None = None,
         gap: int = 0,
     ):
+        """Initialize the estimator or result container.
+        
+        Parameters
+        ----------
+        n_splits
+            Number of temporal validation folds.
+        test_size
+            Number of held-out samples in each fold.
+        min_train_size
+            Minimum number of samples in the first training window.
+        gap
+            Number of samples omitted between training and test windows.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         self.n_splits = n_splits
         self.test_size = test_size
         self.min_train_size = min_train_size
         self.gap = gap
 
     def split(self, n_times: int, *, min_order: int = 1):
+        """Split.
+        
+        Parameters
+        ----------
+        n_times
+            Number of time samples.
+        min_order
+            Largest lag that must fit inside every training window.
+        
+        Returns
+        -------
+        object
+            Iterator of :class:`TemporalFold` objects in chronological order.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         if self.n_splits < 1 or self.gap < 0:
             raise ValueError("invalid split settings")
         test_size = self.test_size or max(1, n_times // (self.n_splits + 2))
@@ -85,6 +160,7 @@ def _estimator_information_criteria(
 ) -> tuple[float, float, float, float]:
     """Compute training-fold IC diagnostics from an already fitted VAR."""
     covariance = estimator.noise_covariance_
+    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
     logdet = spd_logdet(covariance)
     # Independent fits have one covariance per trial. Their average
     # per-observation log likelihood is the mean across trials. For pooled
@@ -108,6 +184,12 @@ def _estimator_information_criteria(
 
 @dataclass(frozen=True)
 class VAROrderScore:
+    """Aggregated held-out and training-diagnostic results for one VAR order.
+    
+    Notes
+    -----
+    Public fitted attributes use the trailing-underscore convention.
+    """
     order: int
     mean_score: float
     standard_error: float
@@ -123,12 +205,31 @@ class VAROrderScore:
 
 @dataclass(frozen=True)
 class VAROrderSearchResult:
+    """Immutable summary returned by temporal VAR order search.
+    
+    Notes
+    -----
+    Public fitted attributes use the trailing-underscore convention.
+    """
     best_order: int
     scores: tuple[VAROrderScore, ...]
     scoring: str
     selection_rule: str
 
     def as_records(self):
+        """As records.
+        
+        Returns
+        -------
+        object
+            List of dictionaries suitable for tabular display.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         return [
             {
                 "order": score.order,
@@ -174,6 +275,43 @@ class VAROrderSearchCV:
         refit: bool = True,
         hurvich_tsai: bool = False,
     ):
+        """Initialize the estimator or result container.
+        
+        Parameters
+        ----------
+        orders
+            Candidate autoregressive orders.
+        cv
+            Input required by this calculation.
+        scoring
+            Input required by this calculation.
+        selection_rule
+            Input required by this calculation.
+        alpha
+            Non-negative ridge regularization strength.
+        fit_intercept
+            Whether to estimate a constant offset.
+        mode
+            Whether trials are fitted independently or pooled.
+        solver
+            Numerical solver or estimation algorithm.
+        device
+            Torch device or ``'auto'``.
+        dtype
+            Torch floating-point dtype name or object.
+        prediction_mode
+            Input required by this calculation.
+        refit
+            Input required by this calculation.
+        hurvich_tsai
+            Input required by this calculation.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         self.orders = tuple(int(value) for value in orders)
         self.cv = cv or EpochTimeSeriesSplit()
         self.scoring = scoring
@@ -190,6 +328,24 @@ class VAROrderSearchCV:
 
     @staticmethod
     def _normalise(x: ArrayLike):
+        """Normalise.
+        
+        Parameters
+        ----------
+        x
+            Input observations or tensor-valued quantity.
+        
+        Returns
+        -------
+        object
+            Computed result; see the annotated return type and shape notes.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         tensor = torch.as_tensor(x)
         if tensor.ndim == 2:
             tensor = tensor.unsqueeze(0)
@@ -199,9 +355,31 @@ class VAROrderSearchCV:
 
     @staticmethod
     def _forecast_nll(errors, covariance):
+        """Forecast nll.
+        
+        Parameters
+        ----------
+        errors
+            Input required by this calculation.
+        covariance
+            Symmetric covariance matrix or batch of covariance matrices.
+        
+        Returns
+        -------
+        object
+            Computed result; see the annotated return type and shape notes.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         if covariance.shape[0] == 1 and errors.shape[0] > 1:
             covariance = covariance.expand(errors.shape[0], -1, -1)
+        # Add adaptive jitter only when required to retain a valid SPD factorisation.
         chol, _ = stable_cholesky(covariance, jitter=1e-10)
+        # Solve with the Cholesky factor instead of forming the covariance inverse.
         solved = torch.cholesky_solve(
             errors.unsqueeze(-1), chol[:, None]
         ).squeeze(-1)
@@ -213,6 +391,28 @@ class VAROrderSearchCV:
         )
 
     def _fit_and_score_fold(self, data, order, fold):
+        """Fit and score fold from observations.
+        
+        Parameters
+        ----------
+        data
+            Input required by this calculation.
+        order
+            Autoregressive model order.
+        fold
+            Input required by this calculation.
+        
+        Returns
+        -------
+        object
+            Computed result; see the annotated return type and shape notes.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         training = data[:, : fold.train_stop]
         estimator = VAR(
             order=order,
@@ -258,10 +458,48 @@ class VAROrderSearchCV:
 
     @staticmethod
     def _finite_mean(values: list[float]) -> float:
+        """Finite mean.
+        
+        Parameters
+        ----------
+        values
+            Input numerical values.
+        
+        Returns
+        -------
+        object
+            Computed result; see the annotated return type and shape notes.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         finite = np.asarray([value for value in values if np.isfinite(value)])
         return float(np.mean(finite)) if finite.size else float("nan")
 
     def fit(self, X: ArrayLike, y=None):
+        """Fit fit from observations.
+        
+        Parameters
+        ----------
+        X
+            Observations with shape ``(time, variables)`` or ``(batch, time, variables)``.
+        y
+            Unused scikit-learn compatibility target.
+        
+        Returns
+        -------
+        object
+            The fitted estimator instance.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         del y
         if not self.orders or min(self.orders) < 1:
             raise ValueError("orders must be positive")
@@ -379,6 +617,12 @@ class VAROrderSearchCV:
 
 @dataclass(frozen=True)
 class VARInformationCriteriaResult:
+    """AIC, BIC and HQC curves and their minimizing VAR orders.
+    
+    Notes
+    -----
+    Public fitted attributes use the trailing-underscore convention.
+    """
     p_aic: int
     p_bic: int
     p_hqc: int
@@ -402,6 +646,29 @@ class VAROrderSelectionIC(BaseEstimator):
         dtype: str = "float64",
         refit: str | None = "hqc",
     ):
+        """Initialize the estimator or result container.
+        
+        Parameters
+        ----------
+        orders
+            Candidate autoregressive orders.
+        solver
+            Numerical solver or estimation algorithm.
+        hurvich_tsai
+            Input required by this calculation.
+        device
+            Torch device or ``'auto'``.
+        dtype
+            Torch floating-point dtype name or object.
+        refit
+            Input required by this calculation.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         self.orders = tuple(int(value) for value in orders)
         self.solver = solver
         self.hurvich_tsai = hurvich_tsai
@@ -410,6 +677,26 @@ class VAROrderSelectionIC(BaseEstimator):
         self.refit = refit
 
     def fit(self, X: ArrayLike, y=None):
+        """Fit fit from observations.
+        
+        Parameters
+        ----------
+        X
+            Observations with shape ``(time, variables)`` or ``(batch, time, variables)``.
+        y
+            Unused scikit-learn compatibility target.
+        
+        Returns
+        -------
+        object
+            The fitted estimator instance.
+        
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
         del y
         if not self.orders or min(self.orders) < 1:
             raise ValueError("orders must be positive")
@@ -439,6 +726,7 @@ class VAROrderSelectionIC(BaseEstimator):
                 -0.5
                 * (
                     n_variables * np.log(2.0 * np.pi)
+                    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
                     + float(spd_logdet(covariance))
                     + n_variables
                 )

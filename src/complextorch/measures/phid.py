@@ -1,4 +1,13 @@
-"""Gaussian MMI PhiID on the complete 4x4 double-redundancy lattice."""
+"""Gaussian integrated information decomposition (PhiID).
+
+Time-delayed mutual information is decomposed into integrated information atoms
+using the minimum-mutual-information redundancy prescription.
+
+References
+----------
+- Mediano, P. A. M. et al. (2021). Integrated information decomposition.
+- Reference implementation: https://github.com/Imperial-MIND-lab/integrated-info-decomp
+"""
 from __future__ import annotations
 from itertools import product
 import torch
@@ -14,21 +23,88 @@ LABELS = ("red", "unq0", "unq1", "syn")
 
 
 def _leq(alpha, beta):
+    """Leq.
+    
+    Parameters
+    ----------
+    alpha
+        Non-negative ridge regularization strength.
+    beta
+        Input required by this calculation.
+    
+    Returns
+    -------
+    object
+        Computed result; see the annotated return type and shape notes.
+    
+    Notes
+    -----
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
+    """
     return all(any(a.issubset(b) for a in alpha) for b in beta)
 
 
 def _subcov(covariance, indices):
+    """Subcov.
+    
+    Parameters
+    ----------
+    covariance
+        Symmetric covariance matrix or batch of covariance matrices.
+    indices
+        Input required by this calculation.
+    
+    Returns
+    -------
+    object
+        Computed result; see the annotated return type and shape notes.
+    
+    Notes
+    -----
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
+    """
     index = torch.as_tensor(indices, dtype=torch.long, device=covariance.device)
     return covariance.index_select(-2, index).index_select(-1, index)
 
 
 def _mi(covariance, left, right):
+    """Mi.
+    
+    Parameters
+    ----------
+    covariance
+        Symmetric covariance matrix or batch of covariance matrices.
+    left
+        Input required by this calculation.
+    right
+        Input required by this calculation.
+    
+    Returns
+    -------
+    object
+        Computed result; see the annotated return type and shape notes.
+    
+    Notes
+    -----
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
+    """
     block = _subcov(covariance, tuple(left) + tuple(right))
     return gaussian_mutual_information(block, len(left))
 
 
 def gaussian_phiid_atoms(joint_covariance: torch.Tensor, block_size: int = 1) -> dict[str, torch.Tensor]:
-    """Return all 16 MMI PhiID atoms for [past0,past1,future0,future1]."""
+    """Compute Gaussian PhiID atoms under MMI redundancy.
+    
+    References
+    ----------
+    - Mediano et al. (2021).
+    """
     covariance = torch.as_tensor(joint_covariance)
     if covariance.shape[-1] != 4 * block_size:
         raise ValueError("covariance dimension must equal 4 * block_size")

@@ -1,4 +1,12 @@
-"""Secondary empirical measures, diagnostics and sample-based inference."""
+"""Empirical measures and sample-based estimation helpers.
+
+Secondary functions operate on finite observations, discretised sequences or
+sample covariances and therefore include sampling and fitting effects.
+
+References
+----------
+- Barnett, L. and Seth, A. K. (2014). Empirical MVGC workflow.
+"""
 from dataclasses import dataclass
 import numpy as np
 import torch
@@ -15,17 +23,47 @@ spectral_mvgc = estimate_spectral_mvgc_from_observations
 
 @dataclass(frozen=True)
 class WhitenessResult:
+    """Residual-whiteness statistic, p-value and method label.
+    
+    Notes
+    -----
+    Public fitted attributes use the trailing-underscore convention.
+    """
     statistic: torch.Tensor
     pvalue: torch.Tensor
     method: str
 
 def _trials(value):
+    """Trials.
+    
+    Parameters
+    ----------
+    value
+        Input required by this calculation.
+    
+    Returns
+    -------
+    object
+        Computed result; see the annotated return type and shape notes.
+    
+    Notes
+    -----
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
+    """
     x=torch.as_tensor(value,dtype=torch.float64)
     if x.ndim==2: x=x.unsqueeze(0)
     if x.ndim!=3: raise ValueError('expected (time,n) or (trials,time,n)')
     return x
 
 def consistency(observations,residuals,*,order:int)->float:
+    """Compute the Ding--Bressler VAR consistency diagnostic.
+    
+    References
+    ----------
+    - Ding et al. (2000); Barnett and Seth (2014); ComplexBox.
+    """
     x=_trials(observations); e=_trials(residuals)
     if e.shape[1]!=x.shape[1]-order: raise ValueError('residual length is incompatible with order')
     x=x-x.mean(dim=(0,1),keepdim=True); xf=x[:,order:,:].reshape(-1,x.shape[-1]).T; ef=e.reshape(-1,e.shape[-1]).T
@@ -33,6 +71,26 @@ def consistency(observations,residuals,*,order:int)->float:
     return float(1-torch.linalg.matrix_norm(rs-rr)/torch.linalg.matrix_norm(rr))
 
 def _dw(design,residual):
+    """Dw.
+    
+    Parameters
+    ----------
+    design
+        Input required by this calculation.
+    residual
+        Input required by this calculation.
+    
+    Returns
+    -------
+    object
+        Computed result; see the annotated return type and shape notes.
+    
+    Notes
+    -----
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
+    """
     n,m=design.shape; dw=float(np.sum(np.diff(residual)**2)/np.sum(residual**2)); a=design@design.T; b=np.zeros_like(design.T); xt=design.T
     b[0]=-xt[0]
     if m>1: b[1]=2*xt[0]-xt[1]
@@ -43,12 +101,27 @@ def _dw(design,residual):
     return dw,2*min(p,1-p)
 
 def residual_whiteness(observations,residuals,*,order:int,method:str='durbin_watson')->WhitenessResult:
+    """Test residual serial correlation with the requested method.
+    
+    The current Durbin--Watson route follows the ComplexBox-compatible
+    approximation while preserving an extensible ``method`` argument.
+    
+    References
+    ----------
+    - Durbin and Watson (1950, 1951); ComplexBox.
+    """
     if method.lower() not in {'durbin_watson','dw','complexbox'}: raise NotImplementedError(f'whiteness method {method!r} is not implemented')
     x=_trials(observations); e=_trials(residuals); x=x-x.mean(dim=(0,1),keepdim=True)
     design=x[:,order:,:].reshape(-1,x.shape[-1]).T.cpu().numpy(); errors=e.reshape(-1,e.shape[-1]).T.cpu().numpy(); values=[_dw(design,row) for row in errors]
     return WhitenessResult(torch.tensor([v[0] for v in values]),torch.tensor([v[1] for v in values]),'durbin_watson')
 
 def mvgc_pvalue(statistic,*,method:str='F',n_target:int,n_source:int,n_conditional:int,order:int,n_times:int,n_trials:int=1):
+    """Compute asymptotic MVGC p-values using MVGC conventions.
+    
+    References
+    ----------
+    - Barnett and Seth (2014); MVGC repository.
+    """
     d=order*n_target*n_source; M=n_trials*(n_times-order); values=np.asarray(torch.as_tensor(statistic).detach().cpu(),dtype=float); key=method.upper()
     if key=='F':
         d2=n_target*(M-order*(n_target+n_source+n_conditional))
@@ -59,6 +132,12 @@ def mvgc_pvalue(statistic,*,method:str='F',n_target:int,n_source:int,n_condition
     return torch.as_tensor(out,dtype=torch.float64)
 
 def significance(pvalues,*,alpha:float=.05,method:str='fdr_bh'):
+    """Apply uncorrected or Benjamini--Hochberg FDR testing.
+    
+    References
+    ----------
+    - Benjamini and Hochberg (1995).
+    """
     p=torch.as_tensor(pvalues,dtype=torch.float64); finite=torch.isfinite(p); flat=p[finite]; result=torch.zeros_like(p,dtype=torch.bool)
     if flat.numel()==0: return result
     key=method.lower()

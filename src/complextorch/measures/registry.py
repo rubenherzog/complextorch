@@ -1,4 +1,9 @@
-"""Machine-readable catalogue of model-first and empirical measure tiers."""
+"""Registry separating analytical primary and empirical secondary measures.
+
+References
+----------
+- ComplexTorch public API design and model-comparison tests.
+"""
 MEASURE_REGISTRY = {
     "gaussian_entropy": {"domain": "model_covariance", "analytic": True, "tier": "primary", "model_entrypoint": "gaussian_measures_from_model"},
     "mutual_information": {"domain": "model_covariance", "analytic": True, "tier": "primary", "model_entrypoint": "gaussian_measures_from_model"},

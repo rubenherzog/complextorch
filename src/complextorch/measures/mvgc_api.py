@@ -1,9 +1,11 @@
-"""Public MVGC dispatch preserving legacy observation-based calls.
+"""Public dispatch layer for model-based and observation-based MVGC.
 
-The canonical path is model-first. Calls whose first argument is a canonical
-VAR/state-space object are routed to :mod:`complextorch.measures.primary`.
-Legacy calls beginning with an observations tensor are routed to the explicitly
-named secondary estimators.
+Canonical VAR/state-space inputs are routed to analytical primary measures;
+finite observations are routed to explicitly empirical secondary estimators.
+
+References
+----------
+- Barnett, L. and Seth, A. K. (2014, 2015).
 """
 from __future__ import annotations
 
@@ -21,7 +23,17 @@ _MODEL_TYPES = (VARSystem, LinearDynamicalSystem, InnovationsStateSpace)
 
 
 def temporal_mvgc(model_or_observations, *args, **kwargs):
-    """Compute model-based MVGC, with deprecated observation-call dispatch."""
+    """Compute conditional time-domain multivariate Granger causality.
+    
+    .. math::
+    
+       F_{Y\to X\mid Z}
+       =\log\frac{\det\Sigma^{R}_{XX}}{\det\Sigma_{XX}}.
+    
+    References
+    ----------
+    - Geweke (1982); Barnett and Seth (2014, 2015).
+    """
     if isinstance(model_or_observations, _MODEL_TYPES):
         return model_temporal_mvgc(model_or_observations, *args, **kwargs)
     if isinstance(model_or_observations, torch.Tensor):
@@ -39,7 +51,15 @@ def temporal_mvgc(model_or_observations, *args, **kwargs):
 
 
 def spectral_mvgc(model_or_observations, *args, **kwargs):
-    """Compute model-based spectral MVGC, with legacy observation dispatch."""
+    """Compute conditional spectral multivariate Granger causality.
+    
+    The frequency-resolved decomposition is obtained from innovations-form transfer
+    functions and integrates to temporal GC.
+    
+    References
+    ----------
+    - Geweke (1982); Barnett and Seth (2014, 2015).
+    """
     if isinstance(model_or_observations, _MODEL_TYPES):
         return model_spectral_mvgc(model_or_observations, *args, **kwargs)
     if isinstance(model_or_observations, torch.Tensor):

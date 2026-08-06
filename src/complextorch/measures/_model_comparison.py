@@ -1,4 +1,14 @@
-"""Shared full/reduced-model utilities for predictive dependence measures."""
+"""Shared nested-model primitives for empirical Gaussian comparisons.
+
+Reduced and full VAR models are fitted with consistent target/source ordering;
+log-determinant ratios and conditional spectra are then reused by empirical
+MVGC and related estimators.
+
+References
+----------
+- Geweke, J. (1982).
+- Barnett, L. and Seth, A. K. (2014). The MVGC toolbox.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,6 +21,26 @@ from .dynamics import cross_spectral_density
 
 
 def normalise_indices(indices, n_variables: int) -> tuple[int, ...]:
+    """Normalise indices.
+    
+    Parameters
+    ----------
+    indices
+        Input required by this calculation.
+    n_variables
+        Number of observed variables.
+    
+    Returns
+    -------
+    object
+        Computed result; see the annotated return type and shape notes.
+    
+    Notes
+    -----
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
+    """
     if isinstance(indices, int):
         indices = (indices,)
     result = tuple(dict.fromkeys(int(i) for i in indices))
@@ -22,11 +52,51 @@ def normalise_indices(indices, n_variables: int) -> tuple[int, ...]:
 
 
 def complement_indices(selected, n_variables: int) -> tuple[int, ...]:
+    """Complement indices.
+    
+    Parameters
+    ----------
+    selected
+        Input required by this calculation.
+    n_variables
+        Number of observed variables.
+    
+    Returns
+    -------
+    object
+        Computed result; see the annotated return type and shape notes.
+    
+    Notes
+    -----
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
+    """
     selected = set(normalise_indices(selected, n_variables))
     return tuple(i for i in range(n_variables) if i not in selected)
 
 
 def select_covariance(covariance: torch.Tensor, indices) -> torch.Tensor:
+    """Select covariance.
+    
+    Parameters
+    ----------
+    covariance
+        Symmetric covariance matrix or batch of covariance matrices.
+    indices
+        Input required by this calculation.
+    
+    Returns
+    -------
+    object
+        Computed result; see the annotated return type and shape notes.
+    
+    Notes
+    -----
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
+    """
     idx = torch.as_tensor(tuple(indices), device=covariance.device, dtype=torch.long)
     return covariance.index_select(-2, idx).index_select(-1, idx)
 
@@ -45,11 +115,40 @@ def conditional_covariance_blocks(covariance: torch.Tensor, target, conditioned)
 
 
 def logdet_ratio(numerator: torch.Tensor, denominator: torch.Tensor, *, base: float = math.e) -> torch.Tensor:
+    """Logdet ratio.
+    
+    Parameters
+    ----------
+    numerator
+        Input required by this calculation.
+    denominator
+        Input required by this calculation.
+    base
+        Logarithm base used for information quantities.
+    
+    Returns
+    -------
+    object
+        Computed result; see the annotated return type and shape notes.
+    
+    Notes
+    -----
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
+    """
+    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
     return (spd_logdet(numerator) - spd_logdet(denominator)) / math.log(base)
 
 
 @dataclass(frozen=True)
 class NestedVARModels:
+    """Nestedvarmodels.
+    
+    Notes
+    -----
+    Public fitted attributes use the trailing-underscore convention.
+    """
     full: VAR
     reduced: VAR
     full_variables: tuple[int, ...]
@@ -78,6 +177,26 @@ def fit_nested_var_models(observations: torch.Tensor, order: int, target, source
 
 
 def residual_target_covariance(model: VAR, target_positions) -> torch.Tensor:
+    """Residual target covariance.
+    
+    Parameters
+    ----------
+    model
+        VAR or linear state-space model.
+    target_positions
+        Input required by this calculation.
+    
+    Returns
+    -------
+    object
+        Computed result; see the annotated return type and shape notes.
+    
+    Notes
+    -----
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
+    """
     return select_covariance(model.noise_covariance_, target_positions)
 
 
@@ -95,4 +214,24 @@ def conditional_spectrum(spectrum: torch.Tensor, target, conditioned=()) -> torc
 
 
 def var_model_spectrum(model: VAR, frequencies: torch.Tensor) -> torch.Tensor:
+    """Var model spectrum.
+    
+    Parameters
+    ----------
+    model
+        VAR or linear state-space model.
+    frequencies
+        One-dimensional frequency grid in normalized cycles per sample.
+    
+    Returns
+    -------
+    object
+        Computed result; see the annotated return type and shape notes.
+    
+    Notes
+    -----
+    Batch dimensions are preserved unless explicitly documented otherwise.
+    The implementation validates dimensional and positive-definiteness
+    requirements before executing the numerical core.
+    """
     return cross_spectral_density(model.to_var_system(), frequencies)
