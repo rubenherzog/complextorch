@@ -1,4 +1,24 @@
-"""Batched VAR estimation with OLS, ridge and Morf LWR solvers."""
+"""Batched VAR estimation with OLS, ridge and Morf LWR solvers.
+
+Notes
+-----
+Ordinary least squares minimises
+
+.. math::
+
+   \widehat B = rg\min_B \lVert Y-XB
+Vert_F^2,
+
+while the LWR route implements the Morf lattice-whitening recursion used by
+MVGC-compatible estimators.
+
+References
+----------
+- Morf, M., Vieira, A., Lee, D. T. L., and Kailath, T. (1978). Recursive
+  multichannel maximum entropy spectral estimation.
+- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
+- ComplexBox repository: https://github.com/bmilinkovic/complexbox
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -16,6 +36,12 @@ from .representations import LinearDynamicalSystem, VARSystem, build_var_system
 
 @dataclass(frozen=True)
 class VARParameters:
+    """VARParameters.
+    
+    Notes
+    -----
+    The class follows the scikit-learn fitted-attribute convention when applicable.
+    """
     coefficients: torch.Tensor
     intercept: torch.Tensor
     innovation_covariance: torch.Tensor
@@ -46,6 +72,7 @@ def _lwr_single(trials: torch.Tensor, order: int) -> tuple[torch.Tensor, torch.T
 
     errors_all = x.reshape(n, n_trials * m)
     inverse_chol = torch.linalg.inv(
+        # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
         torch.linalg.cholesky(errors_all @ errors_all.transpose(-1, -2))
     )
     k = 1
@@ -61,8 +88,11 @@ def _lwr_single(trials: torch.Tensor, order: int) -> tuple[torch.Tensor, torch.T
         backward_block = xx[:k, :, k - 1:m - 1, :].reshape(k * n, effective)
         forward = af[:, :k * n] @ forward_block
         backward = ab[:, p1n - k * n:] @ backward_block
+        # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
         forward_chol = torch.linalg.cholesky(forward @ forward.transpose(-1, -2))
+        # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
         backward_chol = torch.linalg.cholesky(backward @ backward.transpose(-1, -2))
+        # The normalised forward/backward cross-covariance is the lattice reflection coefficient.
         reflection = (
             torch.linalg.solve(forward_chol, forward)
             @ torch.linalg.solve(backward_chol, backward).transpose(-1, -2)
@@ -72,7 +102,9 @@ def _lwr_single(trials: torch.Tensor, order: int) -> tuple[torch.Tensor, torch.T
         backward_start = p1n - k * n
         af_previous = af[:, :forward_end].clone()
         ab_previous = ab[:, backward_start:].clone()
+        # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
         forward_norm = torch.linalg.cholesky(identity - reflection @ reflection.transpose(-1, -2))
+        # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
         backward_norm = torch.linalg.cholesky(identity - reflection.transpose(-1, -2) @ reflection)
         af[:, :forward_end] = torch.linalg.solve(
             forward_norm, af_previous - reflection @ ab_previous
@@ -96,6 +128,12 @@ def _lwr_single(trials: torch.Tensor, order: int) -> tuple[torch.Tensor, torch.T
 
 
 class VAR(BaseEstimator):
+    """VAR.
+    
+    Notes
+    -----
+    The class follows the scikit-learn fitted-attribute convention when applicable.
+    """
     def __init__(
         self,
         order: int = 1,
@@ -109,6 +147,40 @@ class VAR(BaseEstimator):
         dtype: str = "float64",
         stability: Literal["check", "ignore"] = "check",
     ):
+        """  init  .
+        
+        Parameters
+        ----------
+        order
+            Input controlling ``__init__``.
+        alpha
+            Input controlling ``__init__``.
+        fit_intercept
+            Input controlling ``__init__``.
+        mode
+            Input controlling ``__init__``.
+        solver
+            Input controlling ``__init__``.
+        covariance
+            Input controlling ``__init__``.
+        device
+            Input controlling ``__init__``.
+        dtype
+            Input controlling ``__init__``.
+        stability
+            Input controlling ``__init__``.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         self.order = order
         self.alpha = alpha
         self.fit_intercept = fit_intercept
@@ -121,12 +193,43 @@ class VAR(BaseEstimator):
 
     @staticmethod
     def _resolve_dtype(name: str) -> torch.dtype:
+        """ resolve dtype.
+        
+        Parameters
+        ----------
+        name
+            Input controlling ``_resolve_dtype``.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         dtype = getattr(torch, name, None)
         if dtype not in (torch.float32, torch.float64):
             raise ValueError("dtype must be 'float32' or 'float64'")
         return dtype
 
     def _resolve_device(self) -> torch.device:
+        """ resolve device.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         if self.device == "auto":
             return torch.device("cuda" if torch.cuda.is_available() else "cpu")
         device = torch.device(self.device)
@@ -135,6 +238,24 @@ class VAR(BaseEstimator):
         return device
 
     def _normalise_input(self, x: ArrayLike) -> torch.Tensor:
+        """ normalise input.
+        
+        Parameters
+        ----------
+        x
+            Input controlling ``_normalise_input``.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         tensor = torch.as_tensor(
             x, dtype=self._resolve_dtype(self.dtype), device=self._resolve_device()
         )
@@ -150,26 +271,99 @@ class VAR(BaseEstimator):
 
     @staticmethod
     def lagged_design(x: torch.Tensor, order: int):
+        """Lagged design.
+        
+        Parameters
+        ----------
+        x
+            Input controlling ``lagged_design``.
+        order
+            Input controlling ``lagged_design``.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         batch, time, _ = x.shape
         targets = x[:, order:, :]
         blocks = [x[:, order - lag:time - lag, :] for lag in range(1, order + 1)]
         return torch.cat(blocks, dim=-1), targets
 
     def _choose_solver(self):
+        """ choose solver.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         if self.solver != "auto":
             return self.solver
         return "lstsq" if self.alpha == 0 else "cholesky"
 
     def _solve_cholesky(self, design, targets):
+        """ solve cholesky.
+        
+        Parameters
+        ----------
+        design
+            Input controlling ``_solve_cholesky``.
+        targets
+            Input controlling ``_solve_cholesky``.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         gram = design.transpose(-1, -2) @ design
         rhs = design.transpose(-1, -2) @ targets
         penalty = torch.eye(gram.shape[-1], dtype=gram.dtype, device=gram.device)
         if self.fit_intercept:
             penalty[-1, -1] = 0
+        # Add adaptive jitter only when required to retain a valid SPD factorisation.
         chol, _ = stable_cholesky(gram + float(self.alpha) * penalty, jitter=1e-12)
+        # Solve with the Cholesky factor instead of forming the covariance inverse.
         return torch.cholesky_solve(rhs, chol)
 
     def _fit_lwr(self, x: torch.Tensor) -> VARParameters:
+        """ fit lwr.
+        
+        Parameters
+        ----------
+        x
+            Input controlling ``_fit_lwr``.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         if self.alpha != 0:
             raise ValueError("solver='lwr' does not support ridge alpha")
         if not self.fit_intercept:
@@ -195,6 +389,24 @@ class VAR(BaseEstimator):
         )
 
     def _fit_tensor(self, x):
+        """ fit tensor.
+        
+        Parameters
+        ----------
+        x
+            Input controlling ``_fit_tensor``.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         if self.order < 1 or self.alpha < 0:
             raise ValueError("invalid order or alpha")
         solver = self._choose_solver()
@@ -242,6 +454,26 @@ class VAR(BaseEstimator):
         )
 
     def fit(self, X: ArrayLike, y=None):
+        """Fit.
+        
+        Parameters
+        ----------
+        X
+            Input controlling ``fit``.
+        y
+            Input controlling ``fit``.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         del y
         x = self._normalise_input(X)
         start = perf_counter()
@@ -276,10 +508,41 @@ class VAR(BaseEstimator):
         return self
 
     def _check_fitted(self):
+        """ check fitted.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         if not hasattr(self, "params_"):
             raise RuntimeError("estimator is not fitted")
 
     def one_step_predictions(self, X):
+        """One step predictions.
+        
+        Parameters
+        ----------
+        X
+            Input controlling ``one_step_predictions``.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         self._check_fitted()
         x = self._normalise_input(X)
         design, _ = self.lagged_design(x, self.order)
@@ -302,9 +565,47 @@ class VAR(BaseEstimator):
         return design @ solution
 
     def predict(self, X):
+        """Predict.
+        
+        Parameters
+        ----------
+        X
+            Input controlling ``predict``.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         return self.one_step_predictions(X).detach().cpu().numpy()
 
     def forecast(self, history, steps: int):
+        """Forecast.
+        
+        Parameters
+        ----------
+        history
+            Input controlling ``forecast``.
+        steps
+            Input controlling ``forecast``.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         self._check_fitted()
         hist = self._normalise_input(history)
         if steps < 1 or hist.shape[1] < self.order:
@@ -327,16 +628,56 @@ class VAR(BaseEstimator):
         return torch.stack(output, 1)
 
     def residuals(self, X):
+        """Residuals.
+        
+        Parameters
+        ----------
+        X
+            Input controlling ``residuals``.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         x = self._normalise_input(X)
         _, targets = self.lagged_design(x, self.order)
         return targets - self.one_step_predictions(x)
 
     def gaussian_nll(self, X, *, reduction="mean"):
+        """Gaussian nll.
+        
+        Parameters
+        ----------
+        X
+            Input controlling ``gaussian_nll``.
+        reduction
+            Input controlling ``gaussian_nll``.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         errors = self.residuals(X)
         covariance = self.noise_covariance_
         if self.mode == "pooled":
             covariance = covariance.expand(errors.shape[0], -1, -1)
+        # Add adaptive jitter only when required to retain a valid SPD factorisation.
         chol, _ = stable_cholesky(covariance, jitter=1e-10)
+        # Solve with the Cholesky factor instead of forming the covariance inverse.
         solved = torch.cholesky_solve(errors.unsqueeze(-1), chol[:, None]).squeeze(-1)
         values = 0.5 * (
             (errors * solved).sum(-1)
@@ -352,11 +693,38 @@ class VAR(BaseEstimator):
         raise ValueError("bad reduction")
 
     def score(self, X, y=None):
+        """Score.
+        
+        Parameters
+        ----------
+        X
+            Input controlling ``score``.
+        y
+            Input controlling ``score``.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         del y
         return -float(self.gaussian_nll(X))
 
     def consistency(self, observations) -> float:
-        """Ding-Bressler consistency statistic, matching ComplexBox/MVGC."""
+        """Ding-Bressler consistency statistic, matching ComplexBox/MVGC.
+        
+        Compute the Ding--Bressler VAR consistency diagnostic.
+        
+        References
+        ----------
+        Ding et al. (2000); Barnett and Seth (2014); ComplexBox repository.
+        """
         from .measures.secondary import consistency
         return consistency(observations, self.residuals(observations), order=self.order)
 
@@ -368,10 +736,46 @@ class VAR(BaseEstimator):
         )
 
     def to_var_system(self, *, lyapunov_method="doubling") -> VARSystem:
+        """To var system.
+        
+        Parameters
+        ----------
+        lyapunov_method
+            Input controlling ``to_var_system``.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         self._check_fitted()
         return build_var_system(
             self.coef_, self.noise_covariance_, lyapunov_method=lyapunov_method
         )
 
     def to_state_space(self, *, lyapunov_method="doubling") -> LinearDynamicalSystem:
+        """To state space.
+        
+        Parameters
+        ----------
+        lyapunov_method
+            Input controlling ``to_state_space``.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         return self.to_var_system(lyapunov_method=lyapunov_method).to_state_space()

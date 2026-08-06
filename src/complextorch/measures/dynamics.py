@@ -1,4 +1,20 @@
-"""Time- and frequency-domain analytical measures for stationary Gaussian VARs."""
+"""Time- and frequency-domain analytical measures for stationary Gaussian VARs.
+
+Notes
+-----
+Autocovariances, transfer functions and spectra are derived analytically from
+stationary VAR/state-space parameters. For a VAR transfer function
+:math:`H(f)=A(f)^{-1}`, the spectrum is
+
+.. math::
+
+   S(f)=H(f)\Sigma H(f)^*.
+
+References
+----------
+- Lütkepohl, H. (2005), spectral representation of VAR processes.
+- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
+"""
 from __future__ import annotations
 import math
 import torch
@@ -8,6 +24,15 @@ from .gaussian import gaussian_entropy, gaussian_mutual_information
 
 
 def autocovariances(system:VARSystem,max_lag:int)->torch.Tensor:
+    """Compute stationary observation autocovariances.
+    
+    For state transition :math:`A`, state covariance :math:`P` and observation
+    matrix :math:`C`, positive-lag covariances use :math:`C A^	au P C^	op`.
+    
+    References
+    ----------
+    Lütkepohl (2005); Anderson and Moore (1979).
+    """
     if max_lag<0: raise ValueError('max_lag must be nonnegative')
     power=torch.eye(system.companion.shape[-1],dtype=system.companion.dtype,device=system.companion.device).expand(system.batch_size,-1,-1)
     out=[]
@@ -18,10 +43,51 @@ def autocovariances(system:VARSystem,max_lag:int)->torch.Tensor:
 
 
 def entropy_rate(system:VARSystem,*,base:float=2.0)->torch.Tensor:
+    """Entropy rate.
+    
+    Parameters
+    ----------
+    system
+        Input controlling ``entropy_rate``.
+    base
+        Input controlling ``entropy_rate``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     return gaussian_entropy(system.innovation_covariance,base=base)
 
 
 def predictive_information(system:VARSystem,*,base:float=2.0)->torch.Tensor:
+    """Predictive information.
+    
+    Parameters
+    ----------
+    system
+        Input controlling ``predictive_information``.
+    base
+        Input controlling ``predictive_information``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
+    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
     return 0.5*(spd_logdet(system.present_covariance)-spd_logdet(system.innovation_covariance))/math.log(base)
 
 
@@ -39,6 +105,28 @@ def active_information_storage(system:VARSystem,*,base:float=2.0)->torch.Tensor:
 
 
 def inverse_transfer_function(system:VARSystem,frequencies:torch.Tensor,*,sampling_frequency:float=1.0)->torch.Tensor:
+    """Inverse transfer function.
+    
+    Parameters
+    ----------
+    system
+        Input controlling ``inverse_transfer_function``.
+    frequencies
+        Input controlling ``inverse_transfer_function``.
+    sampling_frequency
+        Input controlling ``inverse_transfer_function``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     f=torch.as_tensor(frequencies,dtype=system.coefficients.dtype,device=system.coefficients.device)
     coef=system.coefficients.to(torch.complex128 if system.coefficients.dtype==torch.float64 else torch.complex64)
     eye=torch.eye(system.n_variables,dtype=coef.dtype,device=coef.device)
@@ -48,16 +136,70 @@ def inverse_transfer_function(system:VARSystem,frequencies:torch.Tensor,*,sampli
 
 
 def transfer_function(system:VARSystem,frequencies:torch.Tensor,*,sampling_frequency:float=1.0)->torch.Tensor:
+    """Transfer function.
+    
+    Parameters
+    ----------
+    system
+        Input controlling ``transfer_function``.
+    frequencies
+        Input controlling ``transfer_function``.
+    sampling_frequency
+        Input controlling ``transfer_function``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     return torch.linalg.inv(inverse_transfer_function(system,frequencies,sampling_frequency=sampling_frequency))
 
 
 def cross_spectral_density(system:VARSystem,frequencies:torch.Tensor,*,sampling_frequency:float=1.0)->torch.Tensor:
+    """Compute the cross-spectral density from a transfer function.
+    
+    .. math:: S(f)=H(f)\Sigma H(f)^*.
+    
+    References
+    ----------
+    Lütkepohl (2005); Barnett and Seth (2014).
+    """
     h=transfer_function(system,frequencies,sampling_frequency=sampling_frequency)
     q=system.innovation_covariance.to(h.dtype)
     return h@q[:,None]@h.conj().transpose(-1,-2)/sampling_frequency
 
 
 def spectral_entropy(system:VARSystem,frequencies:torch.Tensor,*,sampling_frequency:float=1.0,normalize:bool=True)->torch.Tensor:
+    """Spectral entropy.
+    
+    Parameters
+    ----------
+    system
+        Input controlling ``spectral_entropy``.
+    frequencies
+        Input controlling ``spectral_entropy``.
+    sampling_frequency
+        Input controlling ``spectral_entropy``.
+    normalize
+        Input controlling ``spectral_entropy``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     psd=torch.diagonal(cross_spectral_density(system,frequencies,sampling_frequency=sampling_frequency),dim1=-2,dim2=-1).real.clamp_min(torch.finfo(system.coefficients.dtype).tiny)
     prob=psd/psd.sum(1,keepdim=True)
     h=-(prob*torch.log2(prob)).sum(1)

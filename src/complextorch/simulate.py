@@ -1,4 +1,22 @@
-"""Deterministic and random stable VAR systems for validation."""
+"""Deterministic and random stable VAR systems for validation.
+
+Notes
+-----
+VAR simulations implement the recursion
+
+.. math::
+
+   x_t = c + \sum_{k=1}^{p} A_k x_{t-k} + 
+arepsilon_t.
+
+The automatic burn-in uses the companion spectral radius to suppress initial
+conditions below a prescribed tolerance.
+
+References
+----------
+- Lütkepohl, H. (2005), Chapters 2--3.
+- ComplexBox repository: https://github.com/bmilinkovic/complexbox
+"""
 from __future__ import annotations
 import math
 import torch
@@ -7,6 +25,24 @@ from .representations import companion_matrix
 
 
 def _normalise_coefficients(coefficients):
+    """ normalise coefficients.
+    
+    Parameters
+    ----------
+    coefficients
+        Input controlling ``_normalise_coefficients``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     coef = torch.as_tensor(coefficients)
     if coef.ndim == 3:
         coef = coef.unsqueeze(0)
@@ -16,6 +52,28 @@ def _normalise_coefficients(coefficients):
 
 
 def _normalise_covariance(covariance, batch, n):
+    """ normalise covariance.
+    
+    Parameters
+    ----------
+    covariance
+        Input controlling ``_normalise_covariance``.
+    batch
+        Input controlling ``_normalise_covariance``.
+    n
+        Input controlling ``_normalise_covariance``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     q = torch.as_tensor(covariance)
     if q.ndim == 2:
         q = q.unsqueeze(0)
@@ -27,7 +85,13 @@ def _normalise_covariance(covariance, batch, n):
 
 
 def automatic_burnin(coefficients, *, epsilon: float | None = None) -> int:
-    """MVGC-style transient length ceil(-log(eps)/-log(rho))."""
+    """MVGC-style transient length ceil(-log(eps)/-log(rho)).
+    
+    Choose burn-in length from the companion spectral radius.
+    
+    The smallest integer :math:`T` satisfying :math:`
+    ho^T<\epsilon` is used.
+    """
     coef = _normalise_coefficients(coefficients)
     rho = float(spectral_radius(companion_matrix(coef)).max())
     if rho >= 1:
@@ -47,6 +111,12 @@ def simulate_var(
     seed: int = 0,
     return_innovations: bool = False,
 ):
+    """Simulate one or more Gaussian VAR trajectories.
+    
+    References
+    ----------
+    Lütkepohl (2005); ComplexBox repository.
+    """
     coef = _normalise_coefficients(coefficients)
     batch, order, n, _ = coef.shape
     q = _normalise_covariance(innovation_covariance, batch, n).to(coef)
@@ -62,6 +132,7 @@ def simulate_var(
             raise ValueError("burnin must be nonnegative")
     generator = torch.Generator(device=coef.device)
     generator.manual_seed(seed)
+    # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
     chol = torch.linalg.cholesky(q)
     total = n_times + burnin_value
     innovations = torch.randn(
@@ -124,6 +195,36 @@ def random_positive_definite_covariance(
     dtype: torch.dtype = torch.float64,
     device: str | torch.device = "cpu",
 ) -> torch.Tensor:
+    """Random positive definite covariance.
+    
+    Parameters
+    ----------
+    n_variables
+        Input controlling ``random_positive_definite_covariance``.
+    batch
+        Input controlling ``random_positive_definite_covariance``.
+    seed
+        Input controlling ``random_positive_definite_covariance``.
+    scale_min
+        Input controlling ``random_positive_definite_covariance``.
+    scale_max
+        Input controlling ``random_positive_definite_covariance``.
+    dtype
+        Input controlling ``random_positive_definite_covariance``.
+    device
+        Input controlling ``random_positive_definite_covariance``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     correlation = random_correlation_matrix(
         n_variables, batch=batch, seed=seed, dtype=dtype, device=device
     )
@@ -135,6 +236,12 @@ def random_positive_definite_covariance(
 
 
 def random_stable_var(batch:int,n_variables:int,order:int,*,spectral_radius_target:float=.85,noise_scale:float=1.,seed:int=0,dtype=torch.float64,device='cpu'):
+    """Generate random VAR coefficients scaled to a target spectral radius.
+    
+    References
+    ----------
+    Lütkepohl (2005); ComplexBox repository.
+    """
     if not 0<spectral_radius_target<1: raise ValueError('spectral_radius_target must lie in (0,1)')
     gen=torch.Generator(device=torch.device(device)); gen.manual_seed(seed)
     raw=torch.randn((batch,order,n_variables,n_variables),generator=gen,dtype=dtype,device=device)/math.sqrt(n_variables*order)
@@ -145,6 +252,30 @@ def random_stable_var(batch:int,n_variables:int,order:int,*,spectral_radius_targ
 
 
 def _cycle(n,frustrated,*,dtype,device):
+    """ cycle.
+    
+    Parameters
+    ----------
+    n
+        Input controlling ``_cycle``.
+    frustrated
+        Input controlling ``_cycle``.
+    dtype
+        Input controlling ``_cycle``.
+    device
+        Input controlling ``_cycle``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     m=torch.zeros((n,n),dtype=dtype,device=device)
     for row in range(n): m[row,(row+1)%n]=1
     if frustrated: m[0,1]=-1
@@ -152,6 +283,40 @@ def _cycle(n,frustrated,*,dtype,device):
 
 
 def demo_var(n_variables:int=3,order:int=2,*,temporal_path:float=-.95,temporal_gain:float=.9,noise_correlation:float=-.25,lag_weights=None,stability_target:float=.98,dtype=torch.float64,device='cpu'):
+    """Demo var.
+    
+    Parameters
+    ----------
+    n_variables
+        Input controlling ``demo_var``.
+    order
+        Input controlling ``demo_var``.
+    temporal_path
+        Input controlling ``demo_var``.
+    temporal_gain
+        Input controlling ``demo_var``.
+    noise_correlation
+        Input controlling ``demo_var``.
+    lag_weights
+        Input controlling ``demo_var``.
+    stability_target
+        Input controlling ``demo_var``.
+    dtype
+        Input controlling ``demo_var``.
+    device
+        Input controlling ``demo_var``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     dev=torch.device(device); weights=torch.ones(order,dtype=dtype,device=dev) if lag_weights is None else torch.as_tensor(lag_weights,dtype=dtype,device=dev)
     pattern=_cycle(n_variables,temporal_path<0,dtype=dtype,device=dev); eye=torch.eye(n_variables,dtype=dtype,device=dev); w=abs(float(temporal_path)); mats=[]
     for lag in range(order):

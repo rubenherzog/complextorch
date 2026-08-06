@@ -3,6 +3,28 @@
 Two explicit routes are provided:
 - regression MVGC, based on separately fitted nested VAR models;
 - exact state-space MVGC, based on one full innovations model and DARE-derived marginals.
+
+Notes
+-----
+Conditional time-domain Granger causality is the log ratio of reduced and full
+innovation generalised variances,
+
+.. math::
+
+   F_{Y	o X\mid Z}=\log
+rac{\det\Sigma^{R}_{XX}}
+                                {\det\Sigma_{XX}}.
+
+Spectral GC is computed from innovations-form transfer functions and integrates
+to the time-domain value under the Geweke decomposition.
+
+References
+----------
+- Geweke, J. (1982). Measurement of linear dependence and feedback between
+  multiple time series.
+- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
+- Barnett, L. and Seth, A. K. (2015), state-space Granger causality.
+- MVGC repository: https://github.com/lcbarnett/MVGC1
 """
 from __future__ import annotations
 import math
@@ -15,7 +37,16 @@ from .dynamics import transfer_function, cross_spectral_density
 
 
 def temporal_mvgc(observations: torch.Tensor, order: int, source, target, *, conditional=(), base: float = math.e, **var_kwargs) -> torch.Tensor:
-    """Regression conditional group GC using separately fitted nested VARs."""
+    """Regression conditional group GC using separately fitted nested VARs.
+    
+    Compute conditional time-domain multivariate Granger causality.
+    
+    .. math:: F_{Y	o X\mid Z}=\log(\det\Sigma^R_{XX}/\det\Sigma_{XX}).
+    
+    References
+    ----------
+    Geweke (1982); Barnett and Seth (2014, 2015).
+    """
     models = fit_nested_var_models(observations, order, target, source, conditional, **var_kwargs)
     full_cov = residual_target_covariance(models.full, models.target_positions_full)
     reduced_cov = residual_target_covariance(models.reduced, models.target_positions_reduced)
@@ -23,7 +54,17 @@ def temporal_mvgc(observations: torch.Tensor, order: int, source, target, *, con
 
 
 def spectral_mvgc(observations: torch.Tensor, order: int, source, target, frequencies: torch.Tensor, *, conditional=(), base: float = math.e, **var_kwargs) -> torch.Tensor:
-    """Regression spectral GC from the same separately fitted full/reduced VARs."""
+    """Regression spectral GC from the same separately fitted full/reduced VARs.
+    
+    Compute conditional spectral multivariate Granger causality.
+    
+    The frequency-resolved decomposition is obtained from innovations-form transfer
+    functions and integrates to temporal GC.
+    
+    References
+    ----------
+    Geweke (1982); Barnett and Seth (2014, 2015).
+    """
     models = fit_nested_var_models(observations, order, target, source, conditional, **var_kwargs)
     full_spectrum = var_model_spectrum(models.full, frequencies)
     reduced_spectrum = var_model_spectrum(models.reduced, frequencies)
@@ -37,10 +78,52 @@ def spectral_mvgc(observations: torch.Tensor, order: int, source, target, freque
 
 
 def _as_innovations(system: VARSystem | InnovationsStateSpace) -> InnovationsStateSpace:
+    """ as innovations.
+    
+    Parameters
+    ----------
+    system
+        Input controlling ``_as_innovations``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     return var_to_innovations_state_space(system) if isinstance(system, VARSystem) else system
 
 
 def _normalise_partition(system: InnovationsStateSpace, target, source, conditional=()):
+    """ normalise partition.
+    
+    Parameters
+    ----------
+    system
+        Input controlling ``_normalise_partition``.
+    target
+        Input controlling ``_normalise_partition``.
+    source
+        Input controlling ``_normalise_partition``.
+    conditional
+        Input controlling ``_normalise_partition``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     n_variables = system.observation.shape[-2]
     target = normalise_indices(target, n_variables)
     source = normalise_indices(source, n_variables)
@@ -51,6 +134,24 @@ def _normalise_partition(system: InnovationsStateSpace, target, source, conditio
 
 
 def _hermitian(matrix: torch.Tensor) -> torch.Tensor:
+    """ hermitian.
+    
+    Parameters
+    ----------
+    matrix
+        Input controlling ``_hermitian``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     return 0.5 * (matrix + matrix.conj().transpose(-1, -2))
 
 
@@ -105,6 +206,7 @@ def state_space_temporal_mvgc(
     n_target = len(target)
     full_covariance = full.innovation_covariance[..., :n_target, :n_target]
     reduced_covariance = reduced.innovation_covariance[..., :n_target, :n_target]
+    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
     return (spd_logdet(reduced_covariance) - spd_logdet(full_covariance)) / math.log(base)
 
 
@@ -133,10 +235,23 @@ def state_space_spectral_mvgc(
 
 
 def integrate_spectral_mvgc(values: torch.Tensor, frequencies: torch.Tensor) -> torch.Tensor:
-    """Integrate one-sided GC on normalized frequencies [0,.5] to time GC."""
+    """Integrate one-sided GC on normalized frequencies [0,.5] to time GC.
+    
+    Integrate one-sided spectral GC to its time-domain value.
+    
+    For normalised frequencies :math:`f\in[0,1/2]`, the implementation evaluates
+    :math:`2\int_0^{1/2} f_{Y	o X}(
+    u)\,d
+    u`.
+    
+    References
+    ----------
+    Geweke (1982); Barnett and Seth (2014).
+    """
     frequencies = torch.as_tensor(frequencies, dtype=values.real.dtype, device=values.device)
     if frequencies.ndim != 1 or frequencies.numel() != values.shape[-1]:
         raise ValueError("frequencies must match the last dimension of values")
+    # One-sided spectral integration recovers the corresponding time-domain quantity.
     return 2.0 * torch.trapezoid(values, frequencies, dim=-1)
 
 

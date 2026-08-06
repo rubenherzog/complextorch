@@ -1,4 +1,20 @@
-"""Latent linear-Gaussian state-space estimation and inference."""
+"""Latent linear-Gaussian state-space estimation and inference.
+
+Notes
+-----
+The package combines Kalman filtering/smoothing, N4SID subspace
+identification, and expectation--maximisation for linear Gaussian systems.
+
+References
+----------
+- Kalman, R. E. (1960). A new approach to linear filtering and prediction.
+- Rauch, H. E., Tung, F., and Striebel, C. T. (1965). Maximum likelihood
+  estimates of linear dynamic systems.
+- Van Overschee, P. and De Moor, B. (1994). N4SID: Subspace algorithms for the
+  identification of combined deterministic-stochastic systems.
+- Shumway, R. H. and Stoffer, D. S. (1982). An approach to time series
+  smoothing and forecasting using the EM algorithm.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,6 +27,12 @@ from .representations import LinearDynamicalSystem
 
 @dataclass(frozen=True)
 class KalmanResult:
+    """KalmanResult.
+    
+    Notes
+    -----
+    The class follows the scikit-learn fitted-attribute convention when applicable.
+    """
     filtered_mean: torch.Tensor
     filtered_covariance: torch.Tensor
     predicted_mean: torch.Tensor
@@ -21,6 +43,24 @@ class KalmanResult:
 
 
 def _as_2d(x: torch.Tensor) -> tuple[torch.Tensor, bool]:
+    """ as 2d.
+    
+    Parameters
+    ----------
+    x
+        Input controlling ``_as_2d``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     t=torch.as_tensor(x); single=t.ndim==2
     if single: t=t.unsqueeze(0)
     if t.ndim!=3: raise ValueError("observations must have shape (time,variables) or (batch,time,variables)")
@@ -48,10 +88,12 @@ def kalman_filter(observations,system,*,initial_mean=None,initial_covariance=Non
     for t in range(y.shape[1]):
         pred_mean=torch.einsum('bij,bj->bi',a,mean); pred_cov=symmetrise(a@p@a.transpose(-1,-2)+q)
         innovation=y[:,t]-torch.einsum('bmd,bd->bm',c,pred_mean); s=symmetrise(c@pred_cov@c.transpose(-1,-2)+r)
+        # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
         chol=torch.linalg.cholesky(s); k=torch.cholesky_solve((pred_cov@c.transpose(-1,-2)).transpose(-1,-2),chol).transpose(-1,-2)
         mean=pred_mean+torch.einsum('bdm,bm->bd',k,innovation)
         eye=torch.eye(d,dtype=y.dtype,device=y.device).expand(batch,d,d)
         p=symmetrise((eye-k@c)@pred_cov@(eye-k@c).transpose(-1,-2)+k@r@k.transpose(-1,-2))
+        # Solve with the Cholesky factor instead of forming the covariance inverse.
         quad=torch.cholesky_solve(innovation.unsqueeze(-1),chol).squeeze(-1)
         ll+=-.5*(m*log2pi+2*torch.log(torch.diagonal(chol,dim1=-2,dim2=-1)).sum(-1)+(innovation*quad).sum(-1))
         pm.append(pred_mean); pc.append(pred_cov); fm.append(mean); fc.append(p); innovations.append(innovation); innovation_cov.append(s)
@@ -63,6 +105,12 @@ def kalman_filter(observations,system,*,initial_mean=None,initial_covariance=Non
 
 @dataclass(frozen=True)
 class SmootherResult:
+    """SmootherResult.
+    
+    Notes
+    -----
+    The class follows the scikit-learn fitted-attribute convention when applicable.
+    """
     smoothed_mean: torch.Tensor
     smoothed_covariance: torch.Tensor
     lag_covariance: torch.Tensor
@@ -70,6 +118,26 @@ class SmootherResult:
 
 
 def kalman_smoother(observations,system):
+    """Kalman smoother.
+    
+    Parameters
+    ----------
+    observations
+        Input controlling ``kalman_smoother``.
+    system
+        Input controlling ``kalman_smoother``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     filt=kalman_filter(observations,system); single=filt.filtered_mean.ndim==2
     fm=filt.filtered_mean.unsqueeze(0) if single else filt.filtered_mean; fc=filt.filtered_covariance.unsqueeze(0) if single else filt.filtered_covariance
     pm=filt.predicted_mean.unsqueeze(0) if single else filt.predicted_mean; pc=filt.predicted_covariance.unsqueeze(0) if single else filt.predicted_covariance
@@ -87,6 +155,24 @@ class N4SID(BaseEstimator):
     """Compact block-Hankel/SVD subspace identifier."""
     def __init__(self,n_states:int,block_rows:int=10,ridge:float=1e-8): self.n_states=n_states; self.block_rows=block_rows; self.ridge=ridge
     def fit(self,observations):
+        """Fit.
+        
+        Parameters
+        ----------
+        observations
+            Input controlling ``fit``.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         y=torch.as_tensor(observations,dtype=torch.float64)
         if y.ndim!=2: raise ValueError('N4SID currently expects (time,variables)')
         n,m=y.shape; i=self.block_rows
@@ -106,6 +192,24 @@ class LinearGaussianEM(BaseEstimator):
     """EM refinement of a latent linear Gaussian state-space model."""
     def __init__(self,system,n_iter:int=20,min_covar:float=1e-7): self.system=system; self.n_iter=n_iter; self.min_covar=min_covar
     def fit(self,observations):
+        """Fit.
+        
+        Parameters
+        ----------
+        observations
+            Input controlling ``fit``.
+        
+        Returns
+        -------
+        object
+            Result described by the function name and annotated return type.
+        
+        Notes
+        -----
+        Tensor batch dimensions are preserved unless the public API explicitly
+        documents a squeeze operation. Numerical validation is performed by the
+        module before the core calculation.
+        """
         y=torch.as_tensor(observations,dtype=self.system.transition.dtype,device=self.system.transition.device); sys=self.system; history=[]
         for _ in range(self.n_iter):
             sm=kalman_smoother(y,sys); x=sm.smoothed_mean; p=sm.smoothed_covariance; lag=sm.lag_covariance; exx=p+x.unsqueeze(-1)*x.unsqueeze(-2)

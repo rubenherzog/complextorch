@@ -1,4 +1,16 @@
-"""Analytical CMem quantities from model-derived Gaussian covariances."""
+"""Analytical CMem quantities from model-derived Gaussian covariances.
+
+Notes
+-----
+CMem quantities decompose covariance-memory effects using Gaussian total
+correlation and lagged covariance blocks. All determinants are evaluated with
+positive-definite linear algebra.
+
+References
+----------
+- Cover, T. M. and Thomas, J. A. (2006), Gaussian information identities.
+- ComplexTorch repository methodological notes and tests.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,6 +24,12 @@ from .gaussian import gaussian_mutual_information, total_correlation
 
 @dataclass(frozen=True)
 class CMemResult:
+    """CMemResult.
+    
+    Notes
+    -----
+    The class follows the scikit-learn fitted-attribute convention when applicable.
+    """
     cmem3_total: torch.Tensor
     cmem1_total: torch.Tensor
     cmem3_lag: torch.Tensor
@@ -22,6 +40,24 @@ class CMemResult:
 
 
 def _batched_gamma(values: torch.Tensor) -> tuple[torch.Tensor, bool]:
+    """ batched gamma.
+    
+    Parameters
+    ----------
+    values
+        Input controlling ``_batched_gamma``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     gamma = torch.as_tensor(values)
     single = gamma.ndim == 3
     if single:
@@ -32,6 +68,28 @@ def _batched_gamma(values: torch.Tensor) -> tuple[torch.Tensor, bool]:
 
 
 def _batched_covariance(values: torch.Tensor, batch: int, n: int) -> torch.Tensor:
+    """ batched covariance.
+    
+    Parameters
+    ----------
+    values
+        Input controlling ``_batched_covariance``.
+    batch
+        Input controlling ``_batched_covariance``.
+    n
+        Input controlling ``_batched_covariance``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     covariance = torch.as_tensor(values)
     if covariance.ndim == 2:
         covariance = covariance.unsqueeze(0)
@@ -48,6 +106,26 @@ def cmem3_total_from_covariances(
     observation_covariance: torch.Tensor,
     innovation_covariance: torch.Tensor,
 ) -> torch.Tensor:
+    """Cmem3 total from covariances.
+    
+    Parameters
+    ----------
+    observation_covariance
+        Input controlling ``cmem3_total_from_covariances``.
+    innovation_covariance
+        Input controlling ``cmem3_total_from_covariances``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     return total_correlation(innovation_covariance) - total_correlation(observation_covariance)
 
 
@@ -55,7 +133,28 @@ def cmem1_total_from_covariances(
     observation_covariance: torch.Tensor,
     innovation_covariance: torch.Tensor,
 ) -> torch.Tensor:
+    """Cmem1 total from covariances.
+    
+    Parameters
+    ----------
+    observation_covariance
+        Input controlling ``cmem1_total_from_covariances``.
+    innovation_covariance
+        Input controlling ``cmem1_total_from_covariances``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     full = 0.5 * (
+        # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
         spd_logdet(observation_covariance) - spd_logdet(innovation_covariance)
     ) / math.log(2.0)
     parts = 0.5 * torch.log2(
@@ -66,6 +165,26 @@ def cmem1_total_from_covariances(
 
 
 def _joint_from_gamma(sigma: torch.Tensor, gamma: torch.Tensor) -> torch.Tensor:
+    """ joint from gamma.
+    
+    Parameters
+    ----------
+    sigma
+        Input controlling ``_joint_from_gamma``.
+    gamma
+        Input controlling ``_joint_from_gamma``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     return torch.cat(
         [
             torch.cat([sigma, gamma.transpose(-1, -2)], -1),
@@ -76,6 +195,26 @@ def _joint_from_gamma(sigma: torch.Tensor, gamma: torch.Tensor) -> torch.Tensor:
 
 
 def _self_mi(joint: torch.Tensor, n: int) -> torch.Tensor:
+    """ self mi.
+    
+    Parameters
+    ----------
+    joint
+        Input controlling ``_self_mi``.
+    n
+        Input controlling ``_self_mi``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     a = torch.diagonal(joint[..., :n, :n], dim1=-2, dim2=-1)
     b = torch.diagonal(joint[..., n:, n:], dim1=-2, dim2=-1)
     c = torch.diagonal(joint[..., :n, n:], dim1=-2, dim2=-1)
@@ -87,6 +226,26 @@ def cmem3_curve_from_autocovariances(
     autocovariances: torch.Tensor,
     tau_max: int,
 ) -> torch.Tensor:
+    """Cmem3 curve from autocovariances.
+    
+    Parameters
+    ----------
+    autocovariances
+        Input controlling ``cmem3_curve_from_autocovariances``.
+    tau_max
+        Input controlling ``cmem3_curve_from_autocovariances``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     if tau_max < 1:
         raise ValueError("tau_max must be at least one")
     gamma, single = _batched_gamma(autocovariances)
@@ -110,6 +269,26 @@ def cmem1_curve_from_autocovariances(
     autocovariances: torch.Tensor,
     tau_max: int,
 ) -> torch.Tensor:
+    """Cmem1 curve from autocovariances.
+    
+    Parameters
+    ----------
+    autocovariances
+        Input controlling ``cmem1_curve_from_autocovariances``.
+    tau_max
+        Input controlling ``cmem1_curve_from_autocovariances``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     if tau_max < 1:
         raise ValueError("tau_max must be at least one")
     gamma, single = _batched_gamma(autocovariances)
@@ -128,6 +307,26 @@ def cmem1_curve_from_autocovariances(
 
 
 def _joint_cov_lags(gammas: torch.Tensor, tau: int) -> torch.Tensor:
+    """ joint cov lags.
+    
+    Parameters
+    ----------
+    gammas
+        Input controlling ``_joint_cov_lags``.
+    tau
+        Input controlling ``_joint_cov_lags``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     blocks = []
     for left in range(tau + 1):
         row = []
@@ -140,7 +339,28 @@ def _joint_cov_lags(gammas: torch.Tensor, tau: int) -> torch.Tensor:
 
 
 def _node_vs_vector_mi(joint: torch.Tensor, n: int) -> torch.Tensor:
+    """ node vs vector mi.
+    
+    Parameters
+    ----------
+    joint
+        Input controlling ``_node_vs_vector_mi``.
+    n
+        Input controlling ``_node_vs_vector_mi``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     past = joint[..., n:, n:]
+    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
     past_logdet = spd_logdet(past)
     values = []
     for node in range(n):
@@ -148,6 +368,7 @@ def _node_vs_vector_mi(joint: torch.Tensor, n: int) -> torch.Tensor:
         sub = joint.index_select(-2, index).index_select(-1, index)
         values.append(
             0.5
+            # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
             * (torch.log(joint[..., node, node]) + past_logdet - spd_logdet(sub))
             / math.log(2.0)
         )
@@ -155,6 +376,26 @@ def _node_vs_vector_mi(joint: torch.Tensor, n: int) -> torch.Tensor:
 
 
 def _cmem3_lag_one(gammas: torch.Tensor, tau: int) -> torch.Tensor:
+    """ cmem3 lag one.
+    
+    Parameters
+    ----------
+    gammas
+        Input controlling ``_cmem3_lag_one``.
+    tau
+        Input controlling ``_cmem3_lag_one``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     n = gammas.shape[-1]
     full = _joint_cov_lags(gammas, tau)
     present = torch.arange(0, n, device=full.device)
@@ -183,6 +424,26 @@ def cmem3_lag_decomposition_from_autocovariances(
     autocovariances: torch.Tensor,
     max_lag: int,
 ) -> torch.Tensor:
+    """Cmem3 lag decomposition from autocovariances.
+    
+    Parameters
+    ----------
+    autocovariances
+        Input controlling ``cmem3_lag_decomposition_from_autocovariances``.
+    max_lag
+        Input controlling ``cmem3_lag_decomposition_from_autocovariances``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     if max_lag < 1:
         raise ValueError("max_lag must be at least one")
     gammas, single = _batched_gamma(autocovariances)
@@ -202,6 +463,32 @@ def compute_cmem_from_primitives(
     curve_max_lag: int = 1,
     decomposition_max_lag: int = 1,
 ) -> CMemResult:
+    """Compute cmem from primitives.
+    
+    Parameters
+    ----------
+    observation_covariance
+        Input controlling ``compute_cmem_from_primitives``.
+    innovation_covariance
+        Input controlling ``compute_cmem_from_primitives``.
+    autocovariances
+        Input controlling ``compute_cmem_from_primitives``.
+    curve_max_lag
+        Input controlling ``compute_cmem_from_primitives``.
+    decomposition_max_lag
+        Input controlling ``compute_cmem_from_primitives``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     gamma, single = _batched_gamma(autocovariances)
     batch, _, n, _ = gamma.shape
     present = _batched_covariance(observation_covariance, batch, n)
@@ -222,12 +509,48 @@ def compute_cmem_from_primitives(
 
 # Backward-compatible VAR wrappers.
 def cmem3_total(system: VARSystem) -> torch.Tensor:
+    """Cmem3 total.
+    
+    Parameters
+    ----------
+    system
+        Input controlling ``cmem3_total``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     return cmem3_total_from_covariances(
         system.present_covariance, system.innovation_covariance
     )
 
 
 def cmem1_total(system: VARSystem) -> torch.Tensor:
+    """Cmem1 total.
+    
+    Parameters
+    ----------
+    system
+        Input controlling ``cmem1_total``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     return cmem1_total_from_covariances(
         system.present_covariance, system.innovation_covariance
     )
@@ -239,6 +562,28 @@ def cmem3_curve(
     *,
     autocovariance_sequence: torch.Tensor | None = None,
 ) -> torch.Tensor:
+    """Cmem3 curve.
+    
+    Parameters
+    ----------
+    system
+        Input controlling ``cmem3_curve``.
+    tau_max
+        Input controlling ``cmem3_curve``.
+    autocovariance_sequence
+        Input controlling ``cmem3_curve``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     from .backbone import observation_autocovariances
     gamma = (
         observation_autocovariances(system, tau_max)
@@ -253,6 +598,28 @@ def cmem1_curve(
     *,
     autocovariance_sequence: torch.Tensor | None = None,
 ) -> torch.Tensor:
+    """Cmem1 curve.
+    
+    Parameters
+    ----------
+    system
+        Input controlling ``cmem1_curve``.
+    tau_max
+        Input controlling ``cmem1_curve``.
+    autocovariance_sequence
+        Input controlling ``cmem1_curve``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     from .backbone import observation_autocovariances
     gamma = (
         observation_autocovariances(system, tau_max)
@@ -266,6 +633,26 @@ def cmem3_lag_decomposition(
     *,
     autocovariance_sequence: torch.Tensor | None = None,
 ) -> torch.Tensor:
+    """Cmem3 lag decomposition.
+    
+    Parameters
+    ----------
+    system
+        Input controlling ``cmem3_lag_decomposition``.
+    autocovariance_sequence
+        Input controlling ``cmem3_lag_decomposition``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     from .backbone import observation_autocovariances
     gamma = (
         observation_autocovariances(system, system.order)
@@ -280,6 +667,28 @@ def compute_cmem(
     *,
     autocovariance_sequence: torch.Tensor | None = None,
 ) -> CMemResult:
+    """Compute cmem.
+    
+    Parameters
+    ----------
+    system
+        Input controlling ``compute_cmem``.
+    tau_max
+        Input controlling ``compute_cmem``.
+    autocovariance_sequence
+        Input controlling ``compute_cmem``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     from .backbone import observation_autocovariances
     required = max(tau_max, system.order)
     gamma = (

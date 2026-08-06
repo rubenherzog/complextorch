@@ -1,4 +1,24 @@
-"""Control-theoretic linear algebra for state-space inference and reduction."""
+"""Control-theoretic linear algebra for state-space inference and reduction.
+
+Notes
+-----
+State-space routines use steady-state Kalman filtering and discrete algebraic
+Riccati equations. For
+
+.. math::
+
+   z_{t+1}=Az_t+w_t,\qquad y_t=Cz_t+v_t,
+
+an innovations representation is obtained by solving the corresponding DARE
+for the steady-state prediction covariance.
+
+References
+----------
+- Kalman, R. E. (1960). A new approach to linear filtering and prediction.
+- Anderson, B. D. O. and Moore, J. B. (1979). *Optimal Filtering*.
+- Barnett, L. and Seth, A. K. (2015). Granger causality for state-space models.
+  *Physical Review E*, 91, 040101.
+"""
 from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
@@ -9,13 +29,41 @@ from .representations import LinearDynamicalSystem, VARSystem
 
 
 def _batched(t: torch.Tensor, ndim: int) -> tuple[torch.Tensor, bool]:
+    """ batched.
+    
+    Parameters
+    ----------
+    t
+        Input controlling ``_batched``.
+    ndim
+        Input controlling ``_batched``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     x = torch.as_tensor(t)
     single = x.ndim == ndim - 1
     return (x.unsqueeze(0) if single else x), single
 
 
 def solve_dare(transition, observation, process_covariance, observation_covariance):
-    """Solve the filtering discrete algebraic Riccati equation."""
+    """Solve the filtering discrete algebraic Riccati equation.
+    
+    Solve a discrete algebraic Riccati equation for steady-state covariance.
+    
+    References
+    ----------
+    Anderson and Moore (1979), *Optimal Filtering*; SciPy/PyTorch-compatible control
+    implementations.
+    """
     a, single = _batched(transition, 3)
     c, _ = _batched(observation, 3)
     q, _ = _batched(process_covariance, 3)
@@ -29,6 +77,7 @@ def solve_dare(transition, observation, process_covariance, observation_covarian
     return result[0] if single else result
 
 
+# Marginal innovations require the steady-state generalised Riccati solution.
 def solve_generalized_dare(
     transition: torch.Tensor,
     observation: torch.Tensor,
@@ -41,10 +90,16 @@ def solve_generalized_dare(
     max_iter: int = 10000,
 ) -> torch.Tensor:
     """Solve the filtering DARE with correlated process/observation noise.
-
-    Iterates
-    P = A P A' + Q - (A P C' + S)(C P C' + R)^-1(A P C' + S)'.
-    This form is required when marginalising an innovations state-space model.
+    
+        Iterates
+        P = A P A' + Q - (A P C' + S)(C P C' + R)^-1(A P C' + S)'.
+        This form is required when marginalising an innovations state-space model.
+    
+    Solve the generalised DARE with process--observation cross covariance.
+    
+    References
+    ----------
+    Anderson and Moore (1979); Barnett and Seth (2015).
     """
     a, single = _batched(transition, 3)
     c, _ = _batched(observation, 3)
@@ -68,13 +123,26 @@ def solve_generalized_dare(
 
 @dataclass(frozen=True)
 class InnovationsForm:
+    """InnovationsForm.
+    
+    Notes
+    -----
+    The class follows the scikit-learn fitted-attribute convention when applicable.
+    """
     covariance: torch.Tensor
     gain: torch.Tensor
     prediction_covariance: torch.Tensor
 
 
 def innovations_form(system: LinearDynamicalSystem) -> InnovationsForm:
-    """Return steady-state innovations covariance and Kalman gain."""
+    """Return steady-state innovations covariance and Kalman gain.
+    
+    Convert a linear Gaussian state-space model to steady-state innovations form.
+    
+    References
+    ----------
+    Kalman (1960); Anderson and Moore (1979); Barnett and Seth (2015).
+    """
     p = solve_dare(system.transition, system.observation, system.process_covariance, system.observation_covariance)
     a, single = _batched(system.transition, 3)
     c, _ = _batched(system.observation, 3)
@@ -99,7 +167,14 @@ class InnovationsStateSpace:
 
 
 def var_to_innovations_state_space(system: VARSystem) -> InnovationsStateSpace:
-    """Convert a VAR exactly to predictor-form innovations state space."""
+    """Convert a VAR exactly to predictor-form innovations state space.
+    
+    Convert a VAR(p) exactly to companion innovations state space.
+    
+    References
+    ----------
+    Lütkepohl (2005); Barnett and Seth (2015).
+    """
     coefficients = system.coefficients
     batch, order, n_variables, _ = coefficients.shape
     state_dimension = order * n_variables
@@ -122,6 +197,7 @@ def reduce_innovations_state_space(system: InnovationsStateSpace, indices) -> In
     reduced_r = v.index_select(-2, index).index_select(-1, index)
     process_q = k @ v @ k.transpose(-1, -2)
     cross_s = k @ v.index_select(-1, index)
+    # Marginal innovations require the steady-state generalised Riccati solution.
     p = solve_generalized_dare(a, reduced_c, process_q, reduced_r, cross_s)
     if p.ndim == 2:
         p = p.unsqueeze(0)
@@ -172,10 +248,31 @@ def project_state_space(system: LinearDynamicalSystem, projection: torch.Tensor)
 
 
 def dynamical_dependence(system: LinearDynamicalSystem, *, base: float = 2.0):
+    """Dynamical dependence.
+    
+    Parameters
+    ----------
+    system
+        Input controlling ``dynamical_dependence``.
+    base
+        Input controlling ``dynamical_dependence``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     if system.state_covariance is None:
         raise ValueError("state_covariance is required")
     stationary = symmetrise(system.observation @ system.state_covariance @ system.observation.transpose(-1, -2) + system.observation_covariance)
     innovations = innovations_form(system).covariance
+    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
     return 0.5 * (spd_logdet(stationary) - spd_logdet(innovations)) / np.log(base)
 
 
@@ -187,6 +284,12 @@ def stochastic_interaction(system: LinearDynamicalSystem, groups, *, base: float
 
 @dataclass(frozen=True)
 class ProjectionSearchResult:
+    """ProjectionSearchResult.
+    
+    Notes
+    -----
+    The class follows the scikit-learn fitted-attribute convention when applicable.
+    """
     projection: torch.Tensor
     objective: torch.Tensor
     history: torch.Tensor

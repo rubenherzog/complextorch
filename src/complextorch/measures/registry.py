@@ -1,4 +1,10 @@
-"""Machine-readable catalogue of model-first and empirical measure tiers."""
+"""Machine-readable catalogue of model-first and empirical measure tiers.
+
+Notes
+-----
+The registry declares which measures belong to the analytical primary tier and
+which require observations or sample estimators.
+"""
 MEASURE_REGISTRY = {
     "gaussian_entropy": {"domain": "model_covariance", "analytic": True, "tier": "primary", "model_entrypoint": "gaussian_measures_from_model"},
     "mutual_information": {"domain": "model_covariance", "analytic": True, "tier": "primary", "model_entrypoint": "gaussian_measures_from_model"},

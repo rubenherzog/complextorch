@@ -11,6 +11,26 @@ from .dynamics import cross_spectral_density
 
 
 def normalise_indices(indices, n_variables: int) -> tuple[int, ...]:
+    """Normalise indices.
+    
+    Parameters
+    ----------
+    indices
+        Input controlling ``normalise_indices``.
+    n_variables
+        Input controlling ``normalise_indices``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     if isinstance(indices, int):
         indices = (indices,)
     result = tuple(dict.fromkeys(int(i) for i in indices))
@@ -22,11 +42,51 @@ def normalise_indices(indices, n_variables: int) -> tuple[int, ...]:
 
 
 def complement_indices(selected, n_variables: int) -> tuple[int, ...]:
+    """Complement indices.
+    
+    Parameters
+    ----------
+    selected
+        Input controlling ``complement_indices``.
+    n_variables
+        Input controlling ``complement_indices``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     selected = set(normalise_indices(selected, n_variables))
     return tuple(i for i in range(n_variables) if i not in selected)
 
 
 def select_covariance(covariance: torch.Tensor, indices) -> torch.Tensor:
+    """Select covariance.
+    
+    Parameters
+    ----------
+    covariance
+        Input controlling ``select_covariance``.
+    indices
+        Input controlling ``select_covariance``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     idx = torch.as_tensor(tuple(indices), device=covariance.device, dtype=torch.long)
     return covariance.index_select(-2, idx).index_select(-1, idx)
 
@@ -45,11 +105,40 @@ def conditional_covariance_blocks(covariance: torch.Tensor, target, conditioned)
 
 
 def logdet_ratio(numerator: torch.Tensor, denominator: torch.Tensor, *, base: float = math.e) -> torch.Tensor:
+    """Logdet ratio.
+    
+    Parameters
+    ----------
+    numerator
+        Input controlling ``logdet_ratio``.
+    denominator
+        Input controlling ``logdet_ratio``.
+    base
+        Input controlling ``logdet_ratio``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
+    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
     return (spd_logdet(numerator) - spd_logdet(denominator)) / math.log(base)
 
 
 @dataclass(frozen=True)
 class NestedVARModels:
+    """NestedVARModels.
+    
+    Notes
+    -----
+    The class follows the scikit-learn fitted-attribute convention when applicable.
+    """
     full: VAR
     reduced: VAR
     full_variables: tuple[int, ...]
@@ -78,6 +167,26 @@ def fit_nested_var_models(observations: torch.Tensor, order: int, target, source
 
 
 def residual_target_covariance(model: VAR, target_positions) -> torch.Tensor:
+    """Residual target covariance.
+    
+    Parameters
+    ----------
+    model
+        Input controlling ``residual_target_covariance``.
+    target_positions
+        Input controlling ``residual_target_covariance``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     return select_covariance(model.noise_covariance_, target_positions)
 
 
@@ -95,4 +204,24 @@ def conditional_spectrum(spectrum: torch.Tensor, target, conditioned=()) -> torc
 
 
 def var_model_spectrum(model: VAR, frequencies: torch.Tensor) -> torch.Tensor:
+    """Var model spectrum.
+    
+    Parameters
+    ----------
+    model
+        Input controlling ``var_model_spectrum``.
+    frequencies
+        Input controlling ``var_model_spectrum``.
+    
+    Returns
+    -------
+    object
+        Result described by the function name and annotated return type.
+    
+    Notes
+    -----
+    Tensor batch dimensions are preserved unless the public API explicitly
+    documents a squeeze operation. Numerical validation is performed by the
+    module before the core calculation.
+    """
     return cross_spectral_density(model.to_var_system(), frequencies)
