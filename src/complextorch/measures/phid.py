@@ -104,6 +104,12 @@ def _mi(covariance, left, right):
 
 def gaussian_phiid_atoms(joint_covariance: torch.Tensor, block_size: int = 1) -> dict[str, torch.Tensor]:
     """Return all 16 MMI PhiID atoms for [past0,past1,future0,future1].
+        
+        Compute Gaussian PhiID atoms under MMI redundancy.
+        
+        References
+        ----------
+        Mediano et al. (2021), integrated information decomposition.
     
     Compute Gaussian PhiID atoms under MMI redundancy.
     

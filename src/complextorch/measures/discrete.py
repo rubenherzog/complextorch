@@ -129,6 +129,12 @@ def discrete_total_correlation(x, *, base: float = 2.0) -> float:
 
 def lempel_ziv_complexity(sequence, *, normalize: bool = False) -> float:
     """LZ76 exhaustive-history complexity for a finite symbol sequence.
+        
+        Compute incremental Lempel--Ziv phrase complexity.
+        
+        References
+        ----------
+        Lempel and Ziv (1976).
     
     Compute incremental Lempel--Ziv phrase complexity.
     

@@ -4,6 +4,11 @@ Notes
 -----
 The planner coordinates requested dynamical measures and reuses shared
 intermediate quantities to avoid repeated covariance or spectral calculations.
+
+Notes
+-----
+The planner coordinates requested dynamical measures and reuses shared
+intermediate quantities to avoid repeated covariance or spectral calculations.
 """
 from __future__ import annotations
 from collections.abc import Iterable

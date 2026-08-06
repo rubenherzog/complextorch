@@ -137,6 +137,7 @@ def spd_solve(matrix: torch.Tensor, rhs: torch.Tensor, *, jitter: float=1e-10) -
     module before the core calculation.
     """
     # Add adaptive jitter only when required to retain a valid SPD factorisation.
+    # Solve with the Cholesky factor instead of forming the covariance inverse.
     chol,_=stable_cholesky(matrix,jitter=jitter); return torch.cholesky_solve(rhs,chol)
 
 def spectral_radius(matrix: torch.Tensor) -> torch.Tensor:

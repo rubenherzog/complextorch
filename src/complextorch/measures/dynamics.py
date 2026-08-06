@@ -25,6 +25,15 @@ from .gaussian import gaussian_entropy, gaussian_mutual_information
 
 def autocovariances(system:VARSystem,max_lag:int)->torch.Tensor:
     """Compute stationary observation autocovariances.
+        
+        For state transition :math:`A`, state covariance :math:`P` and observation
+        matrix :math:`C`, positive-lag covariances use :math:`C A^	au P C^	op`.
+        
+        References
+        ----------
+        Lütkepohl (2005); Anderson and Moore (1979).
+    
+    Compute stationary observation autocovariances.
     
     For state transition :math:`A`, state covariance :math:`P` and observation
     matrix :math:`C`, positive-lag covariances use :math:`C A^	au P C^	op`.
@@ -163,6 +172,14 @@ def transfer_function(system:VARSystem,frequencies:torch.Tensor,*,sampling_frequ
 
 def cross_spectral_density(system:VARSystem,frequencies:torch.Tensor,*,sampling_frequency:float=1.0)->torch.Tensor:
     """Compute the cross-spectral density from a transfer function.
+        
+        .. math:: S(f)=H(f)\Sigma H(f)^*.
+        
+        References
+        ----------
+        Lütkepohl (2005); Barnett and Seth (2014).
+    
+    Compute the cross-spectral density from a transfer function.
     
     .. math:: S(f)=H(f)\Sigma H(f)^*.
     
