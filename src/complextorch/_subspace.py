@@ -1,10 +1,4 @@
-r"""Shared subspace-identification primitives for state-space models.
-
-This module centralizes block-Hankel construction, Larimore canonical-variate
-decomposition, and Bauer singular-value order selection. Public estimators and
-selectors reuse these numerical primitives without exposing them as API.
-
-Internal Bauer SVC and Larimore CVA primitives for model-order selection.
+r"""Internal Bauer SVC and Larimore CVA primitives for model-order selection.
 
 The Larimore route estimates canonical correlations between block-Hankel past
 and future vectors. Bauer's singular-value criterion (SVC) then selects the
@@ -230,27 +224,24 @@ def _block_hankel(
     return past, future
 
 
-
-def _larimore_decomposition(
+def _canonical_correlations(
     past: torch.Tensor,
     future: torch.Tensor,
     *,
     ridge: float,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    r"""Return Larimore canonical correlations, right vectors, and past factor.
+) -> torch.Tensor:
+    r"""Compute CCA singular values using Cholesky whitening.
 
-    The block covariance matrices are Cholesky-whitened and the resulting
-    cross-covariance is decomposed as ``U diag(rho) V^T``. The singular values
-    ``rho`` are the canonical correlations, while the right singular vectors
-    define the canonical state basis used by :class:`LarimoreStateSpace`.
+    The whitened cross-covariance is
+
+    .. math::
+
+       M=L_f^{-1}\Sigma_{fp}L_p^{-\top},
+
+    where :math:`L_pL_p^\top=\Sigma_{pp}` and
+    :math:`L_fL_f^\top=\Sigma_{ff}`. Its singular values are the canonical
+    correlations.
     """
-
-    if ridge < 0:
-        raise ValueError("ridge must be non-negative")
-    if past.ndim < 3 or future.ndim < 3:
-        raise ValueError("past and future must have shape (..., rows, columns)")
-    if past.shape[:-2] != future.shape[:-2] or past.shape[-1] != future.shape[-1]:
-        raise ValueError("past and future must share batch dimensions and columns")
 
     n_effective = past.shape[-1]
     covariance_past = past @ past.transpose(-1, -2) / n_effective
@@ -258,11 +249,17 @@ def _larimore_decomposition(
     cross_covariance = past @ future.transpose(-1, -2) / n_effective
 
     identity_past = torch.eye(
-        covariance_past.shape[-1], dtype=past.dtype, device=past.device
+        covariance_past.shape[-1],
+        dtype=past.dtype,
+        device=past.device,
     )
     identity_future = torch.eye(
-        covariance_future.shape[-1], dtype=future.dtype, device=future.device
+        covariance_future.shape[-1],
+        dtype=future.dtype,
+        device=future.device,
     )
+    # Ridge regularization is restricted to the whitening covariances; it does
+    # not alter the cross-covariance or the subsequent Bauer criterion.
     cholesky_past = torch.linalg.cholesky(
         covariance_past + ridge * identity_past
     )
@@ -279,21 +276,7 @@ def _larimore_decomposition(
         left_whitened.transpose(-1, -2),
         upper=False,
     ).transpose(-1, -2)
-    _, correlations, right_vectors = torch.linalg.svd(
-        whitened, full_matrices=False
-    )
-    return correlations, right_vectors, cholesky_past
-
-def _canonical_correlations(
-    past: torch.Tensor,
-    future: torch.Tensor,
-    *,
-    ridge: float,
-) -> torch.Tensor:
-    r"""Compute canonical correlations from the shared Larimore decomposition."""
-
-    correlations, _, _ = _larimore_decomposition(past, future, ridge=ridge)
-    return correlations
+    return torch.linalg.svdvals(whitened)
 
 
 def _larimore_state_space_order(
@@ -418,3 +401,22 @@ def _larimore_state_space_order(
         normalized_canonical_correlations=normalized,
         n_effective=n_effective,
     )
+
+
+def _larimore_decomposition(past, future, *, ridge):
+    """Return Larimore canonical correlations, right vectors and past factor."""
+    n_effective = past.shape[-1]
+    covariance_past = past @ past.transpose(-1, -2) / n_effective
+    covariance_future = future @ future.transpose(-1, -2) / n_effective
+    cross_covariance = past @ future.transpose(-1, -2) / n_effective
+    ip = torch.eye(covariance_past.shape[-1], dtype=past.dtype, device=past.device)
+    iff = torch.eye(covariance_future.shape[-1], dtype=future.dtype, device=future.device)
+    lp = torch.linalg.cholesky(covariance_past + ridge * ip)
+    lf = torch.linalg.cholesky(covariance_future + ridge * iff)
+    left = torch.linalg.solve_triangular(lf, cross_covariance.transpose(-1, -2), upper=False)
+    whitened = torch.linalg.solve_triangular(
+        lp, left.transpose(-1, -2), upper=False
+    ).transpose(-1, -2)
+    _, correlations, right = torch.linalg.svd(whitened, full_matrices=False)
+    return correlations, right, lp
+

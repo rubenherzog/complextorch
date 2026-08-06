@@ -15,9 +15,9 @@ from dataclasses import dataclass
 import math
 import torch
 
-from ..linalg import spd_logdet, spd_solve, symmetrise
-from ..var import VAR
-from .dynamics import cross_spectral_density
+from .linalg import spd_logdet, spd_solve, symmetrise
+from .var import VAR
+from .measures.dynamics import cross_spectral_density
 
 
 def normalise_indices(indices, n_variables: int) -> tuple[int, ...]:
@@ -210,7 +210,6 @@ def conditional_spectrum(spectrum: torch.Tensor, target, conditioned=()) -> torc
     idx_b = torch.as_tensor(conditioned, device=spectrum.device)
     ab = spectrum.index_select(-2, idx_a).index_select(-1, idx_b)
     bb = select_covariance(spectrum, conditioned)
-    # Solve the linear system directly instead of multiplying by an explicit inverse.
     return symmetrise(aa - ab @ torch.linalg.solve(bb, ab.transpose(-1, -2)))
 
 
