@@ -78,7 +78,7 @@ def _normalise_observations(
     return values, unbatched
 
 
-def __bauer_svc(
+def _bauer_svc(
     canonical_correlations: ArrayLike,
     n_observations: int,
     n_effective: int | torch.Tensor,
