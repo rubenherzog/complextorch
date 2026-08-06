@@ -1,23 +1,20 @@
-"""Control-theoretic linear algebra for state-space inference and reduction.
+"""Control-theoretic transformations for linear Gaussian systems.
 
-Notes
------
-State-space routines use steady-state Kalman filtering and discrete algebraic
-Riccati equations. For
+For
 
 .. math::
 
    z_{t+1}=Az_t+w_t,\qquad y_t=Cz_t+v_t,
 
-an innovations representation is obtained by solving the corresponding DARE
-for the steady-state prediction covariance.
+steady-state Kalman and innovations quantities are obtained from discrete
+algebraic Riccati equations, including process--observation cross covariance
+when required.
 
 References
 ----------
 - Kalman, R. E. (1960). A new approach to linear filtering and prediction.
 - Anderson, B. D. O. and Moore, J. B. (1979). *Optimal Filtering*.
 - Barnett, L. and Seth, A. K. (2015). Granger causality for state-space models.
-  *Physical Review E*, 91, 040101.
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -55,49 +52,11 @@ def _batched(t: torch.Tensor, ndim: int) -> tuple[torch.Tensor, bool]:
 
 
 def solve_dare(transition, observation, process_covariance, observation_covariance):
-    """Solve the filtering discrete algebraic Riccati equation.
-                        
-                        Solve a discrete algebraic Riccati equation for steady-state covariance.
-                        
-                        References
-                        ----------
-                        Anderson and Moore (1979), *Optimal Filtering*; SciPy/PyTorch-compatible control
-                        implementations.
-                    
-                    Solve a discrete algebraic Riccati equation for steady-state covariance.
-                    
-                    References
-                    ----------
-                    Anderson and Moore (1979), *Optimal Filtering*; SciPy/PyTorch-compatible control
-                    implementations.
-                
-                Solve a discrete algebraic Riccati equation for steady-state covariance.
-                
-                References
-                ----------
-                Anderson and Moore (1979), *Optimal Filtering*; SciPy/PyTorch-compatible control
-                implementations.
-            
-            Solve a discrete algebraic Riccati equation for steady-state covariance.
-            
-            References
-            ----------
-            Anderson and Moore (1979), *Optimal Filtering*; SciPy/PyTorch-compatible control
-            implementations.
-        
-        Solve a discrete algebraic Riccati equation for steady-state covariance.
-        
-        References
-        ----------
-        Anderson and Moore (1979), *Optimal Filtering*; SciPy/PyTorch-compatible control
-        implementations.
-    
-    Solve a discrete algebraic Riccati equation for steady-state covariance.
+    """Solve the steady-state discrete algebraic Riccati equation.
     
     References
     ----------
-    Anderson and Moore (1979), *Optimal Filtering*; SciPy/PyTorch-compatible control
-    implementations.
+    - Anderson and Moore (1979), *Optimal Filtering*.
     """
     a, single = _batched(transition, 3)
     c, _ = _batched(observation, 3)
@@ -124,47 +83,11 @@ def solve_generalized_dare(
     atol: float = 1e-12,
     max_iter: int = 10000,
 ) -> torch.Tensor:
-    """Solve the filtering DARE with correlated process/observation noise.
-                        
-                            Iterates
-                            P = A P A' + Q - (A P C' + S)(C P C' + R)^-1(A P C' + S)'.
-                            This form is required when marginalising an innovations state-space model.
-                        
-                        Solve the generalised DARE with process--observation cross covariance.
-                        
-                        References
-                        ----------
-                        Anderson and Moore (1979); Barnett and Seth (2015).
-                    
-                    Solve the generalised DARE with process--observation cross covariance.
-                    
-                    References
-                    ----------
-                    Anderson and Moore (1979); Barnett and Seth (2015).
-                
-                Solve the generalised DARE with process--observation cross covariance.
-                
-                References
-                ----------
-                Anderson and Moore (1979); Barnett and Seth (2015).
-            
-            Solve the generalised DARE with process--observation cross covariance.
-            
-            References
-            ----------
-            Anderson and Moore (1979); Barnett and Seth (2015).
-        
-        Solve the generalised DARE with process--observation cross covariance.
-        
-        References
-        ----------
-        Anderson and Moore (1979); Barnett and Seth (2015).
-    
-    Solve the generalised DARE with process--observation cross covariance.
+    """Solve the generalized DARE with noise cross covariance.
     
     References
     ----------
-    Anderson and Moore (1979); Barnett and Seth (2015).
+    - Anderson and Moore (1979); Barnett and Seth (2015).
     """
     a, single = _batched(transition, 3)
     c, _ = _batched(observation, 3)
@@ -200,43 +123,11 @@ class InnovationsForm:
 
 
 def innovations_form(system: LinearDynamicalSystem) -> InnovationsForm:
-    """Return steady-state innovations covariance and Kalman gain.
-                        
-                        Convert a linear Gaussian state-space model to steady-state innovations form.
-                        
-                        References
-                        ----------
-                        Kalman (1960); Anderson and Moore (1979); Barnett and Seth (2015).
-                    
-                    Convert a linear Gaussian state-space model to steady-state innovations form.
-                    
-                    References
-                    ----------
-                    Kalman (1960); Anderson and Moore (1979); Barnett and Seth (2015).
-                
-                Convert a linear Gaussian state-space model to steady-state innovations form.
-                
-                References
-                ----------
-                Kalman (1960); Anderson and Moore (1979); Barnett and Seth (2015).
-            
-            Convert a linear Gaussian state-space model to steady-state innovations form.
-            
-            References
-            ----------
-            Kalman (1960); Anderson and Moore (1979); Barnett and Seth (2015).
-        
-        Convert a linear Gaussian state-space model to steady-state innovations form.
-        
-        References
-        ----------
-        Kalman (1960); Anderson and Moore (1979); Barnett and Seth (2015).
-    
-    Convert a linear Gaussian state-space model to steady-state innovations form.
+    """Convert a linear Gaussian model to steady-state innovations form.
     
     References
     ----------
-    Kalman (1960); Anderson and Moore (1979); Barnett and Seth (2015).
+    - Kalman (1960); Anderson and Moore (1979); Barnett and Seth (2015).
     """
     p = solve_dare(system.transition, system.observation, system.process_covariance, system.observation_covariance)
     a, single = _batched(system.transition, 3)
@@ -262,43 +153,11 @@ class InnovationsStateSpace:
 
 
 def var_to_innovations_state_space(system: VARSystem) -> InnovationsStateSpace:
-    """Convert a VAR exactly to predictor-form innovations state space.
-                        
-                        Convert a VAR(p) exactly to companion innovations state space.
-                        
-                        References
-                        ----------
-                        Lütkepohl (2005); Barnett and Seth (2015).
-                    
-                    Convert a VAR(p) exactly to companion innovations state space.
-                    
-                    References
-                    ----------
-                    Lütkepohl (2005); Barnett and Seth (2015).
-                
-                Convert a VAR(p) exactly to companion innovations state space.
-                
-                References
-                ----------
-                Lütkepohl (2005); Barnett and Seth (2015).
-            
-            Convert a VAR(p) exactly to companion innovations state space.
-            
-            References
-            ----------
-            Lütkepohl (2005); Barnett and Seth (2015).
-        
-        Convert a VAR(p) exactly to companion innovations state space.
-        
-        References
-        ----------
-        Lütkepohl (2005); Barnett and Seth (2015).
-    
-    Convert a VAR(p) exactly to companion innovations state space.
+    """Convert a VAR(p) exactly to companion innovations state space.
     
     References
     ----------
-    Lütkepohl (2005); Barnett and Seth (2015).
+    - Lütkepohl (2005); Barnett and Seth (2015).
     """
     coefficients = system.coefficients
     batch, order, n_variables, _ = coefficients.shape

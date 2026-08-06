@@ -1,16 +1,12 @@
-"""Gaussian MMI PhiID on the complete 4x4 double-redundancy lattice.
+"""Gaussian integrated information decomposition (PhiID).
 
-Notes
------
-Gaussian PhiID decomposes time-delayed mutual information into integrated
-information atoms. The implementation uses the minimum-mutual-information
-redundancy prescription.
+Time-delayed mutual information is decomposed into integrated information atoms
+using the minimum-mutual-information redundancy prescription.
 
 References
 ----------
-- Mediano, P. A. M. et al. (2021). Towards an extended taxonomy of information
-  dynamics via integrated information decomposition.
-- dit PhiID-related implementations: https://github.com/Imperial-MIND-lab/integrated-info-decomp
+- Mediano, P. A. M. et al. (2021). Integrated information decomposition.
+- Reference implementation: https://github.com/Imperial-MIND-lab/integrated-info-decomp
 """
 from __future__ import annotations
 from itertools import product
@@ -103,43 +99,11 @@ def _mi(covariance, left, right):
 
 
 def gaussian_phiid_atoms(joint_covariance: torch.Tensor, block_size: int = 1) -> dict[str, torch.Tensor]:
-    """Return all 16 MMI PhiID atoms for [past0,past1,future0,future1].
-                        
-                        Compute Gaussian PhiID atoms under MMI redundancy.
-                        
-                        References
-                        ----------
-                        Mediano et al. (2021), integrated information decomposition.
-                    
-                    Compute Gaussian PhiID atoms under MMI redundancy.
-                    
-                    References
-                    ----------
-                    Mediano et al. (2021), integrated information decomposition.
-                
-                Compute Gaussian PhiID atoms under MMI redundancy.
-                
-                References
-                ----------
-                Mediano et al. (2021), integrated information decomposition.
-            
-            Compute Gaussian PhiID atoms under MMI redundancy.
-            
-            References
-            ----------
-            Mediano et al. (2021), integrated information decomposition.
-        
-        Compute Gaussian PhiID atoms under MMI redundancy.
-        
-        References
-        ----------
-        Mediano et al. (2021), integrated information decomposition.
-    
-    Compute Gaussian PhiID atoms under MMI redundancy.
+    """Compute Gaussian PhiID atoms under MMI redundancy.
     
     References
     ----------
-    Mediano et al. (2021), integrated information decomposition.
+    - Mediano et al. (2021).
     """
     covariance = torch.as_tensor(joint_covariance)
     if covariance.shape[-1] != 4 * block_size:

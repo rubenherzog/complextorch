@@ -1,13 +1,14 @@
-"""Numerically explicit batched linear-algebra primitives.
+"""Numerically stable linear-algebra primitives for covariance models.
 
-Notes
------
-Positive-definite operations use Cholesky factorisation whenever possible.
-For a symmetric positive-definite matrix :math:`S=LL^	op`,
+For a symmetric positive-definite matrix :math:`S=LL^\top`, log determinants
+are evaluated as
 
 .. math::
 
-   \log\det S = 2\sum_i \log L_{ii}.
+   \log\det S = 2\sum_i\log L_{ii},
+
+and systems are solved through triangular factors rather than explicit matrix
+inverses.
 
 References
 ----------

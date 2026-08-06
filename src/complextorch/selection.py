@@ -1,29 +1,27 @@
-"""Temporal validation and MVGC-compatible information-criterion order selection.
+"""Temporal cross-validation and information-criterion VAR order selection.
 
-Notes
------
-The information criteria are evaluated from the fitted Gaussian innovation
-covariance. In per-observation form,
+For per-observation Gaussian log likelihood :math:`\ell`, parameter count
+:math:`k`, and effective sample size :math:`N`,
 
 .. math::
 
-   \mathrm{AIC}=-2\ell+2k/N,\quad
+   \mathrm{AIC}=-2\ell+2k/N,
+   \qquad
    \mathrm{BIC}=-2\ell+(k/N)\log N,
 
 .. math::
 
    \mathrm{HQC}=-2\ell+2(k/N)\log\log N.
 
-Within temporal cross-validation these quantities are training-fold
-diagnostics only; held-out NLL or RMSE determines model selection.
+Inside temporal CV these criteria are diagnostics computed on each training
+fold; only held-out NLL or RMSE determines ``best_order_``.
 
 References
 ----------
-- Akaike, H. (1974). A new look at the statistical model identification.
+- Akaike, H. (1974). A new look at statistical model identification.
 - Schwarz, G. (1978). Estimating the dimension of a model.
-- Hannan, E. J. and Quinn, B. G. (1979). The determination of the order of an
-  autoregression.
-- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
+- Hannan, E. J. and Quinn, B. G. (1979). Determination of autoregression order.
+- Barnett, L. and Seth, A. K. (2014). The MVGC toolbox.
 """
 from __future__ import annotations
 

@@ -1,15 +1,13 @@
-"""Canonical analytical primitives shared by VAR and state-space measures.
+"""Canonical analytical backbone shared by VAR and state-space models.
 
-Notes
------
-The canonical backbone maps VAR and linear state-space models to shared
-covariance, innovation, spectral and autocovariance primitives. Measures are
-then computed from these invariants rather than duplicated by model class.
+Models are mapped to common observation covariance, autocovariance, innovations
+and spectral primitives. Measures consume these invariants rather than
+reimplementing model-specific formulas.
 
 References
 ----------
-- Barnett, L. and Seth, A. K. (2015), state-space Granger causality.
-- Lütkepohl, H. (2005), companion-form VAR representations.
+- Lütkepohl, H. (2005). Companion-form VAR representation.
+- Barnett, L. and Seth, A. K. (2015). State-space Granger causality.
 """
 from __future__ import annotations
 

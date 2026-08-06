@@ -1,118 +1,20 @@
-"""Batched VAR estimation with OLS, ridge and Morf LWR solvers.
+"""Torch-first estimation and forecasting for Gaussian VAR models.
 
-Notes
------
-Ordinary least squares minimises
+Ordinary least squares solves
 
 .. math::
 
-   \widehat B = rg\min_B \lVert Y-XB
-Vert_F^2,
+   \widehat B=\arg\min_B\lVert Y-XB\rVert_F^2,
 
-while the LWR route implements the Morf lattice-whitening recursion used by
+while ``solver="lwr"`` implements the Morf lattice-whitening recursion used by
 MVGC-compatible estimators.
 
 References
 ----------
 - Morf, M., Vieira, A., Lee, D. T. L., and Kailath, T. (1978). Recursive
   multichannel maximum entropy spectral estimation.
-- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
-- ComplexBox repository: https://github.com/bmilinkovic/complexbox
-
-Notes
------
-Ordinary least squares minimises
-
-.. math::
-
-   \widehat B = rg\min_B \lVert Y-XB
-Vert_F^2,
-
-while the LWR route implements the Morf lattice-whitening recursion used by
-MVGC-compatible estimators.
-
-References
-----------
-- Morf, M., Vieira, A., Lee, D. T. L., and Kailath, T. (1978). Recursive
-  multichannel maximum entropy spectral estimation.
-- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
-- ComplexBox repository: https://github.com/bmilinkovic/complexbox
-
-Notes
------
-Ordinary least squares minimises
-
-.. math::
-
-   \widehat B = rg\min_B \lVert Y-XB
-Vert_F^2,
-
-while the LWR route implements the Morf lattice-whitening recursion used by
-MVGC-compatible estimators.
-
-References
-----------
-- Morf, M., Vieira, A., Lee, D. T. L., and Kailath, T. (1978). Recursive
-  multichannel maximum entropy spectral estimation.
-- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
-- ComplexBox repository: https://github.com/bmilinkovic/complexbox
-
-Notes
------
-Ordinary least squares minimises
-
-.. math::
-
-   \widehat B = rg\min_B \lVert Y-XB
-Vert_F^2,
-
-while the LWR route implements the Morf lattice-whitening recursion used by
-MVGC-compatible estimators.
-
-References
-----------
-- Morf, M., Vieira, A., Lee, D. T. L., and Kailath, T. (1978). Recursive
-  multichannel maximum entropy spectral estimation.
-- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
-- ComplexBox repository: https://github.com/bmilinkovic/complexbox
-
-Notes
------
-Ordinary least squares minimises
-
-.. math::
-
-   \widehat B = rg\min_B \lVert Y-XB
-Vert_F^2,
-
-while the LWR route implements the Morf lattice-whitening recursion used by
-MVGC-compatible estimators.
-
-References
-----------
-- Morf, M., Vieira, A., Lee, D. T. L., and Kailath, T. (1978). Recursive
-  multichannel maximum entropy spectral estimation.
-- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
-- ComplexBox repository: https://github.com/bmilinkovic/complexbox
-
-Notes
------
-Ordinary least squares minimises
-
-.. math::
-
-   \widehat B = rg\min_B \lVert Y-XB
-Vert_F^2,
-
-while the LWR route implements the Morf lattice-whitening recursion used by
-MVGC-compatible estimators.
-
-References
-----------
-- Morf, M., Vieira, A., Lee, D. T. L., and Kailath, T. (1978). Recursive
-  multichannel maximum entropy spectral estimation.
-- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
-- ComplexBox repository: https://github.com/bmilinkovic/complexbox
+- Barnett, L. and Seth, A. K. (2014). The MVGC toolbox.
+- ComplexBox: https://github.com/bmilinkovic/complexbox
 """
 from __future__ import annotations
 
@@ -807,43 +709,11 @@ class VAR(BaseEstimator):
         return -float(self.gaussian_nll(X))
 
     def consistency(self, observations) -> float:
-        """Ding-Bressler consistency statistic, matching ComplexBox/MVGC.
-                                                
-                                                Compute the Ding--Bressler VAR consistency diagnostic.
-                                                
-                                                References
-                                                ----------
-                                                Ding et al. (2000); Barnett and Seth (2014); ComplexBox repository.
-                                        
-                                        Compute the Ding--Bressler VAR consistency diagnostic.
-                                        
-                                        References
-                                        ----------
-                                        Ding et al. (2000); Barnett and Seth (2014); ComplexBox repository.
-                                
-                                Compute the Ding--Bressler VAR consistency diagnostic.
-                                
-                                References
-                                ----------
-                                Ding et al. (2000); Barnett and Seth (2014); ComplexBox repository.
-                        
-                        Compute the Ding--Bressler VAR consistency diagnostic.
-                        
-                        References
-                        ----------
-                        Ding et al. (2000); Barnett and Seth (2014); ComplexBox repository.
-                
-                Compute the Ding--Bressler VAR consistency diagnostic.
-                
-                References
-                ----------
-                Ding et al. (2000); Barnett and Seth (2014); ComplexBox repository.
-        
-        Compute the Ding--Bressler VAR consistency diagnostic.
+        """Compute the Ding--Bressler VAR consistency diagnostic.
         
         References
         ----------
-        Ding et al. (2000); Barnett and Seth (2014); ComplexBox repository.
+        - Ding et al. (2000); Barnett and Seth (2014); ComplexBox.
         """
         from .measures.secondary import consistency
         return consistency(observations, self.residuals(observations), order=self.order)

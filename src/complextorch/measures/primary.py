@@ -1,15 +1,13 @@
-"""Primary analytical measures routed through canonical model primitives.
+"""Strict analytical measures computed from supplied generative models.
 
-Notes
------
-Primary measures are analytical functions of a supplied generative model. They
-must not refit observations internally. Shared contexts cache the maximum
-required autocovariance lag and other model-derived primitives.
+Primary functions do not refit observations. A shared context computes the
+maximum required autocovariance lag and caches reusable model-derived
+primitives.
 
 References
 ----------
-- Barnett, L. and Seth, A. K. (2014, 2015).
 - Cover, T. M. and Thomas, J. A. (2006).
+- Barnett, L. and Seth, A. K. (2014, 2015).
 """
 from __future__ import annotations
 
@@ -397,52 +395,15 @@ def temporal_mvgc(
     base: float = math.e,
 ) -> torch.Tensor:
     """Compute conditional time-domain multivariate Granger causality.
-                        
-                        .. math:: F_{Y	o X\mid Z}=\log(\det\Sigma^R_{XX}/\det\Sigma_{XX}).
-                        
-                        References
-                        ----------
-                        Geweke (1982); Barnett and Seth (2014, 2015).
-                    
-                    Compute conditional time-domain multivariate Granger causality.
-                    
-                    .. math:: F_{Y	o X\mid Z}=\log(\det\Sigma^R_{XX}/\det\Sigma_{XX}).
-                    
-                    References
-                    ----------
-                    Geweke (1982); Barnett and Seth (2014, 2015).
-                
-                Compute conditional time-domain multivariate Granger causality.
-                
-                .. math:: F_{Y	o X\mid Z}=\log(\det\Sigma^R_{XX}/\det\Sigma_{XX}).
-                
-                References
-                ----------
-                Geweke (1982); Barnett and Seth (2014, 2015).
-            
-            Compute conditional time-domain multivariate Granger causality.
-            
-            .. math:: F_{Y	o X\mid Z}=\log(\det\Sigma^R_{XX}/\det\Sigma_{XX}).
-            
-            References
-            ----------
-            Geweke (1982); Barnett and Seth (2014, 2015).
-        
-        Compute conditional time-domain multivariate Granger causality.
-        
-        .. math:: F_{Y	o X\mid Z}=\log(\det\Sigma^R_{XX}/\det\Sigma_{XX}).
-        
-        References
-        ----------
-        Geweke (1982); Barnett and Seth (2014, 2015).
     
-    Compute conditional time-domain multivariate Granger causality.
+    .. math::
     
-    .. math:: F_{Y	o X\mid Z}=\log(\det\Sigma^R_{XX}/\det\Sigma_{XX}).
+       F_{Y\to X\mid Z}
+       =\log\frac{\det\Sigma^{R}_{XX}}{\det\Sigma_{XX}}.
     
     References
     ----------
-    Geweke (1982); Barnett and Seth (2014, 2015).
+    - Geweke (1982); Barnett and Seth (2014, 2015).
     """
     return state_space_temporal_mvgc(
         as_innovations(model),
@@ -463,58 +424,13 @@ def spectral_mvgc(
     base: float = math.e,
 ) -> torch.Tensor:
     """Compute conditional spectral multivariate Granger causality.
-                        
-                        The frequency-resolved decomposition is obtained from innovations-form transfer
-                        functions and integrates to temporal GC.
-                        
-                        References
-                        ----------
-                        Geweke (1982); Barnett and Seth (2014, 2015).
-                    
-                    Compute conditional spectral multivariate Granger causality.
-                    
-                    The frequency-resolved decomposition is obtained from innovations-form transfer
-                    functions and integrates to temporal GC.
-                    
-                    References
-                    ----------
-                    Geweke (1982); Barnett and Seth (2014, 2015).
-                
-                Compute conditional spectral multivariate Granger causality.
-                
-                The frequency-resolved decomposition is obtained from innovations-form transfer
-                functions and integrates to temporal GC.
-                
-                References
-                ----------
-                Geweke (1982); Barnett and Seth (2014, 2015).
-            
-            Compute conditional spectral multivariate Granger causality.
-            
-            The frequency-resolved decomposition is obtained from innovations-form transfer
-            functions and integrates to temporal GC.
-            
-            References
-            ----------
-            Geweke (1982); Barnett and Seth (2014, 2015).
-        
-        Compute conditional spectral multivariate Granger causality.
-        
-        The frequency-resolved decomposition is obtained from innovations-form transfer
-        functions and integrates to temporal GC.
-        
-        References
-        ----------
-        Geweke (1982); Barnett and Seth (2014, 2015).
-    
-    Compute conditional spectral multivariate Granger causality.
     
     The frequency-resolved decomposition is obtained from innovations-form transfer
     functions and integrates to temporal GC.
     
     References
     ----------
-    Geweke (1982); Barnett and Seth (2014, 2015).
+    - Geweke (1982); Barnett and Seth (2014, 2015).
     """
     return state_space_spectral_mvgc(
         as_innovations(model),

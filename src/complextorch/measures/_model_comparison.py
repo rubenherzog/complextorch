@@ -1,4 +1,14 @@
-"""Shared full/reduced-model utilities for predictive dependence measures."""
+"""Shared nested-model primitives for empirical Gaussian comparisons.
+
+Reduced and full VAR models are fitted with consistent target/source ordering;
+log-determinant ratios and conditional spectra are then reused by empirical
+MVGC and related estimators.
+
+References
+----------
+- Geweke, J. (1982).
+- Barnett, L. and Seth, A. K. (2014). The MVGC toolbox.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass

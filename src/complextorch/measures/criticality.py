@@ -1,94 +1,14 @@
-"""Criticality-oriented diagnostics from fitted linear dynamics.
+"""Stability and criticality diagnostics for linear dynamics.
 
-Notes
------
-Stability diagnostics are derived from the companion eigenvalues. The dominant
-timescale associated with spectral radius :math:`
-ho<1` is
+For companion spectral radius :math:`\rho<1`, the dominant discrete timescale is
 
 .. math::
 
-   	au=-1/\log
-ho.
+   \tau=-1/\log\rho.
 
 References
 ----------
-- Lütkepohl, H. (2005), stability of VAR processes.
-
-Notes
------
-Stability diagnostics are derived from the companion eigenvalues. The dominant
-timescale associated with spectral radius :math:`
-ho<1` is
-
-.. math::
-
-   	au=-1/\log
-ho.
-
-References
-----------
-- Lütkepohl, H. (2005), stability of VAR processes.
-
-Notes
------
-Stability diagnostics are derived from the companion eigenvalues. The dominant
-timescale associated with spectral radius :math:`
-ho<1` is
-
-.. math::
-
-   	au=-1/\log
-ho.
-
-References
-----------
-- Lütkepohl, H. (2005), stability of VAR processes.
-
-Notes
------
-Stability diagnostics are derived from the companion eigenvalues. The dominant
-timescale associated with spectral radius :math:`
-ho<1` is
-
-.. math::
-
-   	au=-1/\log
-ho.
-
-References
-----------
-- Lütkepohl, H. (2005), stability of VAR processes.
-
-Notes
------
-Stability diagnostics are derived from the companion eigenvalues. The dominant
-timescale associated with spectral radius :math:`
-ho<1` is
-
-.. math::
-
-   	au=-1/\log
-ho.
-
-References
-----------
-- Lütkepohl, H. (2005), stability of VAR processes.
-
-Notes
------
-Stability diagnostics are derived from the companion eigenvalues. The dominant
-timescale associated with spectral radius :math:`
-ho<1` is
-
-.. math::
-
-   	au=-1/\log
-ho.
-
-References
-----------
-- Lütkepohl, H. (2005), stability of VAR processes.
+- Lütkepohl, H. (2005). Stability of VAR processes.
 """
 from __future__ import annotations
 import torch

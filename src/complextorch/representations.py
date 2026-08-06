@@ -1,118 +1,19 @@
-"""Canonical dynamical-system representations shared by estimators and measures.
+"""Canonical VAR and linear Gaussian state-space representations.
 
-Notes
------
-A VAR(p) process is represented as
+A VAR(p) process is
 
 .. math::
 
-   x_t = \sum_{k=1}^{p} A_k x_{t-k} + 
-arepsilon_t,
-   \qquad 
-arepsilon_t \sim \mathcal N(0,\Sigma).
+   x_t = \sum_{k=1}^{p} A_k x_{t-k} + \varepsilon_t,
+   \qquad \varepsilon_t \sim \mathcal N(0,\Sigma).
 
-Its companion-form state transition is used to connect VAR and linear
-state-space calculations.
+The companion representation embeds this recursion into a first-order state
+transition and provides the bridge to state-space calculations.
 
 References
 ----------
 - Lütkepohl, H. (2005). *New Introduction to Multiple Time Series Analysis*.
-- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
-
-Notes
------
-A VAR(p) process is represented as
-
-.. math::
-
-   x_t = \sum_{k=1}^{p} A_k x_{t-k} + 
-arepsilon_t,
-   \qquad 
-arepsilon_t \sim \mathcal N(0,\Sigma).
-
-Its companion-form state transition is used to connect VAR and linear
-state-space calculations.
-
-References
-----------
-- Lütkepohl, H. (2005). *New Introduction to Multiple Time Series Analysis*.
-- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
-
-Notes
------
-A VAR(p) process is represented as
-
-.. math::
-
-   x_t = \sum_{k=1}^{p} A_k x_{t-k} + 
-arepsilon_t,
-   \qquad 
-arepsilon_t \sim \mathcal N(0,\Sigma).
-
-Its companion-form state transition is used to connect VAR and linear
-state-space calculations.
-
-References
-----------
-- Lütkepohl, H. (2005). *New Introduction to Multiple Time Series Analysis*.
-- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
-
-Notes
------
-A VAR(p) process is represented as
-
-.. math::
-
-   x_t = \sum_{k=1}^{p} A_k x_{t-k} + 
-arepsilon_t,
-   \qquad 
-arepsilon_t \sim \mathcal N(0,\Sigma).
-
-Its companion-form state transition is used to connect VAR and linear
-state-space calculations.
-
-References
-----------
-- Lütkepohl, H. (2005). *New Introduction to Multiple Time Series Analysis*.
-- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
-
-Notes
------
-A VAR(p) process is represented as
-
-.. math::
-
-   x_t = \sum_{k=1}^{p} A_k x_{t-k} + 
-arepsilon_t,
-   \qquad 
-arepsilon_t \sim \mathcal N(0,\Sigma).
-
-Its companion-form state transition is used to connect VAR and linear
-state-space calculations.
-
-References
-----------
-- Lütkepohl, H. (2005). *New Introduction to Multiple Time Series Analysis*.
-- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
-
-Notes
------
-A VAR(p) process is represented as
-
-.. math::
-
-   x_t = \sum_{k=1}^{p} A_k x_{t-k} + 
-arepsilon_t,
-   \qquad 
-arepsilon_t \sim \mathcal N(0,\Sigma).
-
-Its companion-form state transition is used to connect VAR and linear
-state-space calculations.
-
-References
-----------
-- Lütkepohl, H. (2005). *New Introduction to Multiple Time Series Analysis*.
-- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
+- Barnett, L. and Seth, A. K. (2015). Granger causality for state-space models.
 """
 from __future__ import annotations
 from dataclasses import dataclass

@@ -1,16 +1,15 @@
-"""Adapters for data layouts used by ComplexTorch and ComplexBox.
+"""Axis-layout adapters between ComplexTorch and ComplexBox.
 
-Notes
------
-These adapters only permute axes; they do not alter numerical values.  The
-ComplexBox/MVGC convention is ``(variables, time, trials)`` whereas
-ComplexTorch uses ``(trials, time, variables)``.
+ComplexBox follows ``(variables, time, trials)`` while ComplexTorch follows
+``(trials, time, variables)``. Coefficient tensors are analogously permuted
+between ``(target, source, lag)`` and ``(batch, lag, target, source)``. These
+operations never alter numerical values.
 
 References
 ----------
 - Barnett, L. and Seth, A. K. (2014). The MVGC multivariate Granger causality
   toolbox. *Journal of Neuroscience Methods*, 223, 50--68.
-- ComplexBox repository: https://github.com/bmilinkovic/complexbox
+- ComplexBox: https://github.com/bmilinkovic/complexbox
 """
 from __future__ import annotations
 import numpy as np

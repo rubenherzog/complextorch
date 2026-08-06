@@ -1,19 +1,15 @@
-"""Latent linear-Gaussian state-space estimation and inference.
+"""Inference for linear Gaussian state-space systems.
 
-Notes
------
-The package combines Kalman filtering/smoothing, N4SID subspace
-identification, and expectation--maximisation for linear Gaussian systems.
+The module provides Kalman filtering, Rauch--Tung--Striebel smoothing, N4SID
+subspace identification, and expectation--maximisation refinement.
 
 References
 ----------
-- Kalman, R. E. (1960). A new approach to linear filtering and prediction.
-- Rauch, H. E., Tung, F., and Striebel, C. T. (1965). Maximum likelihood
+- Kalman, R. E. (1960). Linear filtering and prediction.
+- Rauch, H. E., Tung, F., and Striebel, C. T. (1965). Maximum-likelihood
   estimates of linear dynamic systems.
-- Van Overschee, P. and De Moor, B. (1994). N4SID: Subspace algorithms for the
-  identification of combined deterministic-stochastic systems.
-- Shumway, R. H. and Stoffer, D. S. (1982). An approach to time series
-  smoothing and forecasting using the EM algorithm.
+- Van Overschee, P. and De Moor, B. (1994). N4SID.
+- Shumway, R. H. and Stoffer, D. S. (1982). EM for time-series smoothing.
 """
 from __future__ import annotations
 

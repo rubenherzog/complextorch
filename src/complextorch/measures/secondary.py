@@ -1,14 +1,11 @@
-"""Secondary empirical measures, diagnostics and sample-based inference.
+"""Empirical measures and sample-based estimation helpers.
 
-Notes
------
-Secondary measures estimate quantities from finite observations and therefore
-include sampling, fitting and discretisation effects. They are kept separate
-from analytical model-derived measures.
+Secondary functions operate on finite observations, discretised sequences or
+sample covariances and therefore include sampling and fitting effects.
 
 References
 ----------
-- Barnett, L. and Seth, A. K. (2014), empirical MVGC workflow.
+- Barnett, L. and Seth, A. K. (2014). Empirical MVGC workflow.
 """
 from dataclasses import dataclass
 import numpy as np
@@ -62,40 +59,10 @@ def _trials(value):
 
 def consistency(observations,residuals,*,order:int)->float:
     """Compute the Ding--Bressler VAR consistency diagnostic.
-                        
-                        References
-                        ----------
-                        Ding et al. (2000); Barnett and Seth (2014); ComplexBox repository.
-                    
-                    Compute the Ding--Bressler VAR consistency diagnostic.
-                    
-                    References
-                    ----------
-                    Ding et al. (2000); Barnett and Seth (2014); ComplexBox repository.
-                
-                Compute the Ding--Bressler VAR consistency diagnostic.
-                
-                References
-                ----------
-                Ding et al. (2000); Barnett and Seth (2014); ComplexBox repository.
-            
-            Compute the Ding--Bressler VAR consistency diagnostic.
-            
-            References
-            ----------
-            Ding et al. (2000); Barnett and Seth (2014); ComplexBox repository.
-        
-        Compute the Ding--Bressler VAR consistency diagnostic.
-        
-        References
-        ----------
-        Ding et al. (2000); Barnett and Seth (2014); ComplexBox repository.
-    
-    Compute the Ding--Bressler VAR consistency diagnostic.
     
     References
     ----------
-    Ding et al. (2000); Barnett and Seth (2014); ComplexBox repository.
+    - Ding et al. (2000); Barnett and Seth (2014); ComplexBox.
     """
     x=_trials(observations); e=_trials(residuals)
     if e.shape[1]!=x.shape[1]-order: raise ValueError('residual length is incompatible with order')
@@ -135,34 +102,13 @@ def _dw(design,residual):
 
 def residual_whiteness(observations,residuals,*,order:int,method:str='durbin_watson')->WhitenessResult:
     """Test residual serial correlation with the requested method.
-                        
-                        The current Durbin--Watson route follows the ComplexBox/MVGC-compatible
-                        approximation while retaining an extensible ``method`` argument.
-                    
-                    Test residual serial correlation with the requested method.
-                    
-                    The current Durbin--Watson route follows the ComplexBox/MVGC-compatible
-                    approximation while retaining an extensible ``method`` argument.
-                
-                Test residual serial correlation with the requested method.
-                
-                The current Durbin--Watson route follows the ComplexBox/MVGC-compatible
-                approximation while retaining an extensible ``method`` argument.
-            
-            Test residual serial correlation with the requested method.
-            
-            The current Durbin--Watson route follows the ComplexBox/MVGC-compatible
-            approximation while retaining an extensible ``method`` argument.
-        
-        Test residual serial correlation with the requested method.
-        
-        The current Durbin--Watson route follows the ComplexBox/MVGC-compatible
-        approximation while retaining an extensible ``method`` argument.
     
-    Test residual serial correlation with the requested method.
+    The current Durbin--Watson route follows the ComplexBox-compatible
+    approximation while preserving an extensible ``method`` argument.
     
-    The current Durbin--Watson route follows the ComplexBox/MVGC-compatible
-    approximation while retaining an extensible ``method`` argument.
+    References
+    ----------
+    - Durbin and Watson (1950, 1951); ComplexBox.
     """
     if method.lower() not in {'durbin_watson','dw','complexbox'}: raise NotImplementedError(f'whiteness method {method!r} is not implemented')
     x=_trials(observations); e=_trials(residuals); x=x-x.mean(dim=(0,1),keepdim=True)
@@ -170,41 +116,11 @@ def residual_whiteness(observations,residuals,*,order:int,method:str='durbin_wat
     return WhitenessResult(torch.tensor([v[0] for v in values]),torch.tensor([v[1] for v in values]),'durbin_watson')
 
 def mvgc_pvalue(statistic,*,method:str='F',n_target:int,n_source:int,n_conditional:int,order:int,n_times:int,n_trials:int=1):
-    """Compute asymptotic MVGC p-values using MVGC2 conventions.
-                        
-                        References
-                        ----------
-                        Barnett and Seth (2014); MVGC repository.
-                    
-                    Compute asymptotic MVGC p-values using MVGC2 conventions.
-                    
-                    References
-                    ----------
-                    Barnett and Seth (2014); MVGC repository.
-                
-                Compute asymptotic MVGC p-values using MVGC2 conventions.
-                
-                References
-                ----------
-                Barnett and Seth (2014); MVGC repository.
-            
-            Compute asymptotic MVGC p-values using MVGC2 conventions.
-            
-            References
-            ----------
-            Barnett and Seth (2014); MVGC repository.
-        
-        Compute asymptotic MVGC p-values using MVGC2 conventions.
-        
-        References
-        ----------
-        Barnett and Seth (2014); MVGC repository.
-    
-    Compute asymptotic MVGC p-values using MVGC2 conventions.
+    """Compute asymptotic MVGC p-values using MVGC conventions.
     
     References
     ----------
-    Barnett and Seth (2014); MVGC repository.
+    - Barnett and Seth (2014); MVGC repository.
     """
     d=order*n_target*n_source; M=n_trials*(n_times-order); values=np.asarray(torch.as_tensor(statistic).detach().cpu(),dtype=float); key=method.upper()
     if key=='F':
@@ -216,41 +132,11 @@ def mvgc_pvalue(statistic,*,method:str='F',n_target:int,n_source:int,n_condition
     return torch.as_tensor(out,dtype=torch.float64)
 
 def significance(pvalues,*,alpha:float=.05,method:str='fdr_bh'):
-    """Apply uncorrected or Benjamini--Hochberg FDR significance testing.
-                        
-                        References
-                        ----------
-                        Benjamini and Hochberg (1995).
-                    
-                    Apply uncorrected or Benjamini--Hochberg FDR significance testing.
-                    
-                    References
-                    ----------
-                    Benjamini and Hochberg (1995).
-                
-                Apply uncorrected or Benjamini--Hochberg FDR significance testing.
-                
-                References
-                ----------
-                Benjamini and Hochberg (1995).
-            
-            Apply uncorrected or Benjamini--Hochberg FDR significance testing.
-            
-            References
-            ----------
-            Benjamini and Hochberg (1995).
-        
-        Apply uncorrected or Benjamini--Hochberg FDR significance testing.
-        
-        References
-        ----------
-        Benjamini and Hochberg (1995).
-    
-    Apply uncorrected or Benjamini--Hochberg FDR significance testing.
+    """Apply uncorrected or Benjamini--Hochberg FDR testing.
     
     References
     ----------
-    Benjamini and Hochberg (1995).
+    - Benjamini and Hochberg (1995).
     """
     p=torch.as_tensor(pvalues,dtype=torch.float64); finite=torch.isfinite(p); flat=p[finite]; result=torch.zeros_like(p,dtype=torch.bool)
     if flat.numel()==0: return result

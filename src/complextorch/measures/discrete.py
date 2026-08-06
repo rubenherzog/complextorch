@@ -1,9 +1,7 @@
-"""Discrete information measures and Lempel-Ziv complexity.
+"""Discrete information and sequence-complexity estimators.
 
-Notes
------
-Discrete estimators use empirical probability masses. Lempel--Ziv complexity
-counts novel phrases in the incremental parsing of a finite symbol sequence.
+Probabilities are empirical masses. Lempel--Ziv complexity counts novel phrases
+in an incremental parsing of a finite symbol sequence.
 
 References
 ----------
@@ -128,43 +126,11 @@ def discrete_total_correlation(x, *, base: float = 2.0) -> float:
 
 
 def lempel_ziv_complexity(sequence, *, normalize: bool = False) -> float:
-    """LZ76 exhaustive-history complexity for a finite symbol sequence.
-                        
-                        Compute incremental Lempel--Ziv phrase complexity.
-                        
-                        References
-                        ----------
-                        Lempel and Ziv (1976).
-                    
-                    Compute incremental Lempel--Ziv phrase complexity.
-                    
-                    References
-                    ----------
-                    Lempel and Ziv (1976).
-                
-                Compute incremental Lempel--Ziv phrase complexity.
-                
-                References
-                ----------
-                Lempel and Ziv (1976).
-            
-            Compute incremental Lempel--Ziv phrase complexity.
-            
-            References
-            ----------
-            Lempel and Ziv (1976).
-        
-        Compute incremental Lempel--Ziv phrase complexity.
-        
-        References
-        ----------
-        Lempel and Ziv (1976).
-    
-    Compute incremental Lempel--Ziv phrase complexity.
+    """Compute incremental Lempel--Ziv phrase complexity.
     
     References
     ----------
-    Lempel and Ziv (1976).
+    - Lempel and Ziv (1976).
     """
     symbols = list(np.asarray(torch.as_tensor(sequence).detach().cpu()).ravel())
     n = len(symbols)

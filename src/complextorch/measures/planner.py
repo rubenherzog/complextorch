@@ -1,34 +1,11 @@
-"""Dependency-aware measure planner with shared intermediate caching.
+"""Planning and reuse of intermediate dynamical-measure calculations.
 
-Notes
------
-The planner coordinates requested dynamical measures and reuses shared
-intermediate quantities to avoid repeated covariance or spectral calculations.
+The planner resolves requested outputs and shares autocovariance, covariance and
+spectral intermediates across compatible measures.
 
-Notes
------
-The planner coordinates requested dynamical measures and reuses shared
-intermediate quantities to avoid repeated covariance or spectral calculations.
-
-Notes
------
-The planner coordinates requested dynamical measures and reuses shared
-intermediate quantities to avoid repeated covariance or spectral calculations.
-
-Notes
------
-The planner coordinates requested dynamical measures and reuses shared
-intermediate quantities to avoid repeated covariance or spectral calculations.
-
-Notes
------
-The planner coordinates requested dynamical measures and reuses shared
-intermediate quantities to avoid repeated covariance or spectral calculations.
-
-Notes
------
-The planner coordinates requested dynamical measures and reuses shared
-intermediate quantities to avoid repeated covariance or spectral calculations.
+References
+----------
+- ComplexTorch canonical model-backbone design.
 """
 from __future__ import annotations
 from collections.abc import Iterable

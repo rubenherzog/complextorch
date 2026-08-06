@@ -1,15 +1,13 @@
-"""Analytical CMem quantities from model-derived Gaussian covariances.
+"""Covariance-memory measures for stationary Gaussian dynamics.
 
-Notes
------
-CMem quantities decompose covariance-memory effects using Gaussian total
-correlation and lagged covariance blocks. All determinants are evaluated with
-positive-definite linear algebra.
+The implementation combines present-time total correlation, innovation total
+correlation, and lagged Gaussian covariance blocks to quantify memory totals,
+curves and finite-lag decompositions.
 
 References
 ----------
-- Cover, T. M. and Thomas, J. A. (2006), Gaussian information identities.
-- ComplexTorch repository methodological notes and tests.
+- Cover, T. M. and Thomas, J. A. (2006). Gaussian information identities.
+- ComplexTorch methodological tests and model-backbone implementation.
 """
 from __future__ import annotations
 

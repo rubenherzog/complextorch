@@ -1,15 +1,13 @@
-"""Gaussian emergence measures for linear macro projections.
+"""Gaussian predictive-emergence measures under linear projection.
 
-Notes
------
-Emergence measures compare predictive information at microscopic and projected
-macroscopic levels, using exact Gaussian conditional covariances whenever a
-model representation is available.
+The measures compare microscopic predictive information with predictive
+information retained by a user-specified macroscopic projection, using exact
+conditional covariances when a generative model is supplied.
 
 References
 ----------
-- Barnett, L. and Seth, A. K. (2023). Dynamical independence: discovering
-  emergent macroscopic processes in complex dynamical systems.
+- Barnett, L. and Seth, A. K. (2023). Dynamical independence and emergent
+  macroscopic processes.
 """
 from __future__ import annotations
 import math

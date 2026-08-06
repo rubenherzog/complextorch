@@ -1,34 +1,8 @@
-"""Machine-readable catalogue of model-first and empirical measure tiers.
+"""Registry separating analytical primary and empirical secondary measures.
 
-Notes
------
-The registry declares which measures belong to the analytical primary tier and
-which require observations or sample estimators.
-
-Notes
------
-The registry declares which measures belong to the analytical primary tier and
-which require observations or sample estimators.
-
-Notes
------
-The registry declares which measures belong to the analytical primary tier and
-which require observations or sample estimators.
-
-Notes
------
-The registry declares which measures belong to the analytical primary tier and
-which require observations or sample estimators.
-
-Notes
------
-The registry declares which measures belong to the analytical primary tier and
-which require observations or sample estimators.
-
-Notes
------
-The registry declares which measures belong to the analytical primary tier and
-which require observations or sample estimators.
+References
+----------
+- ComplexTorch public API design and model-comparison tests.
 """
 MEASURE_REGISTRY = {
     "gaussian_entropy": {"domain": "model_covariance", "analytic": True, "tier": "primary", "model_entrypoint": "gaussian_measures_from_model"},

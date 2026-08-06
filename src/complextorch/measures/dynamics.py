@@ -1,10 +1,6 @@
-"""Time- and frequency-domain analytical measures for stationary Gaussian VARs.
+"""Analytical dynamics, autocovariances and spectra for Gaussian models.
 
-Notes
------
-Autocovariances, transfer functions and spectra are derived analytically from
-stationary VAR/state-space parameters. For a VAR transfer function
-:math:`H(f)=A(f)^{-1}`, the spectrum is
+For a VAR transfer function :math:`H(f)=A(f)^{-1}`, the cross-spectrum is
 
 .. math::
 
@@ -12,8 +8,8 @@ stationary VAR/state-space parameters. For a VAR transfer function
 
 References
 ----------
-- Lütkepohl, H. (2005), spectral representation of VAR processes.
-- Barnett, L. and Seth, A. K. (2014), MVGC toolbox paper.
+- Lütkepohl, H. (2005). Spectral representation of VAR processes.
+- Barnett, L. and Seth, A. K. (2014). The MVGC toolbox.
 """
 from __future__ import annotations
 import math
@@ -207,53 +203,15 @@ def transfer_function(system:VARSystem,frequencies:torch.Tensor,*,sampling_frequ
 
 
 def cross_spectral_density(system:VARSystem,frequencies:torch.Tensor,*,sampling_frequency:float=1.0)->torch.Tensor:
-    """Compute the cross-spectral density from a transfer function.
-                        
-                        .. math:: S(f)=H(f)\Sigma H(f)^*.
-                        
-                        References
-                        ----------
-                        Lütkepohl (2005); Barnett and Seth (2014).
-                    
-                    Compute the cross-spectral density from a transfer function.
-                    
-                    .. math:: S(f)=H(f)\Sigma H(f)^*.
-                    
-                    References
-                    ----------
-                    Lütkepohl (2005); Barnett and Seth (2014).
-                
-                Compute the cross-spectral density from a transfer function.
-                
-                .. math:: S(f)=H(f)\Sigma H(f)^*.
-                
-                References
-                ----------
-                Lütkepohl (2005); Barnett and Seth (2014).
-            
-            Compute the cross-spectral density from a transfer function.
-            
-            .. math:: S(f)=H(f)\Sigma H(f)^*.
-            
-            References
-            ----------
-            Lütkepohl (2005); Barnett and Seth (2014).
-        
-        Compute the cross-spectral density from a transfer function.
-        
-        .. math:: S(f)=H(f)\Sigma H(f)^*.
-        
-        References
-        ----------
-        Lütkepohl (2005); Barnett and Seth (2014).
+    """Compute cross-spectral density from a transfer function.
     
-    Compute the cross-spectral density from a transfer function.
+    .. math::
     
-    .. math:: S(f)=H(f)\Sigma H(f)^*.
+       S(f)=H(f)\Sigma H(f)^*.
     
     References
     ----------
-    Lütkepohl (2005); Barnett and Seth (2014).
+    - Lütkepohl (2005); Barnett and Seth (2014).
     """
     h=transfer_function(system,frequencies,sampling_frequency=sampling_frequency)
     q=system.innovation_covariance.to(h.dtype)
