@@ -1,8 +1,8 @@
 """Generic redundancy-lattice primitives for PID-style decompositions.
 
-The lattice contains antichains of non-empty source subsets.  Its order is the
+The lattice contains antichains of non-empty source subsets. Its order is the
 Williams--Beer redundancy order: ``alpha <= beta`` iff every element of beta
-contains at least one element of alpha.  The implementation is measure-agnostic
+contains at least one element of alpha. The implementation is measure-agnostic
 and is shared by future PIRD and PDGC code.
 """
 from __future__ import annotations
@@ -17,6 +17,7 @@ Antichain = tuple[Subset, ...]
 
 
 def _subset_mask(subset: Subset) -> int:
+    """Encode a zero-based source subset as an integer bit mask."""
     mask = 0
     for index in subset:
         mask |= 1 << index
@@ -24,6 +25,7 @@ def _subset_mask(subset: Subset) -> int:
 
 
 def _antichain_key(antichain: Antichain) -> tuple[int, tuple[int, ...]]:
+    """Return a deterministic sort key for PID antichains."""
     return (len(antichain), tuple(sorted(_subset_mask(item) for item in antichain)))
 
 
@@ -33,6 +35,7 @@ def redundancy_leq(alpha: Antichain, beta: Antichain) -> bool:
 
 
 def _all_antichains(n_sources: int) -> list[Antichain]:
+    """Enumerate all antichains of non-empty subsets for ``n_sources``."""
     if not 1 <= n_sources <= 4:
         raise ValueError("n_sources must be between 1 and 4")
     subsets = [
@@ -53,6 +56,7 @@ def _all_antichains(n_sources: int) -> list[Antichain]:
 
 
 def _topological_antichains(n_sources: int) -> tuple[Antichain, ...]:
+    """Topologically order PID antichains under the redundancy relation."""
     nodes = _all_antichains(n_sources)
     remaining = set(nodes)
     ordered: list[Antichain] = []
@@ -98,8 +102,8 @@ class PIDLattice:
 def pid_lattice(n_sources: int, *, device=None) -> PIDLattice:
     """Construct antichains, zeta matrix and Möbius matrix for ``n_sources``.
 
-    Source labels are zero-based.  ``zeta[i,j]=1`` when antichain ``j`` is below
-    antichain ``i``.  Therefore ``redundancy = zeta @ atoms`` and
+    Source labels are zero-based. ``zeta[i,j]=1`` when antichain ``j`` is below
+    antichain ``i``. Therefore ``redundancy = zeta @ atoms`` and
     ``atoms = mobius @ redundancy``.
     """
     antichains = _topological_antichains(n_sources)
@@ -110,7 +114,7 @@ def pid_lattice(n_sources: int, *, device=None) -> PIDLattice:
             if redundancy_leq(lower, upper):
                 zeta[i, j] = 1
 
-    # The topological order makes zeta unit lower triangular.  Compute the
+    # The topological order makes zeta unit lower triangular. Compute the
     # integer Möbius matrix by exact forward substitution, not matrix inverse.
     mobius = torch.zeros_like(zeta)
     for column in range(count):
