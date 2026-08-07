@@ -25,10 +25,13 @@ SCIENTIFIC_MODULES = {
     "dynamics.py",
     "emergence.py",
     "gaussian.py",
+    "hop.py",
     "mvgc.py",
     "mvgc_api.py",
     "oir.py",
+    "pdgc.py",
     "phid.py",
+    "pird.py",
     "primary.py",
     "secondary.py",
 }

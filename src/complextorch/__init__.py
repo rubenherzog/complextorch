@@ -38,11 +38,25 @@ from .dd_optimization import (
     spectral_dynamical_dependence,
     spectral_dynamical_dependence_gradient,
 )
+from .measures.hop import HOPResult, SpectralHOPResult, hop_analysis, spectral_hop_analysis
 from .measures.oir import (
     delta_o_information_rate,
     o_information_rate,
     spectral_delta_o_information_rate,
     spectral_o_information_rate,
+)
+from .measures.pdgc import (
+    PDGCResult,
+    SpectralPDGCResult,
+    partial_granger_causality_decomposition,
+    spectral_partial_granger_causality_decomposition,
+)
+from .measures.phid_primary import phiid_redundancy_from_model
+from .measures.pird import (
+    PIRDResult,
+    SpectralPIRDResult,
+    partial_information_rate_decomposition,
+    spectral_partial_information_rate_decomposition,
 )
 from .measures.primary import (
     ModelMeasureConfig,
@@ -114,7 +128,13 @@ __all__ = [
     "DDObjective",
     "DDOptimizationResult",
     "DDOptimizer",
+    "HOPResult",
     "N4SID",
+    "PDGCResult",
+    "PIRDResult",
+    "SpectralHOPResult",
+    "SpectralPDGCResult",
+    "SpectralPIRDResult",
     "VAR",
     "EpochTimeSeriesSplit",
     "InnovationsStateSpace",
@@ -152,6 +172,7 @@ __all__ = [
     "gaussian_instantaneous_information_rate",
     "gaussian_mutual_information_rate",
     "gaussian_transfer_entropy_rate",
+    "hop_analysis",
     "innovations_form",
     "innovations_proxy_sequence",
     "innovations_spectral_density",
@@ -167,7 +188,10 @@ __all__ = [
     "optimise_dynamical_dependence_proxy",
     "optimise_dynamical_dependence_spectral",
     "orthonormalise_projection",
+    "partial_granger_causality_decomposition",
+    "partial_information_rate_decomposition",
     "phiid_from_model",
+    "phiid_redundancy_from_model",
     "project_state_space",
     "proxy_dynamical_dependence",
     "proxy_dynamical_dependence_gradient",
@@ -186,8 +210,11 @@ __all__ = [
     "spectral_dynamical_dependence_gradient",
     "spectral_gaussian_mutual_information_rate",
     "spectral_gaussian_transfer_entropy_rate",
+    "spectral_hop_analysis",
     "spectral_mvgc",
     "spectral_o_information_rate",
+    "spectral_partial_granger_causality_decomposition",
+    "spectral_partial_information_rate_decomposition",
     "stochastic_interaction",
     "temporal_mvgc",
     "to_complexbox_timeseries",
