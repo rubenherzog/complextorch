@@ -131,6 +131,26 @@ def _validate_gaussian_covariance(covariance: torch.Tensor, base: float) -> torc
     return cov
 
 
+def _gaussian_cholesky_terms(
+    covariance: torch.Tensor, *, base: float
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, float]:
+    """Return validated covariance, Cholesky factor, logdet and log-base scale."""
+    cov = _validate_gaussian_covariance(covariance, base)
+    chol, _ = stable_cholesky(cov)
+    chol_diagonal = torch.diagonal(chol, dim1=-2, dim2=-1)
+    logdet = 2.0 * torch.log(chol_diagonal).sum(dim=-1)
+    return cov, chol, logdet, math.log(base)
+
+
+def _precision_diagonal_from_cholesky(chol: torch.Tensor) -> torch.Tensor:
+    r"""Return ``diag(Sigma^-1)`` from ``Sigma = L L^T`` without inversion."""
+    n = chol.shape[-1]
+    eye = torch.eye(n, dtype=chol.dtype, device=chol.device)
+    eye = eye.expand(*chol.shape[:-2], n, n)
+    inverse_chol = torch.linalg.solve_triangular(chol, eye, upper=False)
+    return inverse_chol.square().sum(dim=-2)
+
+
 def _gaussian_total_correlations(
     covariance: torch.Tensor, *, base: float
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -147,28 +167,17 @@ def _gaussian_total_correlations(
        &= \frac{1}{2}\left(\log\det\Sigma
           +\sum_i\log\Lambda_{ii}\right).
 
-    The implementation never forms :math:`\Sigma^{-1}`.  If
+    The implementation never forms :math:`\Sigma^{-1}`. If
     :math:`\Sigma=LL^\top`, then
     :math:`\Lambda_{ii}=\sum_k(L^{-1})_{ki}^2`; ``L^{-1}`` is obtained by a
-    batched triangular solve against the identity.  All leading batch
+    batched triangular solve against the identity. All leading batch
     dimensions, dtype and device are preserved.
     """
-    cov = _validate_gaussian_covariance(covariance, base)
-    chol, _ = stable_cholesky(cov)
-    chol_diagonal = torch.diagonal(chol, dim1=-2, dim2=-1)
-    logdet = 2.0 * torch.log(chol_diagonal).sum(dim=-1)
-
+    cov, chol, logdet, scale = _gaussian_cholesky_terms(covariance, base=base)
     marginal_variances = torch.diagonal(cov, dim1=-2, dim2=-1)
     tc_nats = 0.5 * (torch.log(marginal_variances).sum(dim=-1) - logdet)
-
-    n = cov.shape[-1]
-    eye = torch.eye(n, dtype=cov.dtype, device=cov.device)
-    eye = eye.expand(*cov.shape[:-2], n, n)
-    inverse_chol = torch.linalg.solve_triangular(chol, eye, upper=False)
-    precision_diagonal = inverse_chol.square().sum(dim=-2)
+    precision_diagonal = _precision_diagonal_from_cholesky(chol)
     dtc_nats = 0.5 * (logdet + torch.log(precision_diagonal).sum(dim=-1))
-
-    scale = math.log(base)
     return tc_nats / scale, dtc_nats / scale
 
 
@@ -196,11 +205,13 @@ def total_correlation(covariance:torch.Tensor,*,base:float=2.0)->torch.Tensor:
 
     Notes
     -----
-    The calculation is fully Torch-native and differentiable.  It uses a
-    Cholesky log-determinant and does not construct marginal covariance blocks.
+    The calculation is fully Torch-native and differentiable. It uses one
+    Cholesky factorisation and does not construct marginal covariance blocks or
+    a precision matrix.
     """
-    tc, _ = _gaussian_total_correlations(covariance, base=base)
-    return tc
+    cov, _, logdet, scale = _gaussian_cholesky_terms(covariance, base=base)
+    marginal_variances = torch.diagonal(cov, dim1=-2, dim2=-1)
+    return 0.5 * (torch.log(marginal_variances).sum(dim=-1) - logdet) / scale
 
 
 def dual_total_correlation(covariance:torch.Tensor,*,base:float=2.0)->torch.Tensor:
@@ -227,11 +238,12 @@ def dual_total_correlation(covariance:torch.Tensor,*,base:float=2.0)->torch.Tens
 
     Notes
     -----
-    The precision matrix is never formed explicitly.  Its diagonal is obtained
+    The precision matrix is never formed explicitly. Its diagonal is obtained
     from a batched triangular solve using the Cholesky factor of the covariance.
     """
-    _, dtc = _gaussian_total_correlations(covariance, base=base)
-    return dtc
+    _, chol, logdet, scale = _gaussian_cholesky_terms(covariance, base=base)
+    precision_diagonal = _precision_diagonal_from_cholesky(chol)
+    return 0.5 * (logdet + torch.log(precision_diagonal).sum(dim=-1)) / scale
 
 
 def o_information(covariance:torch.Tensor,*,base:float=2.0)->torch.Tensor:
