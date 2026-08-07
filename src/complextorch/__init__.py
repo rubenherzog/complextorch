@@ -44,6 +44,12 @@ from .measures.oir import (
     spectral_delta_o_information_rate,
     spectral_o_information_rate,
 )
+from .measures.pird import (
+    PIRDResult,
+    SpectralPIRDResult,
+    partial_information_rate_decomposition,
+    spectral_partial_information_rate_decomposition,
+)
 from .measures.primary import (
     ModelMeasureConfig,
     ModelMeasureContext,
@@ -115,6 +121,8 @@ __all__ = [
     "DDOptimizationResult",
     "DDOptimizer",
     "N4SID",
+    "PIRDResult",
+    "SpectralPIRDResult",
     "VAR",
     "EpochTimeSeriesSplit",
     "InnovationsStateSpace",
@@ -167,6 +175,7 @@ __all__ = [
     "optimise_dynamical_dependence_proxy",
     "optimise_dynamical_dependence_spectral",
     "orthonormalise_projection",
+    "partial_information_rate_decomposition",
     "phiid_from_model",
     "project_state_space",
     "proxy_dynamical_dependence",
@@ -188,6 +197,7 @@ __all__ = [
     "spectral_gaussian_transfer_entropy_rate",
     "spectral_mvgc",
     "spectral_o_information_rate",
+    "spectral_partial_information_rate_decomposition",
     "stochastic_interaction",
     "temporal_mvgc",
     "to_complexbox_timeseries",

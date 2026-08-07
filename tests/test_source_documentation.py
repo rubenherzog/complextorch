@@ -29,6 +29,7 @@ SCIENTIFIC_MODULES = {
     "mvgc_api.py",
     "oir.py",
     "phid.py",
+    "pird.py",
     "primary.py",
     "secondary.py",
 }
