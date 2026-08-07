@@ -32,6 +32,13 @@ from .dd_optimization import (
     spectral_dynamical_dependence,
     spectral_dynamical_dependence_gradient,
 )
+from .dd_riemannian import (
+    DDRiemannianSearchResult,
+    optimise_dynamical_dependence_proxy_riemannian,
+    optimise_dynamical_dependence_spectral_riemannian,
+    proxy_dynamical_dependence_autograd_gradient,
+    spectral_dynamical_dependence_autograd_gradient,
+)
 from .measures.primary import (
     ModelMeasureConfig,
     ModelMeasureContext,
@@ -87,6 +94,7 @@ from .var import VAR, VARParameters
 
 __all__ = [
     "DDGradientSearchResult",
+    "DDRiemannianSearchResult",
     "N4SID",
     "VAR",
     "EpochTimeSeriesSplit",
@@ -129,11 +137,14 @@ __all__ = [
     "mvgc_pvalue",
     "optimise_dynamical_dependence_projection",
     "optimise_dynamical_dependence_proxy",
+    "optimise_dynamical_dependence_proxy_riemannian",
     "optimise_dynamical_dependence_spectral",
+    "optimise_dynamical_dependence_spectral_riemannian",
     "orthonormalise_projection",
     "phiid_from_model",
     "project_state_space",
     "proxy_dynamical_dependence",
+    "proxy_dynamical_dependence_autograd_gradient",
     "proxy_dynamical_dependence_gradient",
     "random_correlation_matrix",
     "random_positive_definite_covariance",
@@ -146,6 +157,7 @@ __all__ = [
     "solve_dare",
     "solve_generalized_dare",
     "spectral_dynamical_dependence",
+    "spectral_dynamical_dependence_autograd_gradient",
     "spectral_dynamical_dependence_gradient",
     "spectral_mvgc",
     "stochastic_interaction",
