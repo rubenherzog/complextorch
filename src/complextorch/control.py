@@ -267,7 +267,94 @@ def solve_dare(
     return result[0] if single else result
 
 
-# Marginal innovations require the steady-state generalised Riccati solution.
+def _broadcast_generalized_dare_inputs(
+    transition,
+    observation,
+    process_covariance,
+    observation_covariance,
+    cross_covariance,
+):
+    """Normalize generalized-DARE inputs to one compatible batch dimension."""
+    a, a_single = _batched(transition, 3)
+    c, c_single = _batched(observation, 3)
+    q, q_single = _batched(process_covariance, 3)
+    r, r_single = _batched(observation_covariance, 3)
+    s, s_single = _batched(cross_covariance, 3)
+    tensors = (a, c, q, r, s)
+    batch = max(x.shape[0] for x in tensors)
+    if any(x.shape[0] not in (1, batch) for x in tensors):
+        raise ValueError("incompatible generalized DARE batch dimensions")
+    broadcast = tuple(
+        x.expand(batch, *x.shape[1:]) if x.shape[0] == 1 else x
+        for x in tensors
+    )
+    single = a_single and c_single and q_single and r_single and s_single
+    return (*broadcast, single)
+
+
+def _solve_generalized_dare_scipy(a, c, q, r, s):
+    """Reference generalized DARE using SciPy's direct cross-term interface."""
+    out = []
+    arrays = [x.detach().cpu().numpy() for x in (a, c, q, r, s)]
+    for ai, ci, qi, ri, si in zip(*arrays, strict=True):
+        # SciPy's S term maps directly to the process-observation covariance
+        # in the dual filtering equation when A_scipy=A' and B_scipy=C'.
+        out.append(
+            torch.as_tensor(
+                solve_discrete_are(ai.T, ci.T, qi, ri, s=si),
+                dtype=a.dtype,
+                device=a.device,
+            )
+        )
+    return symmetrise(torch.stack(out))
+
+
+def _solve_generalized_dare_torch(a, c, q, r, s, *, rtol, atol, max_iter):
+    r"""Decorrelate the generalized DARE and reuse the Torch standard solver.
+
+    For
+
+    .. math::
+
+       P=APA^\top+Q-(APC^\top+S)
+       (CPC^\top+R)^{-1}(APC^\top+S)^\top,
+
+    positive-definite :math:`R` permits the exact transformation
+
+    .. math::
+
+       A_0=A-SR^{-1}C,\qquad Q_0=Q-SR^{-1}S^\top.
+
+    The generalized equation is then the ordinary filtering DARE for
+    ``(A_0, C, Q_0, R)``. This avoids a second Riccati iteration and delegates
+    numerical solution to the already-audited structured doubling backend.
+    """
+    public_dtype = a.dtype
+    work_dtype = torch.float64 if public_dtype == torch.float32 else public_dtype
+    a_work, c_work, q_work, r_work, s_work = [
+        tensor.to(dtype=work_dtype) for tensor in (a, c, q, r, s)
+    ]
+
+    r_chol = torch.linalg.cholesky(symmetrise(r_work))
+    r_inv_c = torch.cholesky_solve(c_work, r_chol)
+    r_inv_st = torch.cholesky_solve(s_work.transpose(-1, -2), r_chol)
+    decorrelated_a = a_work - s_work @ r_inv_c
+    decorrelated_q = symmetrise(q_work - s_work @ r_inv_st)
+
+    result = solve_dare(
+        decorrelated_a,
+        c_work,
+        decorrelated_q,
+        r_work,
+        backend="torch",
+        rtol=rtol,
+        atol=atol,
+        max_iter=max_iter,
+    )
+    return result.to(dtype=public_dtype)
+
+
+# Marginal innovations require the steady-state generalized Riccati solution.
 def solve_generalized_dare(
     transition: torch.Tensor,
     observation: torch.Tensor,
@@ -275,35 +362,102 @@ def solve_generalized_dare(
     observation_covariance: torch.Tensor,
     cross_covariance: torch.Tensor,
     *,
-    rtol: float = 1e-10,
-    atol: float = 1e-12,
-    max_iter: int = 10000,
+    backend: Literal["scipy", "torch"] = "torch",
+    rtol: float | None = None,
+    atol: float | None = None,
+    max_iter: int = 100,
 ) -> torch.Tensor:
-    """Solve the generalized DARE with noise cross covariance.
-    
+    r"""Solve the generalized filtering DARE with correlated noises.
+
+    ComplexTorch and ComplexBox use
+
+    .. math::
+
+       P=APA^\top+Q-(APC^\top+S)
+       (CPC^\top+R)^{-1}(APC^\top+S)^\top,
+
+    where ``S = cov(w_t, v_t)`` has shape ``(r,n)``.
+
+    Parameters
+    ----------
+    transition
+        State transition ``A`` with shape ``(r,r)`` or ``(batch,r,r)``.
+    observation
+        Observation matrix ``C`` with shape ``(n,r)`` or ``(batch,n,r)``.
+    process_covariance
+        Process covariance ``Q`` with shape ``(r,r)`` or ``(batch,r,r)``.
+    observation_covariance
+        Observation covariance ``R`` with shape ``(n,n)`` or
+        ``(batch,n,n)``. The Torch backend requires positive definiteness.
+    cross_covariance
+        Process-observation cross covariance ``S`` with shape ``(r,n)`` or
+        ``(batch,r,n)``.
+    backend
+        ``"scipy"`` calls SciPy's direct generalized DARE and serves as the
+        independent numerical reference. ``"torch"`` exactly decorrelates the
+        noises and reuses the device-native structured-doubling ``solve_dare``
+        backend. ``"torch"`` remains the default to preserve the pre-existing
+        device-native behavior of this public function.
+    rtol, atol
+        Convergence tolerances forwarded to the Torch standard DARE backend.
+        They are ignored by SciPy.
+    max_iter
+        Maximum structured-doubling iterations for the Torch backend.
+
+    Returns
+    -------
+    torch.Tensor
+        Stabilizing prediction covariance with shape ``(r,r)`` for entirely
+        unbatched inputs or ``(batch,r,r)`` after batch broadcasting.
+
+    Notes
+    -----
+    The Torch path performs no NumPy/SciPy conversion. Float32 inputs use the
+    same float64 working-precision policy as ``solve_dare`` and are cast back
+    to their public dtype. Differentiation through the Riccati solution remains
+    out of scope.
+
     References
     ----------
-    - Anderson and Moore (1979); Barnett and Seth (2015).
+    - Anderson and Moore (1979), *Optimal Filtering*.
+    - Barnett and Seth (2015), state-space Granger-causality reduction.
+    - ComplexBox ``mdare`` at commit
+      ``87b5e2cd9bba22ddd978bade6f614da7d6190db2``.
     """
-    # Iterate the generalized Riccati map, including process-observation noise cross covariance.
-    a, single = _batched(transition, 3)
-    c, _ = _batched(observation, 3)
-    q, _ = _batched(process_covariance, 3)
-    r, _ = _batched(observation_covariance, 3)
-    s, _ = _batched(cross_covariance, 3)
-    batch = max(x.shape[0] for x in (a, c, q, r, s))
-    a, c, q, r, s = [x.expand(batch, *x.shape[1:]) if x.shape[0] == 1 else x for x in (a, c, q, r, s)]
-    p = torch.zeros_like(q)
-    for _ in range(max_iter):
-        innovation = symmetrise(c @ p @ c.transpose(-1, -2) + r)
-        gain_numerator = a @ p @ c.transpose(-1, -2) + s
-        updated = symmetrise(a @ p @ a.transpose(-1, -2) + q - gain_numerator @ spd_solve(innovation, gain_numerator.transpose(-1, -2)))
-        difference = torch.linalg.matrix_norm(updated - p, ord="fro", dim=(-2, -1))
-        scale = torch.linalg.matrix_norm(updated, ord="fro", dim=(-2, -1)).clamp_min(1.0)
-        if bool(torch.all(difference <= atol + rtol * scale)):
-            return updated[0] if single else updated
-        p = updated
-    raise RuntimeError("generalized DARE did not converge")
+    if backend not in {"scipy", "torch"}:
+        raise ValueError("backend must be 'scipy' or 'torch'")
+
+    a, c, q, r, s, single = _broadcast_generalized_dare_inputs(
+        transition,
+        observation,
+        process_covariance,
+        observation_covariance,
+        cross_covariance,
+    )
+    if backend == "scipy":
+        result = _solve_generalized_dare_scipy(a, c, q, r, s)
+    else:
+        if not all(x.is_floating_point() for x in (a, c, q, r, s)):
+            raise TypeError("Torch generalized DARE inputs must use floating-point dtypes")
+        dtypes = {x.dtype for x in (a, c, q, r, s)}
+        if len(dtypes) != 1:
+            raise ValueError("Torch generalized DARE inputs must use the same dtype")
+        devices = {x.device for x in (a, c, q, r, s)}
+        if len(devices) != 1:
+            raise ValueError("Torch generalized DARE inputs must use the same device")
+        default_rtol = 1e-8 if a.dtype == torch.float32 else 1e-10
+        default_atol = 1e-10 if a.dtype == torch.float32 else 1e-12
+        result = _solve_generalized_dare_torch(
+            a,
+            c,
+            q,
+            r,
+            s,
+            rtol=default_rtol if rtol is None else float(rtol),
+            atol=default_atol if atol is None else float(atol),
+            max_iter=int(max_iter),
+        )
+    return result[0] if single else result
 
 
 @dataclass(frozen=True)
