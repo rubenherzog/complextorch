@@ -18,7 +18,7 @@ References
 from __future__ import annotations
 import math
 import torch
-from ..linalg import spd_logdet, spd_solve, symmetrise
+from ..linalg import spd_logdet, spd_solve, stable_cholesky, symmetrise
 
 
 def gaussian_entropy(covariance: torch.Tensor, *, base: float = 2.0) -> torch.Tensor:
@@ -113,61 +113,125 @@ def gaussian_conditional_mutual_information(joint_covariance:torch.Tensor,n_x:in
     return 0.5*(spd_logdet(sxz)+spd_logdet(syz)-spd_logdet(sz)-spd_logdet(joint))/math.log(base)
 
 
+def _validate_gaussian_covariance(covariance: torch.Tensor, base: float) -> torch.Tensor:
+    """Validate a covariance tensor used by Gaussian multivariate measures."""
+    cov = torch.as_tensor(covariance)
+    if cov.ndim < 2 or cov.shape[-2] != cov.shape[-1]:
+        raise ValueError("covariance must have shape (..., n, n)")
+    if cov.shape[-1] < 1:
+        raise ValueError("covariance must contain at least one variable")
+    if not cov.is_floating_point():
+        raise TypeError("covariance must use a floating-point dtype")
+    if not bool(torch.isfinite(cov).all()):
+        raise ValueError("covariance must contain only finite values")
+    if bool((torch.diagonal(cov, dim1=-2, dim2=-1) <= 0).any()):
+        raise ValueError("covariance diagonal must be strictly positive")
+    if not math.isfinite(base) or base <= 0.0 or base == 1.0:
+        raise ValueError("base must be finite, positive, and different from 1")
+    return cov
+
+
+def _gaussian_total_correlations(
+    covariance: torch.Tensor, *, base: float
+) -> tuple[torch.Tensor, torch.Tensor]:
+    r"""Return Gaussian TC and DTC from one shared Cholesky factorisation.
+
+    For covariance :math:`\Sigma` and precision :math:`\Lambda=\Sigma^{-1}`,
+
+    .. math::
+
+       \mathrm{TC}
+       &= \frac{1}{2}\left(\sum_i\log\Sigma_{ii}
+          -\log\det\Sigma\right),\\
+       \mathrm{DTC}
+       &= \frac{1}{2}\left(\log\det\Sigma
+          +\sum_i\log\Lambda_{ii}\right).
+
+    The implementation never forms :math:`\Sigma^{-1}`.  If
+    :math:`\Sigma=LL^\top`, then
+    :math:`\Lambda_{ii}=\sum_k(L^{-1})_{ki}^2`; ``L^{-1}`` is obtained by a
+    batched triangular solve against the identity.  All leading batch
+    dimensions, dtype and device are preserved.
+    """
+    cov = _validate_gaussian_covariance(covariance, base)
+    chol, _ = stable_cholesky(cov)
+    chol_diagonal = torch.diagonal(chol, dim1=-2, dim2=-1)
+    logdet = 2.0 * torch.log(chol_diagonal).sum(dim=-1)
+
+    marginal_variances = torch.diagonal(cov, dim1=-2, dim2=-1)
+    tc_nats = 0.5 * (torch.log(marginal_variances).sum(dim=-1) - logdet)
+
+    n = cov.shape[-1]
+    eye = torch.eye(n, dtype=cov.dtype, device=cov.device)
+    eye = eye.expand(*cov.shape[:-2], n, n)
+    inverse_chol = torch.linalg.solve_triangular(chol, eye, upper=False)
+    precision_diagonal = inverse_chol.square().sum(dim=-2)
+    dtc_nats = 0.5 * (logdet + torch.log(precision_diagonal).sum(dim=-1))
+
+    scale = math.log(base)
+    return tc_nats / scale, dtc_nats / scale
+
+
 def total_correlation(covariance:torch.Tensor,*,base:float=2.0)->torch.Tensor:
-    """Total correlation.
-    
+    r"""Compute Gaussian total correlation from covariance matrices.
+
+    .. math::
+
+       \mathrm{TC}(X_1,\ldots,X_N)
+       =\frac{1}{2\log b}\left[
+       \sum_i\log\Sigma_{ii}-\log\det\Sigma\right].
+
     Parameters
     ----------
     covariance
-        Symmetric covariance matrix or batch of covariance matrices.
+        Symmetric positive-definite covariance matrix with shape ``(..., N, N)``.
+        Any leading batch dimensions are preserved.
     base
-        Logarithm base used for information quantities.
-    
+        Logarithm base ``b``. Defaults to 2 (bits).
+
     Returns
     -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
+    torch.Tensor
+        Total correlation with shape ``covariance.shape[:-2]``.
+
     Notes
     -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
+    The calculation is fully Torch-native and differentiable.  It uses a
+    Cholesky log-determinant and does not construct marginal covariance blocks.
     """
-    # Compute total correlation as the sum of marginal entropies minus the joint entropy.
-    cov=torch.as_tensor(covariance); diag=torch.diagonal(cov,dim1=-2,dim2=-1)
-    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
-    return 0.5*(torch.log(diag).sum(-1)-spd_logdet(cov))/math.log(base)
+    tc, _ = _gaussian_total_correlations(covariance, base=base)
+    return tc
 
 
 def dual_total_correlation(covariance:torch.Tensor,*,base:float=2.0)->torch.Tensor:
-    """Dual total correlation.
-    
+    r"""Compute Gaussian dual total correlation from covariance matrices.
+
+    .. math::
+
+       \mathrm{DTC}(X_1,\ldots,X_N)
+       =\frac{1}{2\log b}\left[
+       \log\det\Sigma+\sum_i\log(\Sigma^{-1})_{ii}\right].
+
     Parameters
     ----------
     covariance
-        Symmetric covariance matrix or batch of covariance matrices.
+        Symmetric positive-definite covariance matrix with shape ``(..., N, N)``.
+        Any leading batch dimensions are preserved.
     base
-        Logarithm base used for information quantities.
-    
+        Logarithm base ``b``. Defaults to 2 (bits).
+
     Returns
     -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
+    torch.Tensor
+        Dual total correlation with shape ``covariance.shape[:-2]``.
+
     Notes
     -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
+    The precision matrix is never formed explicitly.  Its diagonal is obtained
+    from a batched triangular solve using the Cholesky factor of the covariance.
     """
-    # Compute dual total correlation from joint entropy and leave-one-out conditional entropies.
-    cov=torch.as_tensor(covariance); n=cov.shape[-1]; h=gaussian_entropy(cov,base=base)
-    parts=[]
-    for i in range(n):
-        idx=torch.tensor([j for j in range(n) if j!=i],device=cov.device)
-        parts.append(gaussian_entropy(cov.index_select(-2,idx).index_select(-1,idx),base=base))
-    return torch.stack(parts,-1).sum(-1)-(n-1)*h
+    _, dtc = _gaussian_total_correlations(covariance, base=base)
+    return dtc
 
 
 def o_information(covariance:torch.Tensor,*,base:float=2.0)->torch.Tensor:
@@ -180,32 +244,27 @@ def o_information(covariance:torch.Tensor,*,base:float=2.0)->torch.Tensor:
     ----------
     - Rosas et al. (2019), *Physical Review E* 100, 032305.
     """
-    # Combine total and dual total correlation; the sign distinguishes redundancy- from synergy-dominated dependence.
-    return total_correlation(covariance,base=base)-dual_total_correlation(covariance,base=base)
+    tc, dtc = _gaussian_total_correlations(covariance, base=base)
+    return tc - dtc
 
 
 def s_information(covariance:torch.Tensor,*,base:float=2.0)->torch.Tensor:
-    """S information.
-    
+    """Compute Gaussian S-information as ``TC + DTC``.
+
     Parameters
     ----------
     covariance
-        Symmetric covariance matrix or batch of covariance matrices.
+        Symmetric positive-definite covariance matrix with shape ``(..., N, N)``.
     base
         Logarithm base used for information quantities.
-    
+
     Returns
     -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
+    torch.Tensor
+        S-information with all leading batch dimensions preserved.
     """
-    return total_correlation(covariance,base=base)+dual_total_correlation(covariance,base=base)
+    tc, dtc = _gaussian_total_correlations(covariance, base=base)
+    return tc + dtc
 
 
 def local_gaussian_mutual_information(samples:torch.Tensor,joint_covariance:torch.Tensor,n_left:int,*,mean:torch.Tensor|None=None,base:float=2.0)->torch.Tensor:
