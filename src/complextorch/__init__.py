@@ -38,6 +38,7 @@ from .dd_optimization import (
     spectral_dynamical_dependence,
     spectral_dynamical_dependence_gradient,
 )
+from .measures.hop import HOPResult, SpectralHOPResult, hop_analysis, spectral_hop_analysis
 from .measures.oir import (
     delta_o_information_rate,
     o_information_rate,
@@ -126,9 +127,11 @@ __all__ = [
     "DDObjective",
     "DDOptimizationResult",
     "DDOptimizer",
+    "HOPResult",
     "N4SID",
     "PDGCResult",
     "PIRDResult",
+    "SpectralHOPResult",
     "SpectralPDGCResult",
     "SpectralPIRDResult",
     "VAR",
@@ -168,6 +171,7 @@ __all__ = [
     "gaussian_instantaneous_information_rate",
     "gaussian_mutual_information_rate",
     "gaussian_transfer_entropy_rate",
+    "hop_analysis",
     "innovations_form",
     "innovations_proxy_sequence",
     "innovations_spectral_density",
@@ -204,6 +208,7 @@ __all__ = [
     "spectral_dynamical_dependence_gradient",
     "spectral_gaussian_mutual_information_rate",
     "spectral_gaussian_transfer_entropy_rate",
+    "spectral_hop_analysis",
     "spectral_mvgc",
     "spectral_o_information_rate",
     "spectral_partial_granger_causality_decomposition",
