@@ -4,7 +4,7 @@ Vector autoregressive models
 Model definition
 ----------------
 
-ComplexTorch uses the Gaussian VAR(:math:`p`) model
+:class:`~complextorch.VAR` fits the Gaussian VAR(:math:`p`) model
 
 .. math::
 
@@ -14,8 +14,10 @@ ComplexTorch uses the Gaussian VAR(:math:`p`) model
 
 where :math:`x_t\in\mathbb R^n`, :math:`c\in\mathbb R^n`,
 :math:`A_k\in\mathbb R^{n\times n}`, and :math:`\Sigma` is the innovations
-covariance. Coefficients use the ``(lag, target, source)`` convention for a
-single system and ``(batch, lag, target, source)`` when batched.
+covariance. Fitted parameters are exposed through
+:class:`~complextorch.VARParameters`. Coefficients use the
+``(lag, target, source)`` convention for a single system and
+``(batch, lag, target, source)`` when batched.
 
 Least-squares estimation
 ------------------------
@@ -34,9 +36,10 @@ With ridge strength :math:`\alpha\ge0`, the penalized problem is
    \widehat B
    = \arg\min_B\left(\|Y-XB\|_F^2+\alpha\|B\|_F^2\right),
 
-with the fitted intercept excluded from the ridge penalty. ComplexTorch exposes
-``lstsq``, Cholesky, pseudoinverse, and LWR/Morf-style solvers. ``solver="auto"``
-uses least squares for zero ridge and Cholesky for ridge regression.
+with the fitted intercept excluded from the ridge penalty. :class:`~complextorch.VAR`
+exposes ``lstsq``, Cholesky, pseudoinverse, and LWR/Morf-style solvers.
+``solver="auto"`` uses least squares for zero ridge and Cholesky for ridge
+regression.
 
 Innovation covariance and likelihood
 ------------------------------------
@@ -69,7 +72,8 @@ forming :math:`\Sigma^{-1}` explicitly.
 Companion representation
 ------------------------
 
-Define the companion state
+:func:`~complextorch.companion_matrix` constructs the transition for the
+canonical companion state
 
 .. math::
 
@@ -125,9 +129,12 @@ and
 
    \Gamma_k=C_pA_c^kPC_p^{\mathsf T}.
 
-The companion representation is the canonical bridge between fitted VAR
-parameters and the analytical covariance, spectral, information-theoretic, and
-state-space layers.
+:func:`~complextorch.build_var_system` packages these quantities into the
+canonical :class:`~complextorch.VARSystem`. A fitted :class:`~complextorch.VAR`
+can therefore be converted to the same representation before analytical
+covariance, spectral, information-theoretic, or state-space calculations.
+:func:`~complextorch.var_to_innovations_state_space` provides the exact bridge
+to :class:`~complextorch.InnovationsStateSpace`.
 
 Forecasting
 -----------
@@ -151,10 +158,20 @@ Stationarity requires
 
    \rho(A_c)<1.
 
-ComplexTorch exposes the fitted spectral radius and stability flag and also
-provides residual consistency and whiteness diagnostics. These diagnostics
-should be examined before interpreting model-derived causal or information
-measures.
+:class:`~complextorch.VAR` exposes the fitted spectral radius and stability flag.
+For model diagnostics, :func:`~complextorch.consistency` evaluates the VAR
+consistency diagnostic and :func:`~complextorch.residual_whiteness` evaluates
+residual whiteness. These diagnostics should be examined before interpreting
+model-derived causal or information measures.
+
+Simulation
+----------
+
+:func:`~complextorch.demo_var` provides a deterministic demonstration system,
+:func:`~complextorch.random_stable_var` generates random stable VAR parameters,
+and :func:`~complextorch.simulate_var` simulates trajectories while preserving
+batch semantics. :func:`~complextorch.automatic_burnin` can choose burn-in from
+the companion spectral radius.
 
 References
 ----------
