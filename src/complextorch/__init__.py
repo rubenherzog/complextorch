@@ -21,6 +21,12 @@ from .control import (
     stochastic_interaction,
     var_to_innovations_state_space,
 )
+from .dd import (
+    DDObjective,
+    DDOptimizationResult,
+    DDOptimizer,
+    optimise_dynamical_dependence,
+)
 from .dd_optimization import (
     DDGradientSearchResult,
     innovations_proxy_sequence,
@@ -99,6 +105,9 @@ from .var import VAR, VARParameters
 
 __all__ = [
     "DDGradientSearchResult",
+    "DDObjective",
+    "DDOptimizationResult",
+    "DDOptimizer",
     "N4SID",
     "VAR",
     "EpochTimeSeriesSplit",
@@ -145,6 +154,7 @@ __all__ = [
     "kalman_smoother",
     "model_autocovariances",
     "mvgc_pvalue",
+    "optimise_dynamical_dependence",
     "optimise_dynamical_dependence_projection",
     "optimise_dynamical_dependence_proxy",
     "optimise_dynamical_dependence_spectral",
