@@ -19,8 +19,8 @@ References
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
+from dataclasses import dataclass
 
 import torch
 
@@ -183,7 +183,11 @@ def fit_nested_var_models(
 
     reduced_variables = target + conditional
     full_variables = reduced_variables + source
-    defaults = dict(mode="pooled", fit_intercept=True, stability="ignore")
+    defaults = {
+        "mode": "pooled",
+        "fit_intercept": True,
+        "stability": "ignore",
+    }
     defaults.update(var_kwargs)
     full = VAR(order=order, **defaults).fit(values[..., full_variables])
     reduced = VAR(order=order, **defaults).fit(values[..., reduced_variables])
