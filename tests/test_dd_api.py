@@ -1,16 +1,19 @@
+import pytest
 import torch
 
 from complextorch import (
     DDGradientSearchResult,
     DDOptimizationResult,
-    DDRiemannianSearchResult,
     InnovationsStateSpace,
     optimise_dynamical_dependence,
     optimise_dynamical_dependence_proxy,
-    optimise_dynamical_dependence_proxy_riemannian,
     optimise_dynamical_dependence_spectral,
-    optimise_dynamical_dependence_spectral_riemannian,
     orthonormalise_projection,
+)
+from complextorch.dd_riemannian import (
+    DDRiemannianSearchResult,
+    optimise_dynamical_dependence_proxy_riemannian,
+    optimise_dynamical_dependence_spectral_riemannian,
 )
 
 
@@ -65,11 +68,7 @@ def _assert_common_matches_legacy(common, legacy):
 def test_unified_default_is_complexbox_and_matches_proxy_legacy_exactly():
     system = _system()
     initial = _initial()
-    kwargs = dict(
-        lags=5,
-        max_iterations=25,
-        history=True,
-    )
+    kwargs = dict(lags=5, max_iterations=25, history=True)
     legacy = optimise_dynamical_dependence_proxy(
         system,
         initial,
@@ -95,7 +94,9 @@ def test_unified_default_is_complexbox_and_matches_proxy_legacy_exactly():
     assert bool(torch.all(common.backtracking_evaluations == 0))
     assert common.history is not None
     assert common.history.shape[-1] == 4
-    torch.testing.assert_close(common.history[..., :3], legacy.history, equal_nan=True)
+    torch.testing.assert_close(
+        common.history[..., :3], legacy.history, equal_nan=True
+    )
 
 
 def test_unified_complexbox_matches_spectral_legacy_exactly():
@@ -123,7 +124,7 @@ def test_unified_complexbox_matches_spectral_legacy_exactly():
     _assert_common_matches_legacy(common, legacy)
 
 
-def test_unified_riemannian_matches_proxy_legacy_exactly():
+def test_unified_riemannian_matches_proxy_backend_exactly():
     system = _system()
     initial = _initial()
     options = {
@@ -131,7 +132,7 @@ def test_unified_riemannian_matches_proxy_legacy_exactly():
         "gradient_tolerance": 1e-12,
         "objective_tolerance": 1e-14,
     }
-    legacy = optimise_dynamical_dependence_proxy_riemannian(
+    backend = optimise_dynamical_dependence_proxy_riemannian(
         system,
         initial,
         max_iterations=25,
@@ -148,23 +149,23 @@ def test_unified_riemannian_matches_proxy_legacy_exactly():
         optimizer_options=options,
     )
 
-    assert isinstance(legacy, DDRiemannianSearchResult)
+    assert isinstance(backend, DDRiemannianSearchResult)
     assert common.optimizer == "riemannian_armijo"
-    _assert_common_matches_legacy(common, legacy)
-    assert torch.equal(common.objective_evaluations, legacy.objective_evaluations)
-    assert torch.equal(common.gradient_evaluations, legacy.gradient_evaluations)
+    _assert_common_matches_legacy(common, backend)
+    assert torch.equal(common.objective_evaluations, backend.objective_evaluations)
+    assert torch.equal(common.gradient_evaluations, backend.gradient_evaluations)
     assert torch.equal(
-        common.backtracking_evaluations, legacy.backtracking_evaluations
+        common.backtracking_evaluations, backend.backtracking_evaluations
     )
-    torch.testing.assert_close(common.history, legacy.history, equal_nan=True)
+    torch.testing.assert_close(common.history, backend.history, equal_nan=True)
 
 
-def test_unified_riemannian_matches_spectral_legacy_exactly():
+def test_unified_riemannian_matches_spectral_backend_exactly():
     system = _system()
     initial = _initial()
     frequencies = torch.linspace(0.0, 0.5, 33, dtype=torch.float64)
     options = {"initial_step_size": 1.0}
-    legacy = optimise_dynamical_dependence_spectral_riemannian(
+    backend = optimise_dynamical_dependence_spectral_riemannian(
         system,
         initial,
         frequencies,
@@ -180,10 +181,10 @@ def test_unified_riemannian_matches_spectral_legacy_exactly():
         max_iterations=15,
         optimizer_options=options,
     )
-    _assert_common_matches_legacy(common, legacy)
+    _assert_common_matches_legacy(common, backend)
 
 
-def test_legacy_public_return_types_remain_backend_specific():
+def test_backend_specific_return_types_remain_separate():
     system = _system()
     initial = _initial()[0]
     complexbox = optimise_dynamical_dependence_proxy(
@@ -201,19 +202,14 @@ def test_unified_api_rejects_cross_objective_parameters():
     initial = _initial()
     frequencies = torch.linspace(0.0, 0.5, 9, dtype=torch.float64)
 
-    try:
+    with pytest.raises(ValueError, match="frequencies"):
         optimise_dynamical_dependence(
             system,
             initial,
             objective="proxy",
             frequencies=frequencies,
         )
-    except ValueError as exc:
-        assert "frequencies" in str(exc)
-    else:
-        raise AssertionError("proxy objective accepted frequencies")
-
-    try:
+    with pytest.raises(ValueError, match="lags"):
         optimise_dynamical_dependence(
             system,
             initial,
@@ -221,16 +217,18 @@ def test_unified_api_rejects_cross_objective_parameters():
             lags=3,
             frequencies=frequencies,
         )
-    except ValueError as exc:
-        assert "lags" in str(exc)
-    else:
-        raise AssertionError("spectral objective accepted lags")
+    with pytest.raises(ValueError, match="frequencies is required"):
+        optimise_dynamical_dependence(
+            system,
+            initial,
+            objective="spectral",
+        )
 
 
 def test_unified_api_protects_common_arguments_from_backend_options():
     system = _system()
     initial = _initial()
-    try:
+    with pytest.raises(ValueError, match="max_iterations"):
         optimise_dynamical_dependence(
             system,
             initial,
@@ -238,7 +236,19 @@ def test_unified_api_protects_common_arguments_from_backend_options():
             max_iterations=5,
             optimizer_options={"max_iterations": 7},
         )
-    except ValueError as exc:
-        assert "max_iterations" in str(exc)
-    else:
-        raise AssertionError("optimizer_options overrode common max_iterations")
+
+
+def test_unified_api_rejects_unknown_objective_and_optimizer():
+    system = _system()
+    initial = _initial()
+    with pytest.raises(ValueError, match="objective"):
+        optimise_dynamical_dependence(
+            system, initial, objective="unknown"  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="optimizer"):
+        optimise_dynamical_dependence(
+            system,
+            initial,
+            objective="proxy",
+            optimizer="unknown",  # type: ignore[arg-type]
+        )
