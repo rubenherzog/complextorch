@@ -189,8 +189,8 @@ def test_grouped_multichannel_sources_are_supported():
     result = spectral_partial_granger_causality_decomposition(
         _iss(coefficients, torch.eye(5)), ((0, 1), (2, 3)), (4,), _grid(n=65)
     )
-    assert result.subset_gc.shape == (3, 65)
-    assert result.unique.shape == (2, 65)
+    assert result.subset_gc.shape == (1, 3, 65)
+    assert result.unique.shape == (1, 2, 65)
 
 
 def test_faes_half_open_subset_gc_converges_to_temporal_gc():
@@ -251,10 +251,10 @@ def test_batched_pdgc_matches_explicit_loop_for_all_outputs():
             "redundant", "synergistic", "delta",
         ):
             torch.testing.assert_close(
-                getattr(batched_spectral, name)[batch], getattr(single_spectral, name)
+                getattr(batched_spectral, name)[batch], getattr(single_spectral, name)[0]
             )
             torch.testing.assert_close(
-                getattr(batched_temporal, name)[batch], getattr(single_temporal, name)
+                getattr(batched_temporal, name)[batch], getattr(single_temporal, name)[0]
             )
 
 
