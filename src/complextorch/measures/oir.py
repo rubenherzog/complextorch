@@ -176,6 +176,7 @@ def _spectral_oir_logdet_terms(
     cache: dict[Group, InnovationsStateSpace] = {}
 
     def log_spectrum(indices: Group) -> torch.Tensor:
+        """Return the Hermitian log-determinant spectrum of one marginal."""
         model = _marginal_model(system, indices, cache)
         spectrum = innovations_spectral_density(
             model,
