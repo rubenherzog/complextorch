@@ -335,7 +335,7 @@ def _projected_innovation_covariances(
 
 def dynamical_dependence(
     system: StateSpaceModel | InnovationsStateSpace | VARSystem,
-    projection: torch.Tensor,
+    projection: torch.Tensor | None = None,
     *,
     base: float = np.e,
 ) -> torch.Tensor:
@@ -364,7 +364,9 @@ def dynamical_dependence(
     projection
         Linear coarse-graining ``L`` with shape ``(m, n)`` or
         ``(batch, m, n)``.  Orthonormal rows are not required; dynamical
-        dependence is invariant under nonsingular changes of macro basis.
+        dependence is invariant under nonsingular changes of macro basis.  If
+        omitted, the identity map is used for backward compatibility, for
+        which dynamical dependence is exactly zero.
     base
         Logarithm base.  The default is ``e`` (nats), matching the natural-log
         convention in ComplexBox.  Use ``base=2`` for bits.
@@ -391,6 +393,13 @@ def dynamical_dependence(
         raise ValueError("base must be finite, positive, and different from 1")
 
     innovations_system = _as_innovations_state_space(system)
+    if projection is None:
+        n_observations = innovations_system.observation.shape[-2]
+        projection = torch.eye(
+            n_observations,
+            dtype=innovations_system.observation.dtype,
+            device=innovations_system.observation.device,
+        )
     full_history_v, reduced_v, _ = _projected_innovation_covariances(
         innovations_system, projection
     )
