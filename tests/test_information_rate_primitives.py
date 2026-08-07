@@ -119,11 +119,12 @@ def test_pid_lattice_matches_two_source_formulas_and_three_source_size():
     redundancy[lattice.index(([0, 1],))] = 1.1
     redundancy[lattice.index(([0], [1]))] = 0.3
     atoms = pid_mobius_inversion(redundancy, lattice)
+    expected = lambda value: torch.tensor(value, dtype=atoms.dtype, device=atoms.device)
 
-    torch.testing.assert_close(atoms[lattice.index(([0], [1]))], torch.tensor(0.3))
-    torch.testing.assert_close(atoms[lattice.index(([0],))], torch.tensor(0.4))
-    torch.testing.assert_close(atoms[lattice.index(([1],))], torch.tensor(0.2))
-    torch.testing.assert_close(atoms[lattice.index(([0, 1],))], torch.tensor(0.2))
+    torch.testing.assert_close(atoms[lattice.index(([0], [1]))], expected(0.3))
+    torch.testing.assert_close(atoms[lattice.index(([0],))], expected(0.4))
+    torch.testing.assert_close(atoms[lattice.index(([1],))], expected(0.2))
+    torch.testing.assert_close(atoms[lattice.index(([0, 1],))], expected(0.2))
     torch.testing.assert_close(pid_redundancy_from_atoms(atoms, lattice), redundancy)
 
 
