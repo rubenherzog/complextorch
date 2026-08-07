@@ -84,11 +84,14 @@ def _batched_iss_fixture() -> InnovationsStateSpace:
 
 def _unbatch_iss(system: InnovationsStateSpace, index: int) -> InnovationsStateSpace:
     """Select one independent model from a batched ISS fixture."""
+    covariance = system.innovation_covariance
+    if covariance.ndim == 3:
+        covariance = covariance[index]
     return InnovationsStateSpace(
         system.transition[index],
         system.observation[index],
         system.gain[index],
-        system.innovation_covariance[index],
+        covariance,
     )
 
 
@@ -169,6 +172,28 @@ def test_dynamical_dependence_batches_systems_with_shared_projection():
     expected = torch.stack(
         [
             dynamical_dependence(_unbatch_iss(systems, index), projection)
+            for index in range(2)
+        ]
+    )
+    assert batched.shape == (2,)
+    torch.testing.assert_close(batched, expected, rtol=1e-9, atol=1e-11)
+
+
+def test_dynamical_dependence_preserves_mixed_component_batching():
+    """A shared innovation covariance must not collapse a batched ISS result."""
+    systems = _batched_iss_fixture()
+    shared_covariance = systems.innovation_covariance[0]
+    mixed = InnovationsStateSpace(
+        systems.transition,
+        systems.observation,
+        systems.gain,
+        shared_covariance,
+    )
+    projection = torch.tensor([[1.0, 0.35]], dtype=torch.float64)
+    batched = dynamical_dependence(mixed, projection)
+    expected = torch.stack(
+        [
+            dynamical_dependence(_unbatch_iss(mixed, index), projection)
             for index in range(2)
         ]
     )
