@@ -16,7 +16,9 @@ def test_faes_common_primitives_are_exposed_at_package_root():
     }
     assert expected <= set(complextorch.__all__)
     for name in expected:
-        assert callable(getattr(complextorch, name))
+        function = getattr(complextorch, name)
+        assert callable(function)
+        assert function.__doc__
 
 
 def test_pid_lattice_remains_private_measure_infrastructure():
