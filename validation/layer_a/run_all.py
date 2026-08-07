@@ -17,6 +17,7 @@ SCRIPTS = (
     "check_var_ss_conversions.py",
     "check_autocovariances.py",
     "check_transfer_spectra.py",
+    "check_installed_repo_triplets.py",
 )
 
 
@@ -60,6 +61,7 @@ def main() -> int:
             "execution.json",
             "synthetic_ground_truth_metadata.json",
             "layer_a_summary.json",
+            "installed_repo_triplets.json",
         }
     )
     rows = aggregate_results(result_paths, args.output)
