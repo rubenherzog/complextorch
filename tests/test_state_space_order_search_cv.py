@@ -102,7 +102,7 @@ def test_bauer_diagnostics_allow_order_below_observation_dimension():
     search._fold_diagnostics(
         {"decomposition": decomposition}, (1, 2, 3), fold_index=0
     )
-    assert np.isfinite(search.bauer_scores_[0, 0]) if hasattr(search, "bauer_scores_") else np.isfinite(search._bauer_scores[0, 0])
+    assert np.isfinite(search._bauer_scores[0, 0])
     assert search._bauer_orders[0] == 1
 
 
