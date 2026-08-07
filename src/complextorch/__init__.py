@@ -49,6 +49,10 @@ from .measures.secondary import (
     residual_whiteness,
     significance,
 )
+from .multiscale import (
+    downsample_innovations_state_space,
+    varma_to_innovations_state_space,
+)
 from .representations import (
     StateSpaceModel,
     VARSystem,
@@ -117,6 +121,7 @@ __all__ = [
     "compute_all_model_measures",
     "consistency",
     "demo_var",
+    "downsample_innovations_state_space",
     "dynamical_dependence",
     "from_complexbox_timeseries",
     "from_complexbox_var",
@@ -153,5 +158,6 @@ __all__ = [
     "to_complexbox_timeseries",
     "to_complexbox_var",
     "var_to_innovations_state_space",
+    "varma_to_innovations_state_space",
 ]
 __version__ = "0.8.0"
