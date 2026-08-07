@@ -296,6 +296,8 @@ def _projected_innovation_covariances(
         raise ValueError("projection input dimension must match observation dimension")
     if not 1 <= matrix.shape[-2] <= matrix.shape[-1]:
         raise ValueError("projection output dimension must be between 1 and n")
+    if bool(torch.any(torch.linalg.matrix_rank(matrix) < matrix.shape[-2]).item()):
+        raise ValueError("projection must have full row rank")
 
     batch = max(a.shape[0], c.shape[0], k.shape[0], v.shape[0], matrix.shape[0])
     tensors = (a, c, k, v, matrix)
@@ -407,7 +409,7 @@ def dynamical_dependence(
     return (spd_logdet(reduced_v) - spd_logdet(full_history_v)) / np.log(base_value)
 
 
-def stochastic_interaction(system: StateSpaceModel, groups, *, base: float = np.e):
+def stochastic_interaction(system: StateSpaceModel, groups, *, base: float = 2.0):
     """Return Gaussian stochastic interaction from reduced innovation volumes."""
     base_value = float(base)
     if not np.isfinite(base_value) or base_value <= 0.0 or base_value == 1.0:
