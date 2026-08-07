@@ -162,6 +162,7 @@ def _validate_armijo_parameters(
     gradient_tolerance: float,
     objective_tolerance: float,
 ) -> None:
+    """Validate scalar controls for Riemannian Armijo optimization."""
     if max_iterations < 1:
         raise ValueError("max_iterations must be at least 1")
     if initial_step_size <= 0.0:
@@ -402,6 +403,7 @@ def _restore_physical_coordinates(
     *,
     identity_coordinates: bool,
 ) -> DDRiemannianSearchResult:
+    """Map an optimizer result from whitened back to physical coordinates."""
     projection = _projection_from_whitened(
         result.projection,
         factor,
