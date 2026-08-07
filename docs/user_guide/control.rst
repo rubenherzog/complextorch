@@ -20,9 +20,10 @@ with :math:`\operatorname{Cov}(w_t)=Q` and
    P=APA^{\mathsf T}+Q
    -APC^{\mathsf T}(CPC^{\mathsf T}+R)^{-1}CPA^{\mathsf T}.
 
-``solve_dare(..., backend="scipy")`` retains SciPy's ordered-QZ solver as a
-reference implementation. ``backend="torch"`` uses a device-native batched
-structured-doubling algorithm.
+:func:`~complextorch.solve_dare` exposes both the SciPy reference backend and
+the Torch-native batched backend. ``backend="scipy"`` retains SciPy's
+ordered-QZ solver; ``backend="torch"`` uses a device-native structured-doubling
+algorithm.
 
 In equivalent control-form notation, set
 
@@ -69,8 +70,9 @@ ComplexTorch uses
    (CPC^{\mathsf T}+R)^{-1}
    (APC^{\mathsf T}+S)^{\mathsf T}.
 
-For positive-definite :math:`R`, the Torch implementation performs the exact
-noise-decorrelation transform
+:func:`~complextorch.solve_generalized_dare` implements this generalized
+filtering equation. For positive-definite :math:`R`, its Torch backend performs
+the exact noise-decorrelation transform
 
 .. math::
 
@@ -80,8 +82,8 @@ noise-decorrelation transform
 
    Q_0=Q-SR^{-1}S^{\mathsf T},
 
-then reuses the audited ordinary Torch DARE solver on
-:math:`(A_0,C,Q_0,R)`. This avoids maintaining a second Riccati iteration.
+then reuses :func:`~complextorch.solve_dare` on :math:`(A_0,C,Q_0,R)`. This
+avoids maintaining a second Riccati iteration.
 
 Steady-state innovations form
 -----------------------------
@@ -98,7 +100,10 @@ and the predictor-form gain is
 
    K=APC^{\mathsf T}V^{-1}.
 
-This yields
+:func:`~complextorch.innovations_form` converts a
+:class:`~complextorch.StateSpaceModel` to this steady-state representation,
+while :func:`~complextorch.var_to_innovations_state_space` provides the exact
+VAR bridge to :class:`~complextorch.InnovationsStateSpace`.
 
 .. math::
 
@@ -153,8 +158,15 @@ state-space covariances are
    S=K\Sigma L^{\mathsf T}.
 
 The cross covariance :math:`S` is part of the exact projected process and must
-not be discarded. The generalized DARE produces the reduced prediction
-covariance :math:`P_R`, after which
+not be discarded. :func:`~complextorch.reduce_innovations_state_space` performs
+coordinate marginalization through this canonical generalized-DARE path.
+:func:`~complextorch.project_state_space` applies an explicit linear observation
+projection to a general state-space model, while
+:func:`~complextorch.reduce_state_space` selects observation coordinates without
+silently changing latent dynamics.
+
+The generalized DARE produces the reduced prediction covariance :math:`P_R`,
+after which
 
 .. math::
 
@@ -179,19 +191,22 @@ with
 
    z=e^{2\pi i f}
 
-for normalized cycles per sample. This representation is reused by spectral
-MVGC, Gaussian information-rate spectra, O-information rate, PIRD, and spectral
-dynamical-dependence calculations.
+for normalized cycles per sample. :func:`~complextorch.innovations_transfer_function`
+evaluates this response. :func:`~complextorch.innovations_spectral_density`
+uses the same innovations model for spectral-density calculations, and
+:func:`~complextorch.integrate_spectral_rate` provides the shared integration
+path used by rate measures.
 
 Why exact marginalization matters
 ---------------------------------
 
 A marginal observation process of a finite-order VAR is generally not a VAR of
-the same finite order. ComplexTorch therefore uses innovations-state-space
-reduction plus the generalized DARE for model-derived marginal quantities
-instead of silently truncating a marginal VAR. This convention is central to
-state-space Granger causality and all rate decompositions based on exact
-marginal innovations covariances.
+the same finite order. ComplexTorch therefore uses
+:class:`~complextorch.InnovationsStateSpace` reduction plus
+:func:`~complextorch.solve_generalized_dare` for model-derived marginal
+quantities instead of silently truncating a marginal VAR. This convention is
+central to state-space Granger causality, information-rate decompositions, and
+:func:`~complextorch.dynamical_dependence`.
 
 References
 ----------

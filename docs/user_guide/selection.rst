@@ -1,9 +1,13 @@
 Model and order selection
 =========================
 
-ComplexTorch separates fixed-order fitting from model-order selection. VAR lag
-order :math:`p` and state-space latent dimension :math:`r` are different
-hyperparameters and must not be conflated.
+ComplexTorch separates fixed-order fitting from model-order selection.
+:class:`~complextorch.VAROrderSelectionIC` and
+:class:`~complextorch.VAROrderSearchCV` select VAR lag order :math:`p`, whereas
+:class:`~complextorch.StateSpaceOrderSelection` and
+:class:`~complextorch.StateSpaceOrderSearchCV` select state-space latent
+dimension :math:`r`. These are different hyperparameters and must not be
+conflated.
 
 VAR information criteria
 ------------------------
@@ -11,7 +15,8 @@ VAR information criteria
 For candidate lag :math:`p`, let :math:`\ell_p` be the maximized Gaussian
 log-likelihood contribution per effective observation, :math:`k_p` the number
 of model parameters entering the criterion, and :math:`N_p` the effective
-sample count. ComplexTorch uses the MVGC-compatible per-observation forms
+sample count. :class:`~complextorch.VAROrderSelectionIC` uses the
+MVGC-compatible per-observation forms
 
 .. math::
 
@@ -44,14 +49,19 @@ The optional Hurvich--Tsai correction multiplies the AIC penalty by
 
    \frac{N_p}{N_p-k_p-1}.
 
-Each candidate lag is fitted independently. The selection procedure therefore
-does not infer all lower orders from a single maximal-order fit.
+Each candidate lag is fitted independently with :class:`~complextorch.VAR`.
+The selection procedure therefore does not infer all lower orders from a single
+maximal-order fit. The resulting curves are summarized by
+:class:`~complextorch.VARInformationCriteriaResult`.
 
 Temporal cross-validation
 -------------------------
 
 Time-series CV uses expanding chronological windows rather than shuffled folds.
-A fold is described by a training prefix
+:class:`~complextorch.EpochTimeSeriesSplit` defines the folds consumed by
+:class:`~complextorch.VAROrderSearchCV` and
+:class:`~complextorch.StateSpaceOrderSearchCV`. A fold is described by a
+training prefix
 
 .. math::
 
@@ -102,7 +112,11 @@ The selected model is the smallest candidate satisfying
    \bar L_{q_{\min}}+\operatorname{SE}_{q_{\min}}.
 
 This intentionally favors a simpler candidate whose predictive loss is within
-one estimated standard error of the minimum.
+one estimated standard error of the minimum. VAR fold-level diagnostics are
+represented by :class:`~complextorch.VAROrderScore` and
+:class:`~complextorch.VAROrderSearchResult`; the state-space counterparts are
+:class:`~complextorch.StateSpaceOrderScore` and
+:class:`~complextorch.StateSpaceOrderSearchResult`.
 
 Prediction and gap semantics
 ----------------------------
@@ -120,14 +134,16 @@ answer different scientific validation questions and should be reported.
 State-space latent dimension
 ----------------------------
 
-``StateSpaceOrderSelection`` selects latent dimension :math:`r`, not VAR lag
-order :math:`p`. The selector uses the Larimore canonical correlations
+:class:`~complextorch.StateSpaceOrderSelection` selects latent dimension
+:math:`r`, not VAR lag order :math:`p`. The selector uses the Larimore canonical
+correlations produced by the same subspace machinery used by
+:class:`~complextorch.LarimoreStateSpace`:
 
 .. math::
 
-   \rho_1\ge\rho_2\ge\cdots\ge\rho_{r_{\max}}
+   \rho_1\ge\rho_2\ge\cdots\ge\rho_{r_{\max}}.
 
-and Bauer's singular-value criterion. For candidate dimension :math:`r`,
+For candidate dimension :math:`r`, Bauer's singular-value criterion is
 
 .. math::
 
@@ -144,7 +160,8 @@ identifiable rank is defined as zero. Selection is
    r^*=\arg\min_r\operatorname{SVC}(r).
 
 The raw canonical correlations are used in Bauer SVC. A normalized spectrum may
-be exposed for plotting but does not enter the criterion.
+be exposed for plotting but does not enter the criterion. Results are summarized
+by :class:`~complextorch.StateSpaceOrderSelectionResult`.
 
 For pooled independent trajectories,
 
@@ -157,11 +174,12 @@ where every Hankel column was built inside one trajectory.
 State-space temporal CV
 -----------------------
 
-``StateSpaceOrderSearchCV`` treats latent dimension as a temporal-validation
-hyperparameter. Each training fold computes one Larimore decomposition at the
-maximum identifiable rank; candidate dimensions truncate this shared basis and
-are evaluated only by held-out predictive loss. Bauer SVC remains a
-training-only diagnostic rather than the selection objective in this mode.
+:class:`~complextorch.StateSpaceOrderSearchCV` treats latent dimension as a
+temporal-validation hyperparameter. Each training fold computes one Larimore
+decomposition at the maximum identifiable rank; candidate dimensions truncate
+this shared basis and are evaluated only by held-out predictive loss. Bauer SVC
+remains a training-only diagnostic rather than the selection objective in this
+mode.
 
 References
 ----------
