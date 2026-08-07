@@ -44,6 +44,12 @@ from .measures.oir import (
     spectral_delta_o_information_rate,
     spectral_o_information_rate,
 )
+from .measures.pdgc import (
+    PDGCResult,
+    SpectralPDGCResult,
+    partial_granger_causality_decomposition,
+    spectral_partial_granger_causality_decomposition,
+)
 from .measures.pird import (
     PIRDResult,
     SpectralPIRDResult,
@@ -121,7 +127,9 @@ __all__ = [
     "DDOptimizationResult",
     "DDOptimizer",
     "N4SID",
+    "PDGCResult",
     "PIRDResult",
+    "SpectralPDGCResult",
     "SpectralPIRDResult",
     "VAR",
     "EpochTimeSeriesSplit",
@@ -175,6 +183,7 @@ __all__ = [
     "optimise_dynamical_dependence_proxy",
     "optimise_dynamical_dependence_spectral",
     "orthonormalise_projection",
+    "partial_granger_causality_decomposition",
     "partial_information_rate_decomposition",
     "phiid_from_model",
     "project_state_space",
@@ -197,6 +206,7 @@ __all__ = [
     "spectral_gaussian_transfer_entropy_rate",
     "spectral_mvgc",
     "spectral_o_information_rate",
+    "spectral_partial_granger_causality_decomposition",
     "spectral_partial_information_rate_decomposition",
     "stochastic_interaction",
     "temporal_mvgc",
