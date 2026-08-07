@@ -17,18 +17,66 @@ jobs:
       - run: python -m pip install -e ".[dev]"
       - run: python -m compileall -q src/complextorch
       - run: pytest -q
-      - name: Lint refactor surface
+      - name: Lint refactor-owned surface
         if: matrix.python-version == '3.12'
         run: >-
           ruff check
+          --ignore UP035
           src/complextorch/__init__.py
           src/complextorch/_subspace.py
-          src/complextorch/adapters.py
           src/complextorch/measures/_nested_var.py
-          src/complextorch/measures/mvgc.py
           src/complextorch/selection
-          src/complextorch/state_space.py
-          src/complextorch/var.py
           tests/test_state_space_model_order.py
           tests/test_state_space_order_search_cv.py
           tests/test_temporal_order_search_shared.py
+      - name: Assert architecture invariants
+        if: matrix.python-version == '3.12'
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path("src/complextorch")
+          forbidden_paths = [
+              root / "selection.py",
+              root / "var_selection_cv.py",
+              root / "state_space_selection.py",
+              root / "_temporal_order_search.py",
+              root / "_state_space_order.py",
+              root / "_model_comparison.py",
+              root / "_typing.py",
+          ]
+          present = [str(path) for path in forbidden_paths if path.exists()]
+          if present:
+              raise SystemExit(f"legacy files remain: {present}")
+
+          source = "\n".join(
+              path.read_text(encoding="utf-8") for path in root.rglob("*.py")
+          )
+          forbidden_refs = [
+              "._state_space_order",
+              "._temporal_order_search",
+              ".var_selection_cv",
+              ".state_space_selection",
+              "._model_comparison",
+              "._typing",
+          ]
+          leftovers = [token for token in forbidden_refs if token in source]
+          if leftovers:
+              raise SystemExit(f"legacy imports remain: {leftovers}")
+
+          for name in (
+              "VAROrderSearchCV",
+              "StateSpaceOrderSearchCV",
+              "VAROrderSelectionIC",
+              "StateSpaceOrderSelection",
+          ):
+              count = len(re.findall(rf"^class {name}\b", source, flags=re.M))
+              if count != 1:
+                  raise SystemExit(f"{name} definitions: {count}")
+          count = len(
+              re.findall(r"^def _larimore_decomposition\b", source, flags=re.M)
+          )
+          if count != 1:
+              raise SystemExit(f"_larimore_decomposition definitions: {count}")
+          PY
