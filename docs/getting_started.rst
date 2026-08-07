@@ -12,12 +12,19 @@ with its development dependencies::
 Minimal example
 ---------------
 
+The example below uses :func:`~complextorch.demo_var` to construct a stable
+system, :func:`~complextorch.simulate_var` to generate observations,
+:class:`~complextorch.VAR` for estimation, and
+:func:`~complextorch.temporal_mvgc` / :func:`~complextorch.spectral_mvgc` for
+Granger-causality analysis. Each linked API page includes a ``[source]`` link to
+the implementation.
+
 .. code-block:: python
 
    import torch
 
    from complextorch import VAR, demo_var, simulate_var
-   from complextorch.measures import spectral_mvgc, temporal_mvgc
+   from complextorch import spectral_mvgc, temporal_mvgc
 
    coefficients, noise = demo_var(n_variables=3, order=2)
    data = simulate_var(coefficients, noise, n_times=4000, seed=1)
@@ -42,11 +49,27 @@ Minimal example
 Batch convention
 ----------------
 
-Time-series estimators accept either ``(time, variables)`` or
-``(batch, time, variables)`` inputs where documented. Independent trajectories
-must remain separated; batching must not create lags, transitions, residual
-pairs, or validation links across trajectory boundaries.
+Time-series estimators such as :class:`~complextorch.VAR`,
+:class:`~complextorch.N4SID`, and :class:`~complextorch.LarimoreStateSpace`
+accept either ``(time, variables)`` or ``(batch, time, variables)`` inputs where
+documented. Independent trajectories must remain separated; batching must not
+create lags, transitions, residual pairs, or validation links across trajectory
+boundaries.
 
-The detailed scientific user guide, mathematical conventions, and worked
-examples are intentionally reserved for the next documentation phase. Phase 1
-establishes the build and API-reference infrastructure only.
+Dynamical-independence workflow
+-------------------------------
+
+For dynamical dependence / SSDI, :func:`~complextorch.optimise_dynamical_dependence`
+now uses the validated staged SSDI workflow by default when ``objective=None``:
+proxy-DD pre-optimization over many random restart subspaces, Grassmann
+clustering of proxy minima, and spectral-DD refinement of cluster
+representatives. The result is a :class:`~complextorch.DDSSDIOptimizationResult`.
+Explicit ``objective="proxy"`` or ``objective="spectral"`` requests retain the
+single-stage research API and return :class:`~complextorch.DDOptimizationResult`.
+
+Next steps
+----------
+
+Continue with the :doc:`user_guide/index` for mathematical and scientific
+conventions, the :doc:`auto_examples/index` for executable examples, and the
+:doc:`api` for the complete linked public API.
