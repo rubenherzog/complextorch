@@ -1,4 +1,4 @@
-"""Simulation and random generation for stationary Gaussian VAR systems.
+r"""Simulation and random generation for stationary Gaussian VAR systems.
 
 Trajectories obey
 
@@ -82,13 +82,30 @@ def _normalise_covariance(covariance, batch, n):
 
 
 def automatic_burnin(coefficients, *, epsilon: float | None = None) -> int:
-    """Choose burn-in length from the companion spectral radius.
-    
-    The smallest integer :math:`T` satisfying :math:`\rho^T<\epsilon` is returned.
-    
+    r"""Choose burn-in length from the companion spectral radius.
+
+    The returned value is the smallest integer :math:`T` satisfying
+    :math:`\rho^T < \epsilon`, where :math:`\rho` is the largest companion
+    spectral radius in the supplied batch.
+
+    Parameters
+    ----------
+    coefficients
+        VAR coefficient tensor with shape ``(p, n, n)`` or
+        ``(batch, p, n, n)``.
+    epsilon
+        Positive decay tolerance. If omitted, the machine epsilon of the
+        coefficient dtype is used.
+
+    Returns
+    -------
+    int
+        Burn-in length shared by the supplied systems.
+
     References
     ----------
-    - ComplexBox simulation convention; Lütkepohl (2005).
+    - Lütkepohl, H. (2005). *New Introduction to Multiple Time Series Analysis*.
+    - ComplexBox simulation convention.
     """
     coef = _normalise_coefficients(coefficients)
     rho = float(spectral_radius(companion_matrix(coef)).max())
@@ -109,41 +126,49 @@ def simulate_var(
     seed: int = 0,
     return_innovations: bool = False,
 ):
-    """Simulate one or more Gaussian VAR trajectories.
-                        
-                        References
-                        ----------
-                        Lütkepohl (2005); ComplexBox repository.
-                    
-                    Simulate one or more Gaussian VAR trajectories.
-                    
-                    References
-                    ----------
-                    Lütkepohl (2005); ComplexBox repository.
-                
-                Simulate one or more Gaussian VAR trajectories.
-                
-                References
-                ----------
-                Lütkepohl (2005); ComplexBox repository.
-            
-            Simulate one or more Gaussian VAR trajectories.
-            
-            References
-            ----------
-            Lütkepohl (2005); ComplexBox repository.
-        
-        Simulate one or more Gaussian VAR trajectories.
-        
-        References
-        ----------
-        Lütkepohl (2005); ComplexBox repository.
-    
-    Simulate one or more Gaussian VAR trajectories.
-    
+    r"""Simulate one or more stationary Gaussian VAR trajectories.
+
+    Samples follow
+
+    .. math::
+
+       x_t = \sum_{k=1}^{p} A_k x_{t-k} + \varepsilon_t,
+       \qquad
+       \varepsilon_t \sim \mathcal N(0,\Sigma).
+
+    Parameters
+    ----------
+    coefficients
+        Stable VAR coefficients with shape ``(p, n, n)`` or
+        ``(batch, p, n, n)``.
+    innovation_covariance
+        Positive-definite innovations covariance with shape ``(n, n)`` or
+        ``(batch, n, n)``.
+    n_times
+        Number of retained samples per trajectory.
+    burnin
+        Non-negative number of discarded initial samples, or ``"auto"`` to use
+        :func:`automatic_burnin`.
+    seed
+        Seed for the local Torch random generator.
+    return_innovations
+        If true, also return the retained innovation sequence.
+
+    Returns
+    -------
+    torch.Tensor or tuple[torch.Tensor, torch.Tensor]
+        Simulated observations with shape ``(batch, n_times, n)`` and,
+        optionally, innovations with the same shape.
+
+    Notes
+    -----
+    Every batch item is simulated as an independent trajectory. No state or lag
+    is propagated across batch boundaries.
+
     References
     ----------
-    Lütkepohl (2005); ComplexBox repository.
+    - Lütkepohl, H. (2005). *New Introduction to Multiple Time Series Analysis*.
+    - ComplexBox simulation convention.
     """
     # Generate samples from x_t = sum_k A_k x_(t-k) + epsilon_t.
     coef = _normalise_coefficients(coefficients)
@@ -266,41 +291,40 @@ def random_positive_definite_covariance(
 
 
 def random_stable_var(batch:int,n_variables:int,order:int,*,spectral_radius_target:float=.85,noise_scale:float=1.,seed:int=0,dtype=torch.float64,device='cpu'):
-    """Generate random VAR coefficients scaled to a target spectral radius.
-                        
-                        References
-                        ----------
-                        Lütkepohl (2005); ComplexBox repository.
-                    
-                    Generate random VAR coefficients scaled to a target spectral radius.
-                    
-                    References
-                    ----------
-                    Lütkepohl (2005); ComplexBox repository.
-                
-                Generate random VAR coefficients scaled to a target spectral radius.
-                
-                References
-                ----------
-                Lütkepohl (2005); ComplexBox repository.
-            
-            Generate random VAR coefficients scaled to a target spectral radius.
-            
-            References
-            ----------
-            Lütkepohl (2005); ComplexBox repository.
-        
-        Generate random VAR coefficients scaled to a target spectral radius.
-        
-        References
-        ----------
-        Lütkepohl (2005); ComplexBox repository.
-    
-    Generate random VAR coefficients scaled to a target spectral radius.
-    
+    r"""Generate random stable VAR coefficients and innovation covariance.
+
+    Random coefficient tensors are scaled until their companion spectral radius
+    does not exceed ``spectral_radius_target``.
+
+    Parameters
+    ----------
+    batch
+        Number of independent VAR systems to generate.
+    n_variables
+        Number of observed variables.
+    order
+        Positive VAR lag order.
+    spectral_radius_target
+        Target companion spectral radius in ``(0, 1)``.
+    noise_scale
+        Positive scalar multiplying the identity innovations covariance.
+    seed
+        Seed for the local Torch random generator.
+    dtype
+        Floating-point Torch dtype.
+    device
+        Torch device.
+
+    Returns
+    -------
+    tuple[torch.Tensor, torch.Tensor]
+        Coefficients with shape ``(batch, order, n_variables, n_variables)``
+        and innovation covariances with shape ``(batch, n_variables, n_variables)``.
+
     References
     ----------
-    Lütkepohl (2005); ComplexBox repository.
+    - Lütkepohl, H. (2005). *New Introduction to Multiple Time Series Analysis*.
+    - ComplexBox simulation convention.
     """
     # Rescale the coefficient companion matrix so its spectral radius is below one and the VAR is stationary.
     if not 0<spectral_radius_target<1: raise ValueError('spectral_radius_target must lie in (0,1)')
