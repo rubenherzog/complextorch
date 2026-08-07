@@ -1,4 +1,3 @@
-import numpy as np
 import pytest
 import torch
 from scipy.linalg import solve_discrete_are
