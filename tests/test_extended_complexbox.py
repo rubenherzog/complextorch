@@ -25,7 +25,8 @@ def test_control_kalman_n4sid_em():
     assert torch.linalg.eigvalsh(solve_dare(system.transition,system.observation,system.process_covariance,system.observation_covariance)).min()>0
     assert innovations_form(system).covariance.shape==(2,2)
     assert reduce_state_space(system,[0]).observation.shape==(1,2)
-    assert torch.isfinite(dynamical_dependence(system)) and torch.isfinite(stochastic_interaction(system,[[0],[1]]))
+    projection=torch.eye(2,dtype=system.observation.dtype,device=system.observation.device)
+    assert torch.isfinite(dynamical_dependence(system,projection)) and torch.isfinite(stochastic_interaction(system,[[0],[1]]))
     assert kalman_filter(y,system).filtered_mean.shape==(400,2)
     assert kalman_smoother(y,system).smoothed_mean.shape==(400,2)
     assert N4SID(2,8).fit(y).system_.transition.shape==(2,2)
