@@ -20,6 +20,7 @@ References
 """
 from __future__ import annotations
 from dataclasses import dataclass
+from typing import Literal
 import numpy as np
 import torch
 from scipy.linalg import solve_discrete_are
@@ -61,24 +62,208 @@ def _validate_log_base(base: float) -> float:
     return value
 
 
-def solve_dare(transition, observation, process_covariance, observation_covariance):
-    """Solve the steady-state discrete algebraic Riccati equation.
-    
+def _broadcast_dare_inputs(
+    transition,
+    observation,
+    process_covariance,
+    observation_covariance,
+):
+    """Normalize DARE inputs to one compatible leading batch dimension."""
+    a, a_single = _batched(transition, 3)
+    c, c_single = _batched(observation, 3)
+    q, q_single = _batched(process_covariance, 3)
+    r, r_single = _batched(observation_covariance, 3)
+    batch = max(a.shape[0], c.shape[0], q.shape[0], r.shape[0])
+    tensors = (a, c, q, r)
+    if any(x.shape[0] not in (1, batch) for x in tensors):
+        raise ValueError("incompatible DARE batch dimensions")
+    broadcast = tuple(
+        x.expand(batch, *x.shape[1:]) if x.shape[0] == 1 else x
+        for x in tensors
+    )
+    single = a_single and c_single and q_single and r_single
+    return (*broadcast, single)
+
+
+def _solve_dare_scipy(a, c, q, r):
+    """Reference DARE backend using SciPy's ordered-QZ implementation."""
+    out = []
+    for ai, ci, qi, ri in zip(
+        *[x.detach().cpu().numpy() for x in (a, c, q, r)], strict=True
+    ):
+        # SciPy uses the control-form convention
+        # A' X A - X - A' X B (R+B'XB)^-1 B' X A + Q = 0.
+        # The filtering DARE is obtained with A_scipy=A' and B_scipy=C'.
+        out.append(
+            torch.as_tensor(
+                solve_discrete_are(ai.T, ci.T, qi, ri),
+                dtype=a.dtype,
+                device=a.device,
+            )
+        )
+    return symmetrise(torch.stack(out))
+
+
+def _solve_dare_torch(a, c, q, r, *, rtol, atol, max_iter):
+    r"""Solve the filtering DARE with a batched structured doubling algorithm.
+
+    Writing the equivalent control-form DARE with
+    :math:`A_c=A^\top`, :math:`B_c=C^\top`, define
+
+    .. math::
+
+       G_0=B_cR^{-1}B_c^\top,\qquad H_0=Q,\qquad A_0=A_c.
+
+    The structured doubling iteration is
+
+    .. math::
+
+       A_{k+1} &= A_k(I+G_kH_k)^{-1}A_k,\\
+       G_{k+1} &= G_k+A_kG_k(I+H_kG_k)^{-1}A_k^\top,\\
+       H_{k+1} &= H_k+A_k^\top H_k(I+G_kH_k)^{-1}A_k,
+
+    and :math:`H_k` converges quadratically to the stabilizing DARE solution
+    under the standard stabilizability/detectability assumptions.
+    """
+    if max_iter < 1:
+        raise ValueError("max_iter must be positive")
+    if rtol < 0 or atol < 0:
+        raise ValueError("rtol and atol must be non-negative")
+
+    # SDA is substantially less forgiving in native float32 on ill-conditioned
+    # systems. Use float64 working precision on the same device, then cast back
+    # to preserve the public dtype while remaining entirely within Torch.
+    public_dtype = a.dtype
+    work_dtype = torch.float64 if public_dtype == torch.float32 else public_dtype
+    a_work, c_work, q_work, r_work = [
+        tensor.to(dtype=work_dtype) for tensor in (a, c, q, r)
+    ]
+
+    # R is an observation covariance and must be SPD. Cholesky provides both
+    # the required validation and R^-1 C without forming an explicit inverse.
+    r_chol = torch.linalg.cholesky(symmetrise(r_work))
+    g = symmetrise(
+        c_work.transpose(-1, -2) @ torch.cholesky_solve(c_work, r_chol)
+    )
+    h = symmetrise(q_work)
+    a_k = a_work.transpose(-1, -2)
+
+    n_states = a_work.shape[-1]
+    identity = torch.eye(
+        n_states, dtype=work_dtype, device=a_work.device
+    ).expand(a_work.shape[0], n_states, n_states)
+
+    for _ in range(max_iter):
+        # I+GH and I+HG are generally not symmetric; use direct linear solves.
+        i_plus_gh = identity + g @ h
+        i_plus_hg = identity + h @ g
+        solved_a = torch.linalg.solve(i_plus_gh, a_k)
+        solved_at = torch.linalg.solve(i_plus_hg, a_k.transpose(-1, -2))
+
+        a_next = a_k @ solved_a
+        g_next = symmetrise(g + a_k @ g @ solved_at)
+        h_next = symmetrise(
+            h + a_k.transpose(-1, -2) @ h @ solved_a
+        )
+
+        difference = torch.linalg.matrix_norm(
+            h_next - h, ord="fro", dim=(-2, -1)
+        )
+        scale = torch.linalg.matrix_norm(
+            h_next, ord="fro", dim=(-2, -1)
+        ).clamp_min(1.0)
+        if bool(torch.all(difference <= atol + rtol * scale)):
+            return h_next.to(dtype=public_dtype)
+        a_k, g, h = a_next, g_next, h_next
+
+    raise RuntimeError("Torch DARE structured doubling algorithm did not converge")
+
+
+def solve_dare(
+    transition,
+    observation,
+    process_covariance,
+    observation_covariance,
+    *,
+    backend: Literal["scipy", "torch"] = "scipy",
+    rtol: float | None = None,
+    atol: float | None = None,
+    max_iter: int = 100,
+):
+    r"""Solve the steady-state discrete algebraic Riccati equation.
+
+    ComplexTorch uses the filtering convention
+
+    .. math::
+
+       P=APA^\top+Q
+       -APC^\top(CPC^\top+R)^{-1}CPA^\top.
+
+    Parameters
+    ----------
+    transition
+        State transition ``A`` with shape ``(r,r)`` or ``(batch,r,r)``.
+    observation
+        Observation matrix ``C`` with shape ``(n,r)`` or ``(batch,n,r)``.
+    process_covariance
+        Process covariance ``Q`` with shape ``(r,r)`` or ``(batch,r,r)``.
+    observation_covariance
+        Observation covariance ``R`` with shape ``(n,n)`` or
+        ``(batch,n,n)``.
+    backend
+        ``"scipy"`` retains SciPy ``solve_discrete_are`` as the reference
+        implementation. ``"torch"`` uses a device-native batched structured
+        doubling algorithm without conversion to NumPy.
+    rtol, atol
+        Convergence tolerances for the Torch backend. Defaults are
+        ``1e-10``/``1e-12`` for float64 and ``1e-8``/``1e-10`` in the float64
+        working precision used for float32 inputs. They are ignored by SciPy.
+    max_iter
+        Maximum structured-doubling iterations for the Torch backend.
+
+    Returns
+    -------
+    torch.Tensor
+        Stabilizing prediction covariance with shape ``(r,r)`` for entirely
+        unbatched inputs or ``(batch,r,r)`` after batch broadcasting.
+
+    Notes
+    -----
+    The SciPy backend is intentionally retained as a numerical oracle. The
+    Torch backend is not differentiated through in this implementation; its
+    purpose here is device-native batched forward evaluation and parity.
+
     References
     ----------
     - Anderson and Moore (1979), *Optimal Filtering*.
+    - van Dooren (1981), generalized eigenvalue approach to Riccati equations.
+    - Laub (1979), Schur method for algebraic Riccati equations.
     """
-    # Iterate the steady-state Kalman covariance recursion until the Riccati fixed point is reached.
-    a, single = _batched(transition, 3)
-    c, _ = _batched(observation, 3)
-    q, _ = _batched(process_covariance, 3)
-    r, _ = _batched(observation_covariance, 3)
-    batch = max(a.shape[0], c.shape[0], q.shape[0], r.shape[0])
-    tensors = [x.expand(batch, *x.shape[1:]) if x.shape[0] == 1 else x for x in (a, c, q, r)]
-    out = []
-    for ai, ci, qi, ri in zip(*[x.detach().cpu().numpy() for x in tensors], strict=True):
-        out.append(torch.as_tensor(solve_discrete_are(ai.T, ci.T, qi, ri), dtype=a.dtype, device=a.device))
-    result = symmetrise(torch.stack(out))
+    if backend not in {"scipy", "torch"}:
+        raise ValueError("backend must be 'scipy' or 'torch'")
+
+    a, c, q, r, single = _broadcast_dare_inputs(
+        transition, observation, process_covariance, observation_covariance
+    )
+    if backend == "scipy":
+        result = _solve_dare_scipy(a, c, q, r)
+    else:
+        if not a.is_floating_point():
+            raise TypeError("Torch DARE inputs must use a floating-point dtype")
+        dtypes = {tensor.dtype for tensor in (a, c, q, r)}
+        if len(dtypes) != 1:
+            raise ValueError("Torch DARE inputs must use the same dtype")
+        default_rtol = 1e-8 if a.dtype == torch.float32 else 1e-10
+        default_atol = 1e-10 if a.dtype == torch.float32 else 1e-12
+        result = _solve_dare_torch(
+            a,
+            c,
+            q,
+            r,
+            rtol=default_rtol if rtol is None else float(rtol),
+            atol=default_atol if atol is None else float(atol),
+            max_iter=int(max_iter),
+        )
     return result[0] if single else result
 
 
