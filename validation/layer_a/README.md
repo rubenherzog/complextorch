@@ -26,3 +26,11 @@ Current scripts:
 - `check_var_ss_conversions.py`: VAR companion and innovations representations plus general SSM-to-innovations conversion.
 - `check_autocovariances.py`: VAR and SSM autocovariances, Yule-Walker recursion, representation invariance, and block-Toeplitz positivity.
 - `check_transfer_spectra.py`: VAR/SS transfer functions, inverse transfer identity, cross-spectral density, Hermitian/PSD structure, and Wiener-Khinchin recovery of lag-zero covariance.
+
+## MVGC conditional semantics
+
+For MVGC parity, ComplexTorch follows the ComplexBox/MVGC default: when
+`conditional=None`, all variables not listed in `target` or `source` are used as
+the conditioning set. Passing `conditional=()` explicitly requests the different
+unconditioned marginal source-to-target question. The installed-repository
+triplet script checks both temporal and spectral defaults against ComplexBox.
