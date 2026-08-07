@@ -15,12 +15,23 @@ extensions = [
     "sphinx.ext.mathjax",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
+    "sphinx_gallery.gen_gallery",
 ]
 
 autosummary_generate = True
 autodoc_typehints = "description"
 napoleon_google_docstring = False
 napoleon_numpy_docstring = True
+
+sphinx_gallery_conf = {
+    "examples_dirs": "../examples",
+    "gallery_dirs": "auto_examples",
+    "filename_pattern": r"/plot_",
+    "abort_on_example_error": True,
+    "download_all_examples": False,
+    "remove_config_comments": True,
+    "show_memory": False,
+}
 
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
