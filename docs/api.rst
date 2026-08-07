@@ -95,6 +95,7 @@ Measures
    ~complextorch.HOPResult
    ~complextorch.SpectralHOPResult
    ~complextorch.phiid_from_model
+   ~complextorch.phiid_redundancy_from_model
    ~complextorch.compute_all_model_measures
    ~complextorch.residual_whiteness
 
