@@ -146,6 +146,8 @@ def _bauer_svc(
         raise ValueError("n_effective must be finite and greater than one")
 
     orders = torch.arange(lower, r_max + 1, device=rho.device)
+    # Append the theoretical zero omitted correlation for the full-rank model;
+    # indexing at candidate r then retrieves rho_{r+1} in one-based notation.
     padded = torch.cat((rho.clamp(0.0, 1.0), torch.zeros_like(rho[..., :1])), -1)
     omitted = padded.index_select(-1, orders)
 
@@ -165,7 +167,25 @@ def _bauer_svc(
 
 @dataclass(frozen=True)
 class _StateSpaceOrderComputation:
-    """Result of Larimore CVA followed by Bauer SVC."""
+    """Result of Larimore CVA followed by Bauer SVC.
+
+    Attributes
+    ----------
+    best_order
+        Selected state dimension. Scalar for pooled mode and one value per
+        trajectory for independent mode.
+    candidate_orders
+        Candidate dimensions corresponding to the final criterion axis.
+    criterion
+        Bauer SVC values.
+    canonical_correlations
+        Unnormalised canonical correlations from the whitened past/future
+        cross-covariance.
+    normalized_canonical_correlations
+        Correlations divided by the leading value for plotting only.
+    n_effective
+        Number of Hankel columns entering each estimate.
+    """
 
     best_order: torch.Tensor
     candidate_orders: torch.Tensor
@@ -187,6 +207,8 @@ def _block_hankel(
         size=past_horizon + future_horizon,
         step=1,
     )
+    # ``unfold`` produces (batch, columns, variables, window). Reverse only the
+    # past block so its first row is y_{t-1}, matching Larimore/MVGC notation.
     past = (
         window[..., :past_horizon]
         .flip(-1)
@@ -207,16 +229,42 @@ def _canonical_correlations(
     *,
     ridge: float,
 ) -> torch.Tensor:
-    """Compute CCA singular values using Cholesky whitening."""
+    r"""Compute CCA singular values using Cholesky whitening.
+
+    The whitened cross-covariance is
+
+    .. math::
+
+       M=L_f^{-1}\Sigma_{fp}L_p^{-\top},
+
+    where :math:`L_pL_p^\top=\Sigma_{pp}` and
+    :math:`L_fL_f^\top=\Sigma_{ff}`. Its singular values are the canonical
+    correlations.
+    """
 
     n_effective = past.shape[-1]
     covariance_past = past @ past.transpose(-1, -2) / n_effective
     covariance_future = future @ future.transpose(-1, -2) / n_effective
     cross_covariance = past @ future.transpose(-1, -2) / n_effective
-    identity_past = torch.eye(covariance_past.shape[-1], dtype=past.dtype, device=past.device)
-    identity_future = torch.eye(covariance_future.shape[-1], dtype=future.dtype, device=future.device)
-    cholesky_past = torch.linalg.cholesky(covariance_past + ridge * identity_past)
-    cholesky_future = torch.linalg.cholesky(covariance_future + ridge * identity_future)
+
+    identity_past = torch.eye(
+        covariance_past.shape[-1],
+        dtype=past.dtype,
+        device=past.device,
+    )
+    identity_future = torch.eye(
+        covariance_future.shape[-1],
+        dtype=future.dtype,
+        device=future.device,
+    )
+    # Ridge regularization is restricted to the whitening covariances; it does
+    # not alter the cross-covariance or the subsequent Bauer criterion.
+    cholesky_past = torch.linalg.cholesky(
+        covariance_past + ridge * identity_past
+    )
+    cholesky_future = torch.linalg.cholesky(
+        covariance_future + ridge * identity_future
+    )
     left_whitened = torch.linalg.solve_triangular(
         cholesky_future,
         cross_covariance.transpose(-1, -2),
@@ -241,7 +289,38 @@ def _larimore_state_space_order(
     device: str | torch.device = "auto",
     dtype: str | torch.dtype = "float64",
 ) -> _StateSpaceOrderComputation:
-    """Estimate full state-space order by Larimore CVA and Bauer SVC."""
+    r"""Estimate full state-space order by Larimore CVA and Bauer SVC.
+
+    Parameters
+    ----------
+    observations
+        Time series in ``(time, variables)`` or ComplexTorch batch-first
+        ``(batch, time, variables)`` layout.
+    past_horizon, future_horizon
+        Numbers of block rows in the past and future Hankel matrices. The
+        future horizon defaults to the past horizon.
+    min_order
+        Smallest candidate state dimension. Defaults to one, consistent with
+        Larimore/Bauer system order being independent of observation dimension.
+    mode
+        ``"pooled"`` concatenates Hankel columns across trajectories, matching
+        ComplexBox trials. ``"independent"`` computes one order per batch.
+    ridge
+        Non-negative diagonal regularizer used only for Cholesky whitening.
+    device, dtype
+        Torch execution device and floating-point dtype.
+
+    Returns
+    -------
+    _StateSpaceOrderComputation
+        Canonical correlations, SVC curve and selected state order.
+
+    References
+    ----------
+    - Larimore (1990, 1996), canonical variate state construction.
+    - Bauer (2001), singular-value model-order estimation.
+    - ComplexBox ``mvgc.modelorder.tsdata_to_ssmo``.
+    """
 
     if past_horizon < 1:
         raise ValueError("past_horizon must be positive")
@@ -253,11 +332,16 @@ def _larimore_state_space_order(
     if mode not in {"pooled", "independent"}:
         raise ValueError("mode must be 'pooled' or 'independent'")
 
-    values, _ = _normalise_observations(observations, device=device, dtype=dtype)
+    values, _ = _normalise_observations(
+        observations, device=device, dtype=dtype
+    )
     n_batch, n_times, n_variables = values.shape
     if past_horizon + future > n_times:
         raise ValueError("past/future horizons are too large for the series")
 
+    # Demean each trajectory independently before pooling. This preserves the
+    # ComplexTorch independent-trajectory contract; ComplexBox instead removes
+    # one global mean across concatenated trials.
     values = values - values.mean(dim=1, keepdim=True)
     past, future_blocks = _block_hankel(values, past_horizon, future)
     columns_per_trajectory = past.shape[-1]
@@ -282,7 +366,9 @@ def _larimore_state_space_order(
             dtype=values.dtype,
         )
 
-    correlations = _canonical_correlations(past, future_blocks, ridge=ridge)
+    correlations = _canonical_correlations(
+        past, future_blocks, ridge=ridge
+    )
     r_max = correlations.shape[-1]
     lower = 1 if min_order is None else int(min_order)
     best_order, criterion = _bauer_svc(
@@ -291,10 +377,16 @@ def _larimore_state_space_order(
         n_effective=n_effective,
         min_order=lower,
     )
-    candidate_orders = torch.arange(lower, r_max + 1, device=values.device)
+    candidate_orders = torch.arange(
+        lower, r_max + 1, device=values.device
+    )
 
     leading = correlations[..., :1]
-    normalized = torch.where(leading > 0, correlations / leading, correlations)
+    normalized = torch.where(
+        leading > 0,
+        correlations / leading,
+        correlations,
+    )
     if mode == "pooled":
         best_order = best_order.squeeze(0)
         criterion = criterion.squeeze(0)
