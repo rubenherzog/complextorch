@@ -175,7 +175,7 @@ def var_to_innovations_state_space(system: VARSystem) -> InnovationsStateSpace:
 
 
 def reduce_innovations_state_space(system: InnovationsStateSpace, indices) -> InnovationsStateSpace:
-    """Obtain an exact marginal innovations model via generalized DARE.""
+    """Obtain an exact marginal innovations model via generalized DARE."""
     # Marginalize unobserved channels by solving the reduced innovations problem rather than deleting covariance blocks naively.
     index = torch.as_tensor(tuple(indices), dtype=torch.long, device=system.observation.device)
     a, single = _batched(system.transition, 3)
