@@ -379,20 +379,20 @@ def dynamical_dependence(
     reduced = _project_innovations_state_space(innovations_system, projection)
 
     matrix = torch.as_tensor(projection, dtype=innovations_system.observation.dtype, device=innovations_system.observation.device)
-    projection_single = matrix.ndim == 2
-    if projection_single:
+    if matrix.ndim == 2:
         matrix = matrix.unsqueeze(0)
-    v, v_single = _batched(innovations_system.innovation_covariance, 3)
+    v, _ = _batched(innovations_system.innovation_covariance, 3)
     batch = max(v.shape[0], matrix.shape[0])
     if any(x.shape[0] not in (1, batch) for x in (v, matrix)):
         raise ValueError("incompatible batch dimensions")
     v, matrix = [x.expand(batch, *x.shape[1:]) if x.shape[0] == 1 else x for x in (v, matrix)]
     full_history_v = symmetrise(matrix @ v @ matrix.transpose(-1, -2))
     reduced_v = reduced.innovation_covariance
-    if reduced_v.ndim == 2:
+    reduced_single = reduced_v.ndim == 2
+    if reduced_single:
         reduced_v = reduced_v.unsqueeze(0)
     value = (spd_logdet(reduced_v) - spd_logdet(full_history_v)) / np.log(base_value)
-    return value[0] if v_single and projection_single else value
+    return value[0] if reduced_single else value
 
 
 def stochastic_interaction(system: StateSpaceModel, groups, *, base: float = 2.0):
