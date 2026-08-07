@@ -21,6 +21,7 @@ from .primary import (
     required_autocovariance_max_lag,
     stationary_observation_covariance,
 )
+from .phid_primary import phiid_redundancy_from_model
 from .mvgc_api import spectral_mvgc, temporal_mvgc
 from .secondary import (
     estimate_spectral_mvgc_from_observations,
@@ -33,7 +34,7 @@ from .cmem import CMemResult, cmem1_curve, cmem1_total, cmem3_curve, cmem3_lag_d
 from .criticality import covariance_amplification, dominant_timescale, stability_margin
 from .mvgc import state_space_temporal_mvgc, state_space_spectral_mvgc, integrate_spectral_mvgc, pairwise_spectral_gc
 from .discrete import discrete_entropy, discrete_mutual_information, discrete_total_correlation, lempel_ziv_complexity
-from .phid import gaussian_phiid_mmi, gaussian_phiid_atoms
+from .phid import PhiIDRedundancy, gaussian_phiid_mmi, gaussian_phiid_atoms
 from .planner import DynamicalMeasures
 from .registry import MEASURE_REGISTRY, PRIMARY_MEASURES, SECONDARY_MEASURES
 __all__ = [name for name in globals() if not name.startswith("_")]
