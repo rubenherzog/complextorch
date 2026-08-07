@@ -2,8 +2,9 @@ Analytical measures
 ===================
 
 ComplexTorch distinguishes model-derived analytical measures from observation
-estimators. The model-derived layer consumes a supplied ``VARSystem``,
-``StateSpaceModel``, or ``InnovationsStateSpace`` and does not silently refit
+estimators. The model-derived layer consumes a supplied
+:class:`~complextorch.VARSystem`, :class:`~complextorch.StateSpaceModel`, or
+:class:`~complextorch.InnovationsStateSpace` and does not silently refit
 observations.
 
 Gaussian entropy and mutual information
@@ -52,13 +53,16 @@ and dual total correlation is
 
 where :math:`X_{-i}` denotes all variables except :math:`X_i`.
 
-ComplexTorch defines O-information as
+The covariance-level implementations are
+:func:`~complextorch.measures.total_correlation` and
+:func:`~complextorch.measures.dual_total_correlation`. ComplexTorch defines
+O-information through :func:`~complextorch.measures.o_information` as
 
 .. math::
 
    \Omega(X)=\mathrm{TC}(X)-\mathrm{DTC}(X),
 
-and S-information as
+and S-information through :func:`~complextorch.measures.s_information` as
 
 .. math::
 
@@ -95,6 +99,11 @@ and
    S(f)=\frac1{f_s}H(f)\Sigma H(f)^*.
 
 Here :math:`f_s` is sampling frequency and ``*`` denotes conjugate transpose.
+The public dynamics layer includes :func:`~complextorch.measures.entropy_rate`,
+:func:`~complextorch.measures.predictive_information`,
+:func:`~complextorch.measures.active_information_storage`,
+:func:`~complextorch.measures.transfer_function`, and
+:func:`~complextorch.measures.cross_spectral_density`.
 
 The Gaussian entropy rate of an innovations process with covariance :math:`V`
 is
@@ -122,7 +131,8 @@ Multivariate Granger causality
 ------------------------------
 
 Partition variables into target :math:`X`, source :math:`Y`, and conditioning
-set :math:`Z`. Time-domain conditional MVGC is
+set :math:`Z`. :func:`~complextorch.temporal_mvgc` evaluates time-domain
+conditional MVGC,
 
 .. math::
 
@@ -140,7 +150,7 @@ The innovations transfer function is
 
    H(z)=I+C(zI-A)^{-1}K.
 
-ComplexTorch's state-space conditional spectral GC follows the Geweke/MVGC
+:func:`~complextorch.spectral_mvgc` follows the Geweke/MVGC state-space
 construction and produces :math:`f_{Y\to X\mid Z}(\nu)`. On normalized
 one-sided frequency :math:`\nu\in[0,1/2]`,
 
@@ -159,15 +169,16 @@ Gaussian information rates
 --------------------------
 
 For stationary Gaussian blocks :math:`X,Y`, let :math:`V_X`, :math:`V_Y`, and
-:math:`V_{XY}` be exact marginal/joint innovations covariances. Their mutual
-information rate is
+:math:`V_{XY}` be exact marginal/joint innovations covariances.
+:func:`~complextorch.gaussian_mutual_information_rate` evaluates
 
 .. math::
 
    \dot I(X;Y)
    =\frac12\log_b\frac{|V_X||V_Y|}{|V_{XY}|}.
 
-The corresponding spectral density is
+The corresponding spectral density from
+:func:`~complextorch.spectral_gaussian_mutual_information_rate` is
 
 .. math::
 
@@ -175,7 +186,8 @@ The corresponding spectral density is
    =\frac12\log_b
    \frac{|S_X(f)||S_Y(f)|}{|S_{XY}(f)|}.
 
-For source :math:`S` and target :math:`T`, Gaussian transfer-entropy rate is
+For source :math:`S` and target :math:`T`,
+:func:`~complextorch.gaussian_transfer_entropy_rate` evaluates
 
 .. math::
 
@@ -196,7 +208,7 @@ For a joint innovations covariance
 
    V=\begin{pmatrix}V_{XX}&V_{XY}\\V_{YX}&V_{YY}\end{pmatrix},
 
-the instantaneous information-rate contribution is
+:func:`~complextorch.gaussian_instantaneous_information_rate` evaluates
 
 .. math::
 
@@ -208,7 +220,7 @@ O-information rate
 
 The O-information rate (OIR) extends static O-information from random variables
 to stationary random processes. For :math:`N` process groups
-:math:`X_1,\ldots,X_N`, ComplexTorch implements
+:math:`X_1,\ldots,X_N`, :func:`~complextorch.o_information_rate` implements
 
 .. math::
 
@@ -236,7 +248,8 @@ Channels not listed in ``groups`` are marginalized out exactly through the
 canonical innovations reduction. With two groups, OIR is identically zero.
 Positive OIR is redundancy-dominated and negative OIR synergy-dominated.
 
-The frequency-resolved OIR uses exact marginal spectral-density matrices:
+:func:`~complextorch.spectral_o_information_rate` uses exact marginal
+spectral-density matrices:
 
 .. math::
 
@@ -253,7 +266,8 @@ quadrature error.
 O-information gradient / delta O-information rate
 -------------------------------------------------
 
-For selected group :math:`j`, ComplexTorch implements Faes et al.'s rate form
+For selected group :math:`j`, :func:`~complextorch.delta_o_information_rate`
+implements Faes et al.'s rate form
 
 .. math::
 
@@ -270,16 +284,18 @@ This is exactly
    -\dot\Omega(X_1,\ldots,X_{j-1},X_{j+1},\ldots,X_N).
 
 The temporal implementation is built from the independently validated Gaussian
-MIR primitive rather than by subtracting two OIR evaluations. The spectral
-version uses the spectral MIR primitive analogously, providing an independent
-path for the defining identity.
+MIR primitive rather than by subtracting two OIR evaluations.
+:func:`~complextorch.spectral_delta_o_information_rate` uses the spectral MIR
+primitive analogously, providing an independent path for the defining identity.
 
 Partial information rate decomposition (PIRD)
 ---------------------------------------------
 
-ComplexTorch implements Gaussian partial information rate decomposition for
-exactly two or three source groups and one disjoint target group, following the
-Faes/HOP minimum-MIR convention.
+:func:`~complextorch.partial_information_rate_decomposition` and
+:func:`~complextorch.spectral_partial_information_rate_decomposition` implement
+Gaussian partial information rate decomposition for exactly two or three source
+groups and one disjoint target group, following the Faes/HOP minimum-MIR
+convention.
 
 Let the source groups be :math:`X_1,\ldots,X_M`, with :math:`M\in\{2,3\}`, and
 let :math:`Y` be the target process. For every non-empty source subset
@@ -326,9 +342,9 @@ frequency**. Integrated temporal atoms are therefore
 rather than a new decomposition obtained by first integrating each subset MIR
 and then taking a minimum.
 
-The public spectral result exposes source-subset MIR spectra, redundancy
-functions, all Möbius-inverted atoms, unique spectra per source, total redundant
-and synergistic spectra, and
+The public spectral result :class:`~complextorch.SpectralPIRDResult` exposes
+source-subset MIR spectra, redundancy functions, all Möbius-inverted atoms,
+unique spectra per source, total redundant and synergistic spectra, and
 
 .. math::
 
@@ -337,13 +353,13 @@ and synergistic spectra, and
 For two sources, the coarse-grained atoms are unique source 1, unique source 2,
 redundancy, and synergy. For three sources, the validated Faes/HOP coarse
 graining combines the 18-node Williams--Beer lattice into three unique
-components plus total redundant and synergistic components.
+components plus total redundant and synergistic components. The integrated
+result is represented by :class:`~complextorch.PIRDResult`.
 
-``partial_information_rate_decomposition`` integrates the spectral result. The
-``half_open=True`` option follows the Faes/HOP half-open frequency-grid
+The ``half_open=True`` option follows the Faes/HOP half-open frequency-grid
 convention and arithmetic-mean integration implemented by
-``integrate_spectral_rate``; otherwise endpoint-inclusive trapezoidal
-integration is used.
+:func:`~complextorch.integrate_spectral_rate`; otherwise endpoint-inclusive
+trapezoidal integration is used.
 
 PIRD reuses the shared generalized-DARE reduction, spectral density, MIR,
 integration, PID lattice, and Möbius inversion primitives rather than
@@ -352,16 +368,20 @@ implementing parallel numerical machinery.
 PhiID
 -----
 
-For two variables and a positive lag :math:`\tau`, ComplexTorch constructs the
-joint Gaussian covariance of
+For two variables and a positive lag :math:`\tau`,
+:func:`~complextorch.phiid_from_model` constructs the joint Gaussian covariance
+of
 
 .. math::
 
    (X_t^1,X_t^2,X_{t+\tau}^1,X_{t+\tau}^2)
 
-from model autocovariances. The Gaussian PhiID implementation uses the
-minimum-mutual-information redundancy prescription on source and target
-antichains drawn from
+from model autocovariances. The redundancy prescription can be evaluated through
+:func:`~complextorch.phiid_redundancy_from_model`; see
+:doc:`phiid_redundancy` for the currently supported Gaussian backends and their
+scientific conventions.
+
+The bivariate PhiID lattice uses source and target antichains drawn from
 
 .. math::
 
@@ -380,7 +400,8 @@ Dynamical dependence and SSDI
 
 Let :math:`Y_t=LX_t`, with :math:`L\in\mathbb R^{m\times n}`. If
 :math:`\Sigma` is the microscopic innovations covariance and :math:`\Sigma_R`
-the exact innovations covariance of the projected process, ComplexTorch uses
+the exact innovations covariance of the projected process,
+:func:`~complextorch.dynamical_dependence` uses
 
 .. math::
 
@@ -396,16 +417,60 @@ Under the Gaussian Shannon convention,
 The DD function returns :math:`F`, not :math:`F/2`. The default log base is 2;
 use natural logarithms for direct natural-log SSDI/ComplexBox comparison.
 
-The unified optimizer is ``optimise_dynamical_dependence``. ``complexbox`` is
-the default and recommended backend; ``riemannian_armijo`` is an opt-in
-alternative. Optimization commonly uses row-orthonormal representatives
+The scientific object optimized by SSDI is a macro subspace. ComplexTorch uses
+row-orthonormal representatives
 
 .. math::
 
    LL^{\mathsf T}=I_m,
 
-but the scientific object is the projected subspace rather than a particular
-basis.
+but bases that differ by an orthogonal rotation of their rows represent the same
+subspace.
+
+:func:`~complextorch.optimise_dynamical_dependence` now executes the canonical
+staged SSDI workflow by default when ``objective=None``:
+
+1. **Proxy pre-optimization.** Many initial macro subspaces are optimized with
+   the proxy DD objective. If no ``initial_projection`` is supplied,
+   ``output_dimension`` is required and 100 row-orthonormal random restarts are
+   generated by default. For :class:`~complextorch.VARSystem`, this stage uses
+   the innovation-whitened VAR coefficient sequence directly, matching SSDI's
+   ``cak2ddx`` convention.
+2. **Grassmann clustering.** The sorted proxy minima are compared by normalized
+   maximum principal-angle distance. For row-orthonormal representatives
+   :math:`L_a,L_b`,
+
+   .. math::
+
+      d(L_a,L_b)
+      =\frac{2}{\pi}\arccos\sigma_{\min}(L_aL_b^{\mathsf T}).
+
+   The default strict cluster threshold is ``0.01``. One lowest-objective
+   representative from each resulting SSDI ``Lcluster`` group is retained.
+3. **Spectral refinement.** Cluster representatives initialize optimization of
+   the full spectral-DD objective. If no frequency grid is supplied, the staged
+   workflow uses 513 one-sided points over :math:`[0,1/2]`.
+
+Both proxy and spectral stages default to a 10,000-iteration ceiling. The
+``complexbox`` optimizer remains the reference/default backend and staged mode
+uses its validated variant 1 unless explicitly overridden. The
+``riemannian_armijo`` backend runs the same three-stage scientific pipeline with
+the native batched Riemannian optimizer.
+
+The staged call returns :class:`~complextorch.DDSSDIOptimizationResult`. Its
+``preoptimization`` field stores the complete proxy result, the cluster fields
+store representative indices, sizes, and the full distance matrix, ``spectral``
+stores the refined result, and ``frequencies`` stores the spectral grid. The
+convenience ``objective`` and ``projection`` properties refer to the final
+spectral refinement.
+
+Explicit ``objective="proxy"`` or ``objective="spectral"`` retains the
+single-stage research/backward-compatibility API and returns
+:class:`~complextorch.DDOptimizationResult`. These calls should not be described
+as the default SSDI search procedure.
+
+See :doc:`dynamical_dependence` for the complete optimization contract,
+parameters, result semantics, and reproducibility requirements.
 
 Predictive emergence quantities
 -------------------------------
@@ -424,9 +489,10 @@ For :math:`Y_t=MX_t`, ComplexTorch defines
 
    \Gamma=I(Y_t;X^-)-\sum_jI(Y_t^j;X^-).
 
-These quantities should be interpreted separately from SSDI dynamical
-dependence even though both compare microscopic and macroscopic predictive
-structure.
+The public entry points :func:`~complextorch.measures.emergence_measures` and
+:func:`~complextorch.measures.emergence_from_observations` should be interpreted
+separately from SSDI dynamical dependence even though both compare microscopic
+and macroscopic predictive structure.
 
 Criticality diagnostics
 -----------------------
@@ -448,8 +514,12 @@ and, for VAR systems,
    A_{\mathrm{cov}}
    =\frac{\operatorname{tr}\Gamma_0}{\operatorname{tr}\Sigma}.
 
-These are linear-system diagnostics and should not alone be interpreted as
-evidence of a physical phase transition.
+The corresponding public diagnostics are
+:func:`~complextorch.measures.stability_margin`,
+:func:`~complextorch.measures.dominant_timescale`, and
+:func:`~complextorch.measures.covariance_amplification`. These are linear-system
+diagnostics and should not alone be interpreted as evidence of a physical phase
+transition.
 
 References
 ----------
@@ -491,3 +561,4 @@ Repository references
 - ``src/complextorch/measures/criticality.py``
 - ``src/complextorch/control.py``
 - ``src/complextorch/dd.py``
+- ``src/complextorch/dd_ssdi.py``
