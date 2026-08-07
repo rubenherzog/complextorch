@@ -170,11 +170,22 @@ Dynamics and additional measure primitives
    complextorch.measures.gaussian_phiid_mmi
    complextorch.measures.gaussian_phiid_atoms
 
-Simulation, spectra, and multiscale utilities
----------------------------------------------
+Synthetic systems, simulation, spectra, and multiscale utilities
+----------------------------------------------------------------
+
+:func:`~complextorch.synthetic_var` constructs canonical batched VAR(1) systems
+for controlled sweeps over topology, spectral radius, innovation correlation,
+and topology-specific parameters. Every canonical topology supports arbitrary
+``N >= 2``.
 
 .. api-table::
 
+   complextorch.available_synthetic_systems
+   complextorch.synthetic_system_parameters
+   complextorch.synthetic_transition_matrix
+   complextorch.equicorrelated_innovation_covariance
+   complextorch.planted_module_projection
+   complextorch.synthetic_var
    complextorch.automatic_burnin
    complextorch.simulate_var
    complextorch.demo_var
