@@ -22,6 +22,7 @@ from complextorch import (
     proxy_dynamical_dependence_gradient,
     spectral_dynamical_dependence,
     spectral_dynamical_dependence_gradient,
+    solve_generalized_dare,
 )
 from scripts.validate_ssdi import (
     COMPLEXBOX_COMMIT,
@@ -199,6 +200,33 @@ def test_both_optimizers_are_finite_orthonormal_and_improve_proxy(optimizer: str
         atol=1e-9,
     )
     assert float(result.objective.min()) <= float(initial_objective.min()) + 1e-10
+
+
+@pytest.mark.parametrize("backend", ["scipy", "torch"])
+def test_projected_generalized_dare_satisfies_state_space_equation(backend: str) -> None:
+    system = innovations_system_from_mask(tnet5_mask(), seed=138)
+    projection = random_initial_projections(
+        1, 2, 5, seed=139, dtype=torch.float64, device=torch.device("cpu")
+    )[0]
+    a = system.transition
+    c = projection @ system.observation
+    v = system.innovation_covariance
+    q = system.gain @ v @ system.gain.T
+    r = projection @ v @ projection.T
+    s = system.gain @ v @ projection.T
+    p = solve_generalized_dare(a, c, q, r, s, backend=backend)
+
+    innovation = c @ p @ c.T + r
+    cross = a @ p @ c.T + s
+    rhs = a @ p @ a.T + q - cross @ torch.linalg.solve(innovation, cross.T)
+    assert torch.allclose(p, rhs, rtol=2e-8, atol=2e-10)
+
+    sign_r, logdet_r = torch.linalg.slogdet(r)
+    sign_v, logdet_v = torch.linalg.slogdet(innovation)
+    assert float(sign_r) > 0.0 and float(sign_v) > 0.0
+    direct_dd = logdet_v - logdet_r
+    public_dd = dynamical_dependence(system, projection, base=math.e)
+    assert torch.allclose(public_dd, direct_dd, rtol=2e-8, atol=2e-10)
 
 
 def test_complexbox_proxy_and_exact_dd_parity_when_installed() -> None:
