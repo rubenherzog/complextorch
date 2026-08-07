@@ -39,6 +39,16 @@ D_x(M)=\sum_k \|M Q_k\|_F^2
        -\|M Q_k M^T\|_F^2.
 \]
 
+For a projected innovations model, the native equation-level test constructs
+
+\[
+C_R=MC,\quad Q=K V K^T,\quad R=M V M^T,\quad S=K V M^T,
+\]
+
+solves the generalized filtering DARE with both the SciPy and Torch backends,
+and independently evaluates its algebraic residual and resulting projected
+innovation log-determinant. This is compared with the public exact-DD function.
+
 Exact DD is compared in natural-log units (`base=e`) because that is the
 ComplexBox/SSDI convention.
 
@@ -74,7 +84,7 @@ subspace using principal-angle distance.
 
 ## Test inventory
 
-`tests/test_ssdi_validation.py` contains 18 collected tests after parameter
+`tests/test_ssdi_validation.py` contains 20 collected tests after parameter
 expansion:
 
 - 1 exact MVGC2 mask test;
@@ -87,6 +97,7 @@ expansion:
 - 1 local-minimum clustering basis-invariance test;
 - 2 optimizer tests (`complexbox`, `riemannian_armijo`) for finite values,
   orthonormal endpoints, and objective improvement;
+- 2 generalized-DARE equation/residual tests (`scipy`, `torch`);
 - 1 ComplexBox proxy + exact-DD parity test;
 - 1 ComplexBox optimizer endpoint parity test;
 - 1 ComplexBox spectral objective + gradient parity test.
