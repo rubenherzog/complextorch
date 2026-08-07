@@ -10,6 +10,23 @@ jobs:
         python-version: ["3.10","3.12"]
     steps:
       - uses: actions/checkout@v4
+      - name: Apply architecture refactor in CI workspace
+        run: |
+          python scripts/refactor_selection_architecture.py
+          python scripts/remove_duplicate_larimore.py
+      - name: Capture transformed tree
+        if: matrix.python-version == '3.12'
+        run: |
+          git diff --binary > refactor.patch
+          tar -czf refactor-tree.tar.gz src tests examples
+      - name: Upload transformed tree
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: refactor-selection-tree
+          path: |
+            refactor.patch
+            refactor-tree.tar.gz
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
