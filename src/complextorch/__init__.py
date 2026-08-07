@@ -21,6 +21,17 @@ from .control import (
     stochastic_interaction,
     var_to_innovations_state_space,
 )
+from .dd_optimization import (
+    DDGradientSearchResult,
+    innovations_proxy_sequence,
+    optimise_dynamical_dependence_proxy,
+    optimise_dynamical_dependence_spectral,
+    orthonormalise_projection,
+    proxy_dynamical_dependence,
+    proxy_dynamical_dependence_gradient,
+    spectral_dynamical_dependence,
+    spectral_dynamical_dependence_gradient,
+)
 from .measures.primary import (
     ModelMeasureConfig,
     ModelMeasureContext,
@@ -75,6 +86,7 @@ from .state_space import (
 from .var import VAR, VARParameters
 
 __all__ = [
+    "DDGradientSearchResult",
     "N4SID",
     "VAR",
     "EpochTimeSeriesSplit",
@@ -109,14 +121,20 @@ __all__ = [
     "from_complexbox_timeseries",
     "from_complexbox_var",
     "innovations_form",
+    "innovations_proxy_sequence",
     "innovations_transfer_function",
     "kalman_filter",
     "kalman_smoother",
     "model_autocovariances",
     "mvgc_pvalue",
     "optimise_dynamical_dependence_projection",
+    "optimise_dynamical_dependence_proxy",
+    "optimise_dynamical_dependence_spectral",
+    "orthonormalise_projection",
     "phiid_from_model",
     "project_state_space",
+    "proxy_dynamical_dependence",
+    "proxy_dynamical_dependence_gradient",
     "random_correlation_matrix",
     "random_positive_definite_covariance",
     "random_stable_var",
@@ -127,6 +145,8 @@ __all__ = [
     "simulate_var",
     "solve_dare",
     "solve_generalized_dare",
+    "spectral_dynamical_dependence",
+    "spectral_dynamical_dependence_gradient",
     "spectral_mvgc",
     "stochastic_interaction",
     "temporal_mvgc",
