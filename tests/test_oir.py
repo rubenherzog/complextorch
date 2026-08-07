@@ -140,7 +140,9 @@ def test_delta_oir_equals_difference_of_nested_oirs():
     groups = ([0], [1], [2], [3])
     full = o_information_rate(system, groups)
     for target in range(4):
-        reduced_groups = tuple(group for index, group in enumerate(groups) if index != target)
+        reduced_groups = tuple(
+            group for index, group in enumerate(groups) if index != target
+        )
         expected = full - o_information_rate(system, reduced_groups)
         actual = delta_o_information_rate(system, target, groups)
         torch.testing.assert_close(actual, expected, rtol=3e-9, atol=3e-10)
@@ -151,7 +153,9 @@ def test_spectral_delta_matches_pointwise_nested_oir_difference_and_integral():
     frequency = _grid(n=513)
     groups = ([0], [1], [2], [3])
     target = 2
-    reduced_groups = tuple(group for index, group in enumerate(groups) if index != target)
+    reduced_groups = tuple(
+        group for index, group in enumerate(groups) if index != target
+    )
     expected_spectrum = spectral_o_information_rate(
         system, frequency, groups
     ) - spectral_o_information_rate(system, frequency, reduced_groups)
@@ -196,7 +200,7 @@ def test_batched_oir_and_spectral_oir_match_explicit_system_loop():
             ],
         ],
         dtype=torch.float64,
-    ).squeeze(1)
+    )
     covariance = torch.tensor(
         [
             [[1.0, 0.10, 0.02], [0.10, 0.9, -0.03], [0.02, -0.03, 0.8]],
