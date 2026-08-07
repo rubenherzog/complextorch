@@ -16,12 +16,11 @@ import torch
 
 from ..control import (
     InnovationsStateSpace,
-    innovations_form,
+    _as_innovations_state_space,
+    _project_innovations_state_space,
     innovations_transfer_function,
-    solve_generalized_dare,
-    var_to_innovations_state_space,
 )
-from ..linalg import spd_logdet, spd_solve, symmetrise
+from ..linalg import spd_logdet, symmetrise
 from ..representations import StateSpaceModel, VARSystem
 from .gaussian import gaussian_entropy, gaussian_mutual_information, total_correlation
 
@@ -31,19 +30,7 @@ CovarianceModel = VARSystem | StateSpaceModel
 
 def as_innovations(model: Model) -> InnovationsStateSpace:
     """Return the exact steady-state innovations representation of a model."""
-    if isinstance(model, InnovationsStateSpace):
-        return model
-    if isinstance(model, VARSystem):
-        return var_to_innovations_state_space(model)
-    if isinstance(model, StateSpaceModel):
-        form = innovations_form(model)
-        return InnovationsStateSpace(
-            model.transition,
-            model.observation,
-            form.gain,
-            form.covariance,
-        )
-    raise TypeError("unsupported model type")
+    return _as_innovations_state_space(model)
 
 
 def _batched_matrix(value: torch.Tensor) -> tuple[torch.Tensor, bool]:
@@ -274,29 +261,10 @@ def projected_innovation_covariance(
     projection: torch.Tensor,
 ) -> torch.Tensor:
     """Innovation covariance of a linear projection of the observations."""
-    innovations = as_innovations(model)
-    a, single = _batched_matrix(innovations.transition)
-    c, _ = _batched_matrix(innovations.observation)
-    k, _ = _batched_matrix(innovations.gain)
-    v, _ = _batched_matrix(innovations.innovation_covariance)
-    m = torch.as_tensor(projection, dtype=c.dtype, device=c.device)
-    if m.ndim == 2:
-        m = m.unsqueeze(0)
-    batch = max(a.shape[0], c.shape[0], k.shape[0], v.shape[0], m.shape[0])
-    a, c, k, v, m = [
-        value.expand(batch, *value.shape[1:]) if value.shape[0] == 1 else value
-        for value in (a, c, k, v, m)
-    ]
-    projected_c = m @ c
-    process = k @ v @ k.transpose(-1, -2)
-    observation = symmetrise(m @ v @ m.transpose(-1, -2))
-    cross = k @ v @ m.transpose(-1, -2)
-    # Marginal innovations require the steady-state generalised Riccati solution.
-    prediction = solve_generalized_dare(a, projected_c, process, observation, cross)
-    if prediction.ndim == 2:
-        prediction = prediction.unsqueeze(0)
-    result = symmetrise(projected_c @ prediction @ projected_c.transpose(-1, -2) + observation)
-    return result[0] if single and projection.ndim == 2 else result
+    projected = _project_innovations_state_space(
+        as_innovations(model), projection
+    )
+    return projected.innovation_covariance
 
 
 def emergence_from_model(
