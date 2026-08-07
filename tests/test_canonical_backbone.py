@@ -38,6 +38,7 @@ def test_equivalent_var_and_state_space_share_observable_measures():
         ("dynamics", "active_information_storage"),
         ("frequency", "spectral_entropy"),
         ("mvgc", "temporal"),
+        ("control", "dynamical_dependence"),
     ):
         torch.testing.assert_close(
             state_result[family][name], var_result[family][name], rtol=1e-7, atol=1e-9
@@ -76,4 +77,5 @@ def test_availability_metadata_is_explicit():
     result = compute_all_model_measures(var, _config())
     assert "cmem" in result["available"]
     assert "mvgc" in result["available"]
-    assert "control" in result["not_available"]
+    assert "control" in result["available"]
+    assert "dynamical_dependence" in result["control"]
