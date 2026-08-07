@@ -42,3 +42,29 @@ def test_bivariate_state_space_matches_specialized_geweke_curve():
     exact = state_space_spectral_mvgc(system, source=[1], target=[0], frequencies=frequencies)
     specialized = pairwise_spectral_gc(system, source=1, target=0, frequencies=frequencies)
     torch.testing.assert_close(exact, specialized, rtol=1e-7, atol=1e-9)
+
+
+def test_mvgc_default_conditions_on_remaining_variables():
+    system = conditioned_system()
+    frequencies = torch.linspace(0.0, 0.5, 257, dtype=torch.float64)
+    default_temporal = state_space_temporal_mvgc(system, source=[1], target=[0])
+    explicit_temporal = state_space_temporal_mvgc(
+        system, source=[1], target=[0], conditional=[2]
+    )
+    unconditioned_temporal = state_space_temporal_mvgc(
+        system, source=[1], target=[0], conditional=()
+    )
+    torch.testing.assert_close(default_temporal, explicit_temporal)
+    assert torch.abs(default_temporal - unconditioned_temporal) > 1e-4
+
+    default_spectral = state_space_spectral_mvgc(
+        system, source=[1], target=[0], frequencies=frequencies
+    )
+    explicit_spectral = state_space_spectral_mvgc(
+        system, source=[1], target=[0], conditional=[2], frequencies=frequencies
+    )
+    unconditioned_spectral = state_space_spectral_mvgc(
+        system, source=[1], target=[0], conditional=(), frequencies=frequencies
+    )
+    torch.testing.assert_close(default_spectral, explicit_spectral)
+    assert torch.max(torch.abs(default_spectral - unconditioned_spectral)) > 1e-4
