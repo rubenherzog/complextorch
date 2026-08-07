@@ -1,5 +1,6 @@
 import inspect
 
+import pytest
 import torch
 
 from complextorch import optimise_dynamical_dependence
@@ -141,6 +142,9 @@ def test_riemannian_backend_follows_same_staged_contract():
 
 
 def test_lcluster_matches_sorted_greedy_ssdi_semantics():
+    # Four 1-D subspaces: runs 0/1 are one tight cluster, run 2 another,
+    # run 3 is close to run 2 but is consumed by the first available
+    # representative according to the sorted greedy Lcluster rule.
     theta = torch.tensor([0.0, 0.001, 0.5, 0.501], dtype=torch.float64)
     bases = torch.stack(
         [torch.stack((torch.cos(t), torch.sin(t))).unsqueeze(0) for t in theta]
@@ -150,9 +154,39 @@ def test_lcluster_matches_sorted_greedy_ssdi_semantics():
     assert representatives.tolist() == [0, 2]
     assert sizes.tolist() == [2, 2]
     torch.testing.assert_close(distance, distance.T, rtol=0, atol=1e-15)
-    torch.testing.assert_close(
-        torch.diagonal(distance), torch.zeros(4, dtype=distance.dtype)
+    torch.testing.assert_close(torch.diagonal(distance), torch.zeros(4, dtype=distance.dtype))
+
+
+def test_staged_preserves_float32_dtype():
+    result = optimise_dynamical_dependence(
+        _var(torch.float32),
+        _initial(torch.float32),
+        max_iterations=2,
+        frequency_bins=9,
+        cluster_tolerance=1e-8,
     )
+    assert result.objective.dtype == torch.float32
+    assert result.projection.dtype == torch.float32
+    assert result.cluster_distances.dtype == torch.float32
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA unavailable")
+def test_staged_preserves_cuda_device():
+    base = _var()
+    # VARSystem is a frozen dataclass, so rebuild it from CUDA model parameters.
+    cuda_system = build_var_system(
+        base.coefficients[0].cuda(), base.innovation_covariance[0].cuda()
+    )
+    result = optimise_dynamical_dependence(
+        cuda_system,
+        _initial().cuda(),
+        max_iterations=2,
+        frequency_bins=9,
+        cluster_tolerance=1e-8,
+    )
+    assert result.objective.device.type == "cuda"
+    assert result.projection.device.type == "cuda"
+    assert result.cluster_distances.device.type == "cuda"
 
 
 def _nested_var(dtype=torch.float64):
@@ -170,6 +204,9 @@ def _nested_var(dtype=torch.float64):
     for lag in range(order):
         coefficients[lag] *= 0.75**lag
 
+    # Scale all VAR coefficients by one positive factor chosen so the companion
+    # spectral radius is 0.82. Bisection avoids assuming linear scaling of a
+    # VAR(p) companion radius with coefficient amplitude.
     lo, hi = 0.0, 3.0
     for _ in range(60):
         scale = 0.5 * (lo + hi)
