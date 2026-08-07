@@ -2,13 +2,13 @@
 import numpy as np
 import torch
 
-import complextorch.state_space_selection as ss_selection
+import complextorch.selection.selection_state_space as ss_selection
 from complextorch import (
     EpochTimeSeriesSplit,
     StateSpaceOrderSearchCV,
     VAROrderSearchCV,
 )
-from complextorch._temporal_order_search import _TemporalOrderSearchCV
+from complextorch.selection._temporal import _TemporalOrderSearchCV
 
 
 def _series(batch=2, time=100, variables=2):

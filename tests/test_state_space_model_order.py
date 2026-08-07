@@ -5,7 +5,7 @@ import pytest
 import torch
 
 from complextorch import StateSpaceOrderSelection
-from complextorch._state_space_order import (
+from complextorch.selection.selection_state_space import (
     _bauer_svc,
     _larimore_state_space_order,
 )

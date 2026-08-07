@@ -1,4 +1,4 @@
-"""Shared nested-model primitives for empirical Gaussian comparisons.
+"""Nested-VAR primitives used by empirical predictive measures.
 
 Reduced and full VAR models are fitted with consistent target/source ordering;
 log-determinant ratios and conditional spectra are then reused by empirical
@@ -15,26 +15,26 @@ from dataclasses import dataclass
 import math
 import torch
 
-from .linalg import spd_logdet, spd_solve, symmetrise
-from .var import VAR
-from .measures.dynamics import cross_spectral_density
+from ..linalg import spd_logdet, spd_solve, symmetrise
+from ..var import VAR
+from .dynamics import cross_spectral_density
 
 
 def normalise_indices(indices, n_variables: int) -> tuple[int, ...]:
     """Normalise indices.
-    
+
     Parameters
     ----------
     indices
         Input required by this calculation.
     n_variables
         Number of observed variables.
-    
+
     Returns
     -------
     object
         Computed result; see the annotated return type and shape notes.
-    
+
     Notes
     -----
     Batch dimensions are preserved unless explicitly documented otherwise.
@@ -53,19 +53,19 @@ def normalise_indices(indices, n_variables: int) -> tuple[int, ...]:
 
 def complement_indices(selected, n_variables: int) -> tuple[int, ...]:
     """Complement indices.
-    
+
     Parameters
     ----------
     selected
         Input required by this calculation.
     n_variables
         Number of observed variables.
-    
+
     Returns
     -------
     object
         Computed result; see the annotated return type and shape notes.
-    
+
     Notes
     -----
     Batch dimensions are preserved unless explicitly documented otherwise.
@@ -78,19 +78,19 @@ def complement_indices(selected, n_variables: int) -> tuple[int, ...]:
 
 def select_covariance(covariance: torch.Tensor, indices) -> torch.Tensor:
     """Select covariance.
-    
+
     Parameters
     ----------
     covariance
         Symmetric covariance matrix or batch of covariance matrices.
     indices
         Input required by this calculation.
-    
+
     Returns
     -------
     object
         Computed result; see the annotated return type and shape notes.
-    
+
     Notes
     -----
     Batch dimensions are preserved unless explicitly documented otherwise.
@@ -116,7 +116,7 @@ def conditional_covariance_blocks(covariance: torch.Tensor, target, conditioned)
 
 def logdet_ratio(numerator: torch.Tensor, denominator: torch.Tensor, *, base: float = math.e) -> torch.Tensor:
     """Logdet ratio.
-    
+
     Parameters
     ----------
     numerator
@@ -125,12 +125,12 @@ def logdet_ratio(numerator: torch.Tensor, denominator: torch.Tensor, *, base: fl
         Input required by this calculation.
     base
         Logarithm base used for information quantities.
-    
+
     Returns
     -------
     object
         Computed result; see the annotated return type and shape notes.
-    
+
     Notes
     -----
     Batch dimensions are preserved unless explicitly documented otherwise.
@@ -144,7 +144,7 @@ def logdet_ratio(numerator: torch.Tensor, denominator: torch.Tensor, *, base: fl
 @dataclass(frozen=True)
 class NestedVARModels:
     """Nestedvarmodels.
-    
+
     Notes
     -----
     Public fitted attributes use the trailing-underscore convention.
@@ -185,19 +185,19 @@ def fit_nested_var_models(observations: torch.Tensor, order: int, target, source
 
 def residual_target_covariance(model: VAR, target_positions) -> torch.Tensor:
     """Residual target covariance.
-    
+
     Parameters
     ----------
     model
         VAR or linear state-space model.
     target_positions
         Input required by this calculation.
-    
+
     Returns
     -------
     object
         Computed result; see the annotated return type and shape notes.
-    
+
     Notes
     -----
     Batch dimensions are preserved unless explicitly documented otherwise.
@@ -222,19 +222,19 @@ def conditional_spectrum(spectrum: torch.Tensor, target, conditioned=()) -> torc
 
 def var_model_spectrum(model: VAR, frequencies: torch.Tensor) -> torch.Tensor:
     """Var model spectrum.
-    
+
     Parameters
     ----------
     model
         VAR or linear state-space model.
     frequencies
         One-dimensional frequency grid in normalized cycles per sample.
-    
+
     Returns
     -------
     object
         Computed result; see the annotated return type and shape notes.
-    
+
     Notes
     -----
     Batch dimensions are preserved unless explicitly documented otherwise.

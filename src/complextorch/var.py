@@ -26,7 +26,6 @@ import numpy as np
 import torch
 from sklearn.base import BaseEstimator
 
-from ._typing import ArrayLike
 from .linalg import stable_cholesky
 from .representations import StateSpaceModel, VARSystem, build_var_system
 
@@ -34,7 +33,7 @@ from .representations import StateSpaceModel, VARSystem, build_var_system
 @dataclass(frozen=True)
 class VARParameters:
     """Fitted coefficients, innovations and metadata for a VAR estimator.
-    
+
     Notes
     -----
     Public fitted attributes use the trailing-underscore convention.
@@ -137,7 +136,7 @@ def _lwr_single(trials: torch.Tensor, order: int) -> tuple[torch.Tensor, torch.T
 
 class VAR(BaseEstimator):
     """Torch-first estimator for Gaussian vector autoregressive models.
-    
+
     Notes
     -----
     Public fitted attributes use the trailing-underscore convention.
@@ -156,7 +155,7 @@ class VAR(BaseEstimator):
         stability: Literal["check", "ignore"] = "check",
     ):
         """Initialize the estimator or result container.
-        
+
         Parameters
         ----------
         order
@@ -177,7 +176,7 @@ class VAR(BaseEstimator):
             Torch floating-point dtype name or object.
         stability
             Policy for checking stationarity after fitting.
-        
+
         Notes
         -----
         Batch dimensions are preserved unless explicitly documented otherwise.
@@ -197,17 +196,17 @@ class VAR(BaseEstimator):
     @staticmethod
     def _resolve_dtype(name: str) -> torch.dtype:
         """Resolve dtype.
-        
+
         Parameters
         ----------
         name
             Input required by this calculation.
-        
+
         Returns
         -------
         object
             Computed result; see the annotated return type and shape notes.
-        
+
         Notes
         -----
         Batch dimensions are preserved unless explicitly documented otherwise.
@@ -221,12 +220,12 @@ class VAR(BaseEstimator):
 
     def _resolve_device(self) -> torch.device:
         """Resolve device.
-        
+
         Returns
         -------
         object
             Computed result; see the annotated return type and shape notes.
-        
+
         Notes
         -----
         Batch dimensions are preserved unless explicitly documented otherwise.
@@ -240,19 +239,19 @@ class VAR(BaseEstimator):
             raise RuntimeError("CUDA was requested but is not available")
         return device
 
-    def _normalise_input(self, x: ArrayLike) -> torch.Tensor:
+    def _normalise_input(self, x: np.ndarray | torch.Tensor) -> torch.Tensor:
         """Normalise input.
-        
+
         Parameters
         ----------
         x
             Input observations or tensor-valued quantity.
-        
+
         Returns
         -------
         object
             Computed result; see the annotated return type and shape notes.
-        
+
         Notes
         -----
         Batch dimensions are preserved unless explicitly documented otherwise.
@@ -275,19 +274,19 @@ class VAR(BaseEstimator):
     @staticmethod
     def lagged_design(x: torch.Tensor, order: int):
         """Lagged design.
-        
+
         Parameters
         ----------
         x
             Input observations or tensor-valued quantity.
         order
             Autoregressive model order.
-        
+
         Returns
         -------
         object
             Computed result; see the annotated return type and shape notes.
-        
+
         Notes
         -----
         Batch dimensions are preserved unless explicitly documented otherwise.
@@ -301,12 +300,12 @@ class VAR(BaseEstimator):
 
     def _choose_solver(self):
         """Choose solver.
-        
+
         Returns
         -------
         object
             Computed result; see the annotated return type and shape notes.
-        
+
         Notes
         -----
         Batch dimensions are preserved unless explicitly documented otherwise.
@@ -319,19 +318,19 @@ class VAR(BaseEstimator):
 
     def _solve_cholesky(self, design, targets):
         """Solve cholesky.
-        
+
         Parameters
         ----------
         design
             Input required by this calculation.
         targets
             Input required by this calculation.
-        
+
         Returns
         -------
         object
             Computed result; see the annotated return type and shape notes.
-        
+
         Notes
         -----
         Batch dimensions are preserved unless explicitly documented otherwise.
@@ -350,17 +349,17 @@ class VAR(BaseEstimator):
 
     def _fit_lwr(self, x: torch.Tensor) -> VARParameters:
         """Fit lwr from observations.
-        
+
         Parameters
         ----------
         x
             Input observations or tensor-valued quantity.
-        
+
         Returns
         -------
         object
             Computed result; see the annotated return type and shape notes.
-        
+
         Notes
         -----
         Batch dimensions are preserved unless explicitly documented otherwise.
@@ -393,17 +392,17 @@ class VAR(BaseEstimator):
 
     def _fit_tensor(self, x):
         """Fit tensor from observations.
-        
+
         Parameters
         ----------
         x
             Input observations or tensor-valued quantity.
-        
+
         Returns
         -------
         object
             Computed result; see the annotated return type and shape notes.
-        
+
         Notes
         -----
         Batch dimensions are preserved unless explicitly documented otherwise.
@@ -457,21 +456,21 @@ class VAR(BaseEstimator):
             self.order, self.mode, solver, 0.0
         )
 
-    def fit(self, X: ArrayLike, y=None):
+    def fit(self, X: np.ndarray | torch.Tensor, y=None):
         """Fit fit from observations.
-        
+
         Parameters
         ----------
         X
             Observations with shape ``(time, variables)`` or ``(batch, time, variables)``.
         y
             Unused scikit-learn compatibility target.
-        
+
         Returns
         -------
         object
             The fitted estimator instance.
-        
+
         Notes
         -----
         Batch dimensions are preserved unless explicitly documented otherwise.
@@ -513,12 +512,12 @@ class VAR(BaseEstimator):
 
     def _check_fitted(self):
         """Validate fitted and raise on failure.
-        
+
         Returns
         -------
         object
             Computed result; see the annotated return type and shape notes.
-        
+
         Notes
         -----
         Batch dimensions are preserved unless explicitly documented otherwise.
@@ -530,17 +529,17 @@ class VAR(BaseEstimator):
 
     def one_step_predictions(self, X):
         """One step predictions.
-        
+
         Parameters
         ----------
         X
             Observations with shape ``(time, variables)`` or ``(batch, time, variables)``.
-        
+
         Returns
         -------
         object
             Computed result; see the annotated return type and shape notes.
-        
+
         Notes
         -----
         Batch dimensions are preserved unless explicitly documented otherwise.
@@ -570,17 +569,17 @@ class VAR(BaseEstimator):
 
     def predict(self, X):
         """Predict.
-        
+
         Parameters
         ----------
         X
             Observations with shape ``(time, variables)`` or ``(batch, time, variables)``.
-        
+
         Returns
         -------
         object
             One-step predictions as a NumPy array.
-        
+
         Notes
         -----
         Batch dimensions are preserved unless explicitly documented otherwise.
@@ -591,19 +590,19 @@ class VAR(BaseEstimator):
 
     def forecast(self, history, steps: int):
         """Forecast.
-        
+
         Parameters
         ----------
         history
             Observed history used to initialize recursive forecasting.
         steps
             Number of recursive forecast samples.
-        
+
         Returns
         -------
         object
             Recursive future samples with shape ``(batch, steps, variables)``.
-        
+
         Notes
         -----
         Batch dimensions are preserved unless explicitly documented otherwise.
@@ -633,17 +632,17 @@ class VAR(BaseEstimator):
 
     def residuals(self, X):
         """Residuals.
-        
+
         Parameters
         ----------
         X
             Observations with shape ``(time, variables)`` or ``(batch, time, variables)``.
-        
+
         Returns
         -------
         object
             Observed minus one-step-predicted values.
-        
+
         Notes
         -----
         Batch dimensions are preserved unless explicitly documented otherwise.
@@ -656,19 +655,19 @@ class VAR(BaseEstimator):
 
     def gaussian_nll(self, X, *, reduction="mean"):
         """Gaussian nll.
-        
+
         Parameters
         ----------
         X
             Observations with shape ``(time, variables)`` or ``(batch, time, variables)``.
         reduction
             Aggregation applied to elementwise losses.
-        
+
         Returns
         -------
         object
             Computed result; see the annotated return type and shape notes.
-        
+
         Notes
         -----
         Batch dimensions are preserved unless explicitly documented otherwise.
@@ -698,19 +697,19 @@ class VAR(BaseEstimator):
 
     def score(self, X, y=None):
         """Score.
-        
+
         Parameters
         ----------
         X
             Observations with shape ``(time, variables)`` or ``(batch, time, variables)``.
         y
             Unused scikit-learn compatibility target.
-        
+
         Returns
         -------
         object
             Negative Gaussian log-likelihood score.
-        
+
         Notes
         -----
         Batch dimensions are preserved unless explicitly documented otherwise.
@@ -722,7 +721,7 @@ class VAR(BaseEstimator):
 
     def consistency(self, observations) -> float:
         """Compute the Ding--Bressler VAR consistency diagnostic.
-        
+
         References
         ----------
         - Ding et al. (2000); Barnett and Seth (2014); ComplexBox.
@@ -739,17 +738,17 @@ class VAR(BaseEstimator):
 
     def to_var_system(self, *, lyapunov_method="doubling") -> VARSystem:
         """Convert to var system.
-        
+
         Parameters
         ----------
         lyapunov_method
             Input required by this calculation.
-        
+
         Returns
         -------
         object
             Canonical :class:`VARSystem` representation.
-        
+
         Notes
         -----
         Batch dimensions are preserved unless explicitly documented otherwise.
@@ -763,17 +762,17 @@ class VAR(BaseEstimator):
 
     def to_state_space(self, *, lyapunov_method="doubling") -> StateSpaceModel:
         """Convert to state space.
-        
+
         Parameters
         ----------
         lyapunov_method
             Input required by this calculation.
-        
+
         Returns
         -------
         object
             Equivalent linear state-space representation.
-        
+
         Notes
         -----
         Batch dimensions are preserved unless explicitly documented otherwise.

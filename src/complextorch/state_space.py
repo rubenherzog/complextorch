@@ -30,7 +30,7 @@ from sklearn.base import BaseEstimator
 from .linalg import symmetrise
 from .representations import StateSpaceModel
 from .control import InnovationsStateSpace
-from ._state_space_order import _block_hankel, _resolve_dtype
+from ._subspace import _block_hankel, _larimore_decomposition, _resolve_dtype
 
 
 @dataclass(frozen=True)
@@ -861,24 +861,6 @@ def _fit_general_state_space_from_states(values, states, *, observation_start, m
         observation_covariance = _covariance_floor(_batch_covariance(observation_residual), min_covar)
     return transition, observation, process_covariance, observation_covariance
 
-
-def _larimore_decomposition(past, future, *, ridge):
-    """Return Larimore canonical correlations, right vectors and past factor."""
-    # Whiten past and future block covariances and SVD their cross-covariance to obtain canonical correlations.
-    n_effective = past.shape[-1]
-    covariance_past = past @ past.transpose(-1, -2) / n_effective
-    covariance_future = future @ future.transpose(-1, -2) / n_effective
-    cross_covariance = past @ future.transpose(-1, -2) / n_effective
-    ip = torch.eye(covariance_past.shape[-1], dtype=past.dtype, device=past.device)
-    iff = torch.eye(covariance_future.shape[-1], dtype=future.dtype, device=future.device)
-    lp = torch.linalg.cholesky(covariance_past + ridge * ip)
-    lf = torch.linalg.cholesky(covariance_future + ridge * iff)
-    left = torch.linalg.solve_triangular(lf, cross_covariance.transpose(-1, -2), upper=False)
-    whitened = torch.linalg.solve_triangular(
-        lp, left.transpose(-1, -2), upper=False
-    ).transpose(-1, -2)
-    _, correlations, right = torch.linalg.svd(whitened, full_matrices=False)
-    return correlations, right, lp
 
 
 def _fit_innovations_state_space_from_states(values, states, *, observation_start, mode, covariance, min_covar):

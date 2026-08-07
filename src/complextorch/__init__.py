@@ -1,29 +1,15 @@
 """Torch-first batched linear-dynamics inference and complexity measures."""
-import sys as _sys
-from . import _subspace as _subspace
 
-# Temporary private import alias; no compatibility module remains on disk.
-_sys.modules[__name__ + "._state_space_order"] = _subspace
 from .adapters import from_complexbox_timeseries, from_complexbox_var, to_complexbox_timeseries, to_complexbox_var
 from .representations import StateSpaceModel, VARSystem, build_var_system, companion_matrix
-from .selection import EpochTimeSeriesSplit, VAROrderSelectionIC, VARInformationCriteriaResult, StateSpaceOrderSelection, StateSpaceOrderSelectionResult
-from .var_selection_cv import VAROrderSearchCV, VAROrderSearchResult, VAROrderScore
-from .state_space_selection import StateSpaceOrderSearchCV, StateSpaceOrderSearchResult, StateSpaceOrderScore
+from .selection import EpochTimeSeriesSplit, VAROrderSelectionIC, VARInformationCriteriaResult, VAROrderSearchCV, VAROrderSearchResult, VAROrderScore, StateSpaceOrderSelection, StateSpaceOrderSelectionResult, StateSpaceOrderSearchCV, StateSpaceOrderSearchResult, StateSpaceOrderScore
 from .simulate import demo_var, random_stable_var, simulate_var, automatic_burnin, random_correlation_matrix, random_positive_definite_covariance
 from .var import VAR, VARParameters
 from .control import solve_dare, solve_generalized_dare, innovations_form, InnovationsStateSpace, var_to_innovations_state_space, reduce_innovations_state_space, innovations_transfer_function, reduce_state_space, project_state_space, dynamical_dependence, stochastic_interaction, optimise_dynamical_dependence_projection, ProjectionSearchResult
 from .state_space import kalman_filter, kalman_smoother, N4SID, LarimoreStateSpace, LinearGaussianEM
-from . import state_space as _state_space
-_state_space._larimore_decomposition = _subspace._larimore_decomposition
 from .measures.primary import ModelMeasureConfig, ModelMeasureContext, build_measure_context, compute_all_model_measures, model_autocovariances, phiid_from_model, spectral_mvgc, temporal_mvgc
 from .measures.secondary import WhitenessResult, consistency, residual_whiteness, mvgc_pvalue, significance
 
-# Preserve ``complextorch.selection`` imports while routing the public CV API
-# through the shared temporal-search implementation.
-from . import selection as _selection
-_selection.VAROrderSearchCV = VAROrderSearchCV
-_selection.VAROrderSearchResult = VAROrderSearchResult
-_selection.VAROrderScore = VAROrderScore
 
 __all__ = [
     "VAR", "VARParameters", "VARSystem", "StateSpaceModel", "build_var_system", "companion_matrix",

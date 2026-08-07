@@ -16,8 +16,94 @@ import numpy as np
 import torch
 from sklearn.base import BaseEstimator
 
-from ._typing import ArrayLike
-from .selection import EpochTimeSeriesSplit, TemporalFold
+
+
+@dataclass(frozen=True)
+class TemporalFold:
+    """Indices delimiting one expanding-window temporal-validation fold.
+
+    Notes
+    -----
+    Public fitted attributes use the trailing-underscore convention.
+    """
+    train_stop: int
+    test_start: int
+    test_stop: int
+
+
+class EpochTimeSeriesSplit:
+    """Generate leakage-safe expanding-window splits for ordered observations.
+
+    Notes
+    -----
+    Public fitted attributes use the trailing-underscore convention.
+    """
+    def __init__(
+        self,
+        n_splits: int = 5,
+        *,
+        test_size: int | None = None,
+        min_train_size: int | None = None,
+        gap: int = 0,
+    ):
+        """Initialize the estimator or result container.
+
+        Parameters
+        ----------
+        n_splits
+            Number of temporal validation folds.
+        test_size
+            Number of held-out samples in each fold.
+        min_train_size
+            Minimum number of samples in the first training window.
+        gap
+            Number of samples omitted between training and test windows.
+
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
+        self.n_splits = n_splits
+        self.test_size = test_size
+        self.min_train_size = min_train_size
+        self.gap = gap
+
+    def split(self, n_times: int, *, min_order: int = 1):
+        """Split.
+
+        Parameters
+        ----------
+        n_times
+            Number of time samples.
+        min_order
+            Largest lag that must fit inside every training window.
+
+        Returns
+        -------
+        object
+            Iterator of :class:`TemporalFold` objects in chronological order.
+
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
+        if self.n_splits < 1 or self.gap < 0:
+            raise ValueError("invalid split settings")
+        test_size = self.test_size or max(1, n_times // (self.n_splits + 2))
+        min_train = self.min_train_size or max(
+            min_order + 5,
+            n_times - self.n_splits * test_size - self.gap,
+        )
+        if min_train + self.gap + self.n_splits * test_size > n_times:
+            raise ValueError("requested folds do not fit")
+        for fold in range(self.n_splits):
+            train_stop = min_train + fold * test_size
+            test_start = train_stop + self.gap
+            yield TemporalFold(train_stop, test_start, test_start + test_size)
 
 
 PredictionMode = Literal["rolling", "recursive"]
@@ -67,7 +153,7 @@ class _TemporalOrderSearchCV(BaseEstimator):
         self.refit = refit
 
     @staticmethod
-    def _normalise_observations(X: ArrayLike) -> torch.Tensor:
+    def _normalise_observations(X: np.ndarray | torch.Tensor) -> torch.Tensor:
         """Return finite observations with shape ``(batch, time, variables)``."""
 
         data = torch.as_tensor(X)
@@ -175,7 +261,7 @@ class _TemporalOrderSearchCV(BaseEstimator):
             if means[index] <= threshold
         )
 
-    def _run_temporal_search(self, X: ArrayLike) -> _TemporalSearchSummary:
+    def _run_temporal_search(self, X: np.ndarray | torch.Tensor) -> _TemporalSearchSummary:
         """Execute the common fit-evaluate-aggregate-select-refit workflow."""
 
         orders = self._validate_common_settings()

@@ -6,11 +6,187 @@ from typing import Iterable, Literal
 
 import numpy as np
 import torch
+from sklearn.base import BaseEstimator
 
-from ._temporal_order_search import _TemporalOrderSearchCV
-from .linalg import stable_cholesky, spd_logdet
-from .selection import EpochTimeSeriesSplit, _information_criteria
-from .var import VAR
+from ._temporal import _TemporalOrderSearchCV, EpochTimeSeriesSplit
+from ..linalg import stable_cholesky, spd_logdet
+from ..var import VAR
+
+
+def _information_criteria(
+    loglik: float | np.ndarray,
+    n_parameters: int | np.ndarray,
+    n_observations: int | np.ndarray,
+    *,
+    hurvich_tsai: bool = False,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return MVGC2-compatible per-observation AIC, BIC and HQC."""
+    # Combine Gaussian residual log-likelihood with AIC, BIC, and HQC parameter penalties.
+    likelihood = np.asarray(loglik, dtype=float)
+    parameters = np.asarray(n_parameters, dtype=float)
+    observations = np.asarray(n_observations, dtype=float)
+    ratio = parameters / observations
+    if hurvich_tsai:
+        factor = observations / (observations - parameters - 1.0)
+        aic = -2.0 * likelihood + 2.0 * ratio * factor
+        aic = np.where(factor <= 0.0, np.nan, aic)
+    else:
+        aic = -2.0 * likelihood + 2.0 * ratio
+    bic = -2.0 * likelihood + ratio * np.log(observations)
+    hqc = -2.0 * likelihood + 2.0 * ratio * np.log(np.log(observations))
+    return aic, bic, hqc
+
+
+@dataclass(frozen=True)
+class VARInformationCriteriaResult:
+    """AIC, BIC and HQC curves and their minimizing VAR orders.
+
+    Notes
+    -----
+    Public fitted attributes use the trailing-underscore convention.
+    """
+    p_aic: int
+    p_bic: int
+    p_hqc: int
+    aic: np.ndarray
+    bic: np.ndarray
+    hqc: np.ndarray
+    loglik: np.ndarray
+    orders: tuple[int, ...]
+
+
+class VAROrderSelectionIC(BaseEstimator):
+    """MVGC2-compatible in-sample AIC/BIC/HQC order selection."""
+
+    def __init__(
+        self,
+        orders: Iterable[int] = range(1, 11),
+        *,
+        solver: str = "lwr",
+        hurvich_tsai: bool = False,
+        device: str = "auto",
+        dtype: str = "float64",
+        refit: str | None = "hqc",
+    ):
+        """Initialize the estimator or result container.
+
+        Parameters
+        ----------
+        orders
+            Candidate autoregressive orders.
+        solver
+            Numerical solver or estimation algorithm.
+        hurvich_tsai
+            Input required by this calculation.
+        device
+            Torch device or ``'auto'``.
+        dtype
+            Torch floating-point dtype name or object.
+        refit
+            Input required by this calculation.
+
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
+        self.orders = tuple(int(value) for value in orders)
+        self.solver = solver
+        self.hurvich_tsai = hurvich_tsai
+        self.device = device
+        self.dtype = dtype
+        self.refit = refit
+
+    def fit(self, X: np.ndarray | torch.Tensor, y=None):
+        """Fit fit from observations.
+
+        Parameters
+        ----------
+        X
+            Observations with shape ``(time, variables)`` or ``(batch, time, variables)``.
+        y
+            Unused scikit-learn compatibility target.
+
+        Returns
+        -------
+        object
+            The fitted estimator instance.
+
+        Notes
+        -----
+        Batch dimensions are preserved unless explicitly documented otherwise.
+        The implementation validates dimensional and positive-definiteness
+        requirements before executing the numerical core.
+        """
+        del y
+        if not self.orders or min(self.orders) < 1:
+            raise ValueError("orders must be positive")
+        data = torch.as_tensor(X)
+        if data.ndim == 2:
+            data = data.unsqueeze(0)
+        if data.ndim != 3:
+            raise ValueError("X must have shape (time,n) or (trials,time,n)")
+        n_trials, n_times, n_variables = data.shape
+        loglik = []
+        n_parameters = []
+        n_observations = []
+        fitted = {}
+        for order in self.orders:
+            estimator = VAR(
+                order=order,
+                solver=self.solver,
+                covariance="unbiased",
+                mode="pooled" if n_trials > 1 else "independent",
+                device=self.device,
+                dtype=self.dtype,
+                stability="ignore",
+            ).fit(data)
+            fitted[order] = estimator
+            covariance = estimator.noise_covariance_[0]
+            loglik.append(
+                -0.5
+                * (
+                    n_variables * np.log(2.0 * np.pi)
+                    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
+                    + float(spd_logdet(covariance))
+                    + n_variables
+                )
+            )
+            n_parameters.append(order * n_variables * n_variables)
+            n_observations.append(n_trials * (n_times - order))
+        likelihood = np.asarray(loglik)
+        aic, bic, hqc = _information_criteria(
+            likelihood,
+            np.asarray(n_parameters),
+            np.asarray(n_observations),
+            hurvich_tsai=self.hurvich_tsai,
+        )
+        result = VARInformationCriteriaResult(
+            self.orders[int(np.nanargmin(aic))],
+            self.orders[int(np.nanargmin(bic))],
+            self.orders[int(np.nanargmin(hqc))],
+            aic,
+            bic,
+            hqc,
+            likelihood,
+            self.orders,
+        )
+        self.result_ = result
+        self.p_aic_ = result.p_aic
+        self.p_bic_ = result.p_bic
+        self.p_hqc_ = result.p_hqc
+        self.aic_ = aic
+        self.bic_ = bic
+        self.hqc_ = hqc
+        self.loglik_ = likelihood
+        if self.refit is not None:
+            key = self.refit.lower()
+            if key not in {"aic", "bic", "hqc"}:
+                raise ValueError("refit must be None, 'aic', 'bic' or 'hqc'")
+            self.best_order_ = getattr(result, f"p_{key}")
+            self.best_estimator_ = fitted[self.best_order_]
+        return self
 
 
 @dataclass(frozen=True)
