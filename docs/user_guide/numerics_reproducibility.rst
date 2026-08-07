@@ -7,7 +7,8 @@ Torch-first numerical contract
 ComplexTorch treats numerical behavior as part of the scientific API. Where
 practical, calculations remain in Torch and preserve dtype, device, and leading
 batch dimensions. NumPy/SciPy conversion is reserved for explicitly documented
-reference backends such as ``solve_dare(..., backend="scipy")``.
+reference backends such as :func:`~complextorch.solve_dare` with
+``backend="scipy"``.
 
 Linear solves instead of explicit inverses
 ------------------------------------------
@@ -79,9 +80,15 @@ sampling frequency :math:`f_s`. For normalized cycles per sample,
 :math:`f_s=1`. Whole-band one-sided integrations should report whether the
 frequency grid includes the Nyquist endpoint.
 
-The shared ``integrate_spectral_rate`` primitive supports both endpoint-
-inclusive trapezoidal integration and the Faes/HOP half-open convention. PIRD's
-``half_open=True`` option is specifically intended for the latter.
+The shared :func:`~complextorch.integrate_spectral_rate` primitive supports both
+endpoint-inclusive trapezoidal integration and the Faes/HOP half-open
+convention. PIRD's ``half_open=True`` option is specifically intended for the
+latter.
+
+The default staged SSDI workflow uses 513 equally spaced normalized one-sided
+frequency points on :math:`[0,1/2]` when no explicit grid is supplied. This grid
+belongs to the optimization procedure and should be recorded independently of
+any later plotting grid.
 
 Reproducible analysis record
 ----------------------------
@@ -178,9 +185,37 @@ report the two or three source groups, target group, whether half-open
 integration was used, and whether interpretation refers to raw lattice atoms or
 the Faes/HOP coarse-grained unique/redundant/synergistic terms.
 
-For dynamical-dependence optimization, record the optimizer backend, objective
-(``proxy`` or ``spectral``), macro dimension, initial projections/restarts,
-random seed, convergence codes, and frequency or lag configuration.
+Dynamical-dependence configuration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For the default :func:`~complextorch.optimise_dynamical_dependence` staged SSDI
+workflow, report:
+
+- microscopic model representation and dimensions :math:`n` and :math:`m`;
+- optimizer backend;
+- whether initial projections were supplied or generated;
+- ``preoptimization_runs`` and ``random_seed`` when generated;
+- proxy ``lags`` configuration;
+- ``cluster_tolerance``;
+- explicit ``frequencies`` or ``frequency_points``;
+- ``preoptimization_max_iterations`` and ``spectral_max_iterations``;
+- ``preoptimizer_options`` and ``spectral_optimizer_options``;
+- proxy convergence/objective distribution;
+- number and sizes of Grassmann clusters;
+- final spectral convergence/objective distribution;
+- basis-invariant subspace distances when endpoints are compared.
+
+A staged result is represented by
+:class:`~complextorch.DDSSDIOptimizationResult`. Its convenience ``objective``
+and ``projection`` refer to the final spectral refinement, not to the proxy
+stage. If ``objective="proxy"`` or ``objective="spectral"`` was explicitly
+requested, record that the analysis used the single-stage API and report the
+corresponding :class:`~complextorch.DDOptimizationResult` instead.
+
+Do not use the optimizer ``runs`` dimension as a synonym for the independent
+trajectory batch dimension used during model fitting. DD optimization currently
+operates on one microscopic system at a time; ``runs`` indexes restart
+subspaces.
 
 Validation identities
 ---------------------
@@ -200,6 +235,12 @@ rates.
 For PIRD, additional useful conservation checks are that Möbius atoms
 reconstruct every redundancy function and that integrated atoms reconstruct the
 exact source-subset MIR quantities defined by the lattice.
+
+For DD/SSDI, verify row-orthonormality of returned projection representatives,
+finite objective values, and basis-invariant Grassmann comparisons when
+multiple minima are compared. When studying the staged workflow, proxy and
+spectral stages should be reported separately rather than collapsing their
+termination diagnostics into one number.
 
 For DARE-dependent measures, parity studies should state which DARE backend was
 used and compare against the documented reference backend where appropriate.
@@ -249,6 +290,18 @@ A compact record can use the following structure::
    frequencies: <definition>
    integration convention: <definition>
 
+   ssdi, when used:
+     macro dimension: <m>
+     optimizer: complexbox | riemannian_armijo
+     preoptimization runs: <value>
+     random seed: <value>
+     proxy lags: <value>
+     cluster tolerance: <value>
+     spectral frequencies: <definition>
+     preoptimization iterations: <ceiling>
+     spectral iterations: <ceiling>
+     retained clusters: <count and sizes>
+
 Repository references
 ---------------------
 
@@ -256,6 +309,8 @@ Repository references
 - ``src/complextorch/control.py``
 - ``src/complextorch/var.py``
 - ``src/complextorch/state_space.py``
+- ``src/complextorch/dd.py``
+- ``src/complextorch/dd_ssdi.py``
 - ``src/complextorch/selection/``
 - ``src/complextorch/measures/``
 - ``tests/``
