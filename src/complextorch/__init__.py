@@ -24,6 +24,7 @@ from .control import (
 from .dd import (
     DDObjective,
     DDOptimizationResult,
+    DDSSDIOptimizationResult,
     DDOptimizer,
     optimise_dynamical_dependence,
 )
@@ -127,6 +128,7 @@ __all__ = [
     "DDGradientSearchResult",
     "DDObjective",
     "DDOptimizationResult",
+    "DDSSDIOptimizationResult",
     "DDOptimizer",
     "HOPResult",
     "N4SID",
