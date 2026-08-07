@@ -42,6 +42,13 @@ from .measures.primary import (
     spectral_mvgc,
     temporal_mvgc,
 )
+from .measures.rates import (
+    gaussian_instantaneous_information_rate,
+    gaussian_mutual_information_rate,
+    gaussian_transfer_entropy_rate,
+    spectral_gaussian_mutual_information_rate,
+    spectral_gaussian_transfer_entropy_rate,
+)
 from .measures.secondary import (
     WhitenessResult,
     consistency,
@@ -80,6 +87,7 @@ from .simulate import (
     random_stable_var,
     simulate_var,
 )
+from .spectra import innovations_spectral_density, integrate_spectral_rate
 from .state_space import (
     N4SID,
     LarimoreStateSpace,
@@ -125,9 +133,14 @@ __all__ = [
     "dynamical_dependence",
     "from_complexbox_timeseries",
     "from_complexbox_var",
+    "gaussian_instantaneous_information_rate",
+    "gaussian_mutual_information_rate",
+    "gaussian_transfer_entropy_rate",
     "innovations_form",
     "innovations_proxy_sequence",
+    "innovations_spectral_density",
     "innovations_transfer_function",
+    "integrate_spectral_rate",
     "kalman_filter",
     "kalman_smoother",
     "model_autocovariances",
@@ -152,6 +165,8 @@ __all__ = [
     "solve_generalized_dare",
     "spectral_dynamical_dependence",
     "spectral_dynamical_dependence_gradient",
+    "spectral_gaussian_mutual_information_rate",
+    "spectral_gaussian_transfer_entropy_rate",
     "spectral_mvgc",
     "stochastic_interaction",
     "temporal_mvgc",
