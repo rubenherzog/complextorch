@@ -17,27 +17,18 @@ import torch
 from sklearn.base import BaseEstimator
 
 
-
 @dataclass(frozen=True)
 class TemporalFold:
-    """Indices delimiting one expanding-window temporal-validation fold.
+    """Indices delimiting one expanding-window temporal-validation fold."""
 
-    Notes
-    -----
-    Public fitted attributes use the trailing-underscore convention.
-    """
     train_stop: int
     test_start: int
     test_stop: int
 
 
 class EpochTimeSeriesSplit:
-    """Generate leakage-safe expanding-window splits for ordered observations.
+    """Generate leakage-safe expanding-window splits for ordered observations."""
 
-    Notes
-    -----
-    Public fitted attributes use the trailing-underscore convention.
-    """
     def __init__(
         self,
         n_splits: int = 5,
@@ -46,24 +37,23 @@ class EpochTimeSeriesSplit:
         min_train_size: int | None = None,
         gap: int = 0,
     ):
-        """Initialize the estimator or result container.
+        """Initialize temporal split settings.
 
         Parameters
         ----------
         n_splits
             Number of temporal validation folds.
         test_size
-            Number of held-out samples in each fold.
+            Number of held-out samples in each fold. If ``None``, choose a
+            deterministic size from the available time axis.
         min_train_size
-            Minimum number of samples in the first training window.
+            Minimum number of samples in the first training window. If
+            ``None``, choose the largest feasible expanding-window prefix that
+            still accommodates all requested folds.
         gap
-            Number of samples omitted between training and test windows.
-
-        Notes
-        -----
-        Batch dimensions are preserved unless explicitly documented otherwise.
-        The implementation validates dimensional and positive-definiteness
-        requirements before executing the numerical core.
+            Number of samples between each training prefix and scored test
+            block. Interpretation of these samples as warmup or embargo is
+            controlled by the estimator using the splitter.
         """
         self.n_splits = n_splits
         self.test_size = test_size
@@ -71,25 +61,20 @@ class EpochTimeSeriesSplit:
         self.gap = gap
 
     def split(self, n_times: int, *, min_order: int = 1):
-        """Split.
+        """Yield chronological expanding-window folds.
 
         Parameters
         ----------
         n_times
             Number of time samples.
         min_order
-            Largest lag that must fit inside every training window.
+            Minimum training requirement supplied by the model-specific search.
 
-        Returns
-        -------
-        object
-            Iterator of :class:`TemporalFold` objects in chronological order.
-
-        Notes
-        -----
-        Batch dimensions are preserved unless explicitly documented otherwise.
-        The implementation validates dimensional and positive-definiteness
-        requirements before executing the numerical core.
+        Yields
+        ------
+        TemporalFold
+            Training stop, test start, and test stop indices. No fold shuffles
+            or reorders observations.
         """
         if self.n_splits < 1 or self.gap < 0:
             raise ValueError("invalid split settings")
@@ -142,10 +127,15 @@ class _TemporalOrderSearchCV(BaseEstimator):
         gap_mode: GapMode,
         refit: bool,
     ) -> None:
-        """Store common constructor arguments without hidden mutation."""
+        """Store common constructor arguments without hidden mutation.
 
-        self.orders = tuple(int(order) for order in orders)
-        self.cv = cv or EpochTimeSeriesSplit()
+        scikit-learn estimators must retain constructor arguments exactly so
+        ``get_params`` and ``clone`` can reconstruct the estimator. Validation,
+        integer conversion, sorting, and default-splitter construction are
+        therefore deferred until ``fit``.
+        """
+        self.orders = orders
+        self.cv = cv
         self.scoring = scoring
         self.selection_rule = selection_rule
         self.prediction_mode = prediction_mode
@@ -155,7 +145,6 @@ class _TemporalOrderSearchCV(BaseEstimator):
     @staticmethod
     def _normalise_observations(X: np.ndarray | torch.Tensor) -> torch.Tensor:
         """Return finite observations with shape ``(batch, time, variables)``."""
-
         data = torch.as_tensor(X)
         if data.ndim == 2:
             data = data.unsqueeze(0)
@@ -170,8 +159,7 @@ class _TemporalOrderSearchCV(BaseEstimator):
 
     def _validate_common_settings(self) -> tuple[int, ...]:
         """Validate common public settings and return sorted unique orders."""
-
-        orders = tuple(sorted(set(self.orders)))
+        orders = tuple(sorted({int(order) for order in self.orders}))
         if not orders or orders[0] < 1:
             raise ValueError("orders must contain positive integers")
         if self.scoring not in {"nll", "rmse"}:
@@ -186,7 +174,6 @@ class _TemporalOrderSearchCV(BaseEstimator):
 
     def _minimum_training_size(self, orders: tuple[int, ...]) -> int:
         """Return model-specific minimum first-fold training length."""
-
         return max(orders)
 
     def _prepare_fold(
@@ -196,13 +183,12 @@ class _TemporalOrderSearchCV(BaseEstimator):
         orders: tuple[int, ...],
     ):
         """Build reusable training-fold state; implemented by subclasses."""
-
         raise NotImplementedError
 
-    def _evaluate_candidate(self, workspace, order: int, fold: TemporalFold) -> float:
+    def _evaluate_candidate(
+        self, workspace, order: int, fold: TemporalFold
+    ) -> float:
         """Fit and score one candidate; implemented by subclasses."""
-        # Fit each candidate on every training window and aggregate held-out predictive loss across folds.
-
         raise NotImplementedError
 
     def _fold_diagnostics(
@@ -218,13 +204,13 @@ class _TemporalOrderSearchCV(BaseEstimator):
 
     def _refit_best(self, data: torch.Tensor, order: int):
         """Fit the selected candidate on all observations."""
-
         raise NotImplementedError
 
     @staticmethod
-    def _aggregate_scores(fold_scores: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _aggregate_scores(
+        fold_scores: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Aggregate finite fold scores and count failures per candidate."""
-
         n_orders = fold_scores.shape[0]
         means = np.full(n_orders, np.inf, dtype=float)
         standard_errors = np.zeros(n_orders, dtype=float)
@@ -247,7 +233,6 @@ class _TemporalOrderSearchCV(BaseEstimator):
         standard_errors: np.ndarray,
     ) -> int:
         """Select the minimum-loss or one-standard-error candidate."""
-
         finite = np.flatnonzero(np.isfinite(means))
         if finite.size == 0:
             raise RuntimeError("all candidate orders failed")
@@ -261,13 +246,15 @@ class _TemporalOrderSearchCV(BaseEstimator):
             if means[index] <= threshold
         )
 
-    def _run_temporal_search(self, X: np.ndarray | torch.Tensor) -> _TemporalSearchSummary:
+    def _run_temporal_search(
+        self, X: np.ndarray | torch.Tensor
+    ) -> _TemporalSearchSummary:
         """Execute the common fit-evaluate-aggregate-select-refit workflow."""
-
         orders = self._validate_common_settings()
         data = self._normalise_observations(X)
+        splitter = self.cv if self.cv is not None else EpochTimeSeriesSplit()
         folds = tuple(
-            self.cv.split(
+            splitter.split(
                 data.shape[1],
                 min_order=self._minimum_training_size(orders),
             )
@@ -290,8 +277,8 @@ class _TemporalOrderSearchCV(BaseEstimator):
 
             for order_index, order in enumerate(orders):
                 try:
-                    fold_scores[order_index, fold_index] = self._evaluate_candidate(
-                        workspace, order, fold
+                    fold_scores[order_index, fold_index] = (
+                        self._evaluate_candidate(workspace, order, fold)
                     )
                 except self._expected_errors as error:
                     failures[(order, fold_index)] = str(error)
