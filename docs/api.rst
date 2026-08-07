@@ -1,203 +1,136 @@
 API reference
 =============
 
-This page documents the public ComplexTorch API directly with Sphinx autodoc.
-Functions and classes therefore expose a ``[source]`` link next to their
-signature through :mod:`sphinx.ext.viewcode`, without an intermediate generated
-API page.
+This page is a compact index of the public ComplexTorch API. Each row shows the
+public name, a short description derived from the live docstring, a link to the
+full generated documentation, and a direct link to the corresponding source
+code. The source link is pinned to the exact documentation build commit when
+Read the Docs provides it.
 
 VAR models and representations
 ------------------------------
 
-.. currentmodule:: complextorch
+.. api-table::
 
-.. autoclass:: VAR
-
-.. autoclass:: VARParameters
-
-.. autoclass:: VARSystem
-
-.. autofunction:: build_var_system
-
-.. autofunction:: companion_matrix
+   complextorch.VAR
+   complextorch.VARParameters
+   complextorch.VARSystem
+   complextorch.build_var_system
+   complextorch.companion_matrix
 
 State-space models
 ------------------
 
-.. autoclass:: StateSpaceModel
+.. api-table::
 
-.. autoclass:: InnovationsStateSpace
-
-.. autoclass:: N4SID
-
-.. autoclass:: LarimoreStateSpace
-
-.. autoclass:: LinearGaussianEM
-
-.. autofunction:: kalman_filter
-
-.. autofunction:: kalman_smoother
-
-.. autofunction:: innovations_form
-
-.. autofunction:: innovations_transfer_function
-
-.. autofunction:: var_to_innovations_state_space
-
-.. autofunction:: reduce_state_space
-
-.. autofunction:: reduce_innovations_state_space
-
-.. autofunction:: project_state_space
+   complextorch.StateSpaceModel
+   complextorch.InnovationsStateSpace
+   complextorch.N4SID
+   complextorch.LarimoreStateSpace
+   complextorch.LinearGaussianEM
+   complextorch.kalman_filter
+   complextorch.kalman_smoother
+   complextorch.innovations_form
+   complextorch.innovations_transfer_function
+   complextorch.var_to_innovations_state_space
+   complextorch.reduce_state_space
+   complextorch.reduce_innovations_state_space
+   complextorch.project_state_space
 
 Model selection
 ---------------
 
-.. autoclass:: EpochTimeSeriesSplit
+.. api-table::
 
-.. autoclass:: VAROrderSelectionIC
-
-.. autoclass:: VAROrderSearchCV
-
-.. autoclass:: VAROrderScore
-
-.. autoclass:: VAROrderSearchResult
-
-.. autoclass:: VARInformationCriteriaResult
-
-.. autoclass:: StateSpaceOrderSelection
-
-.. autoclass:: StateSpaceOrderSelectionResult
-
-.. autoclass:: StateSpaceOrderSearchCV
-
-.. autoclass:: StateSpaceOrderScore
-
-.. autoclass:: StateSpaceOrderSearchResult
+   complextorch.EpochTimeSeriesSplit
+   complextorch.VAROrderSelectionIC
+   complextorch.VAROrderSearchCV
+   complextorch.VAROrderScore
+   complextorch.VAROrderSearchResult
+   complextorch.VARInformationCriteriaResult
+   complextorch.StateSpaceOrderSelection
+   complextorch.StateSpaceOrderSelectionResult
+   complextorch.StateSpaceOrderSearchCV
+   complextorch.StateSpaceOrderScore
+   complextorch.StateSpaceOrderSearchResult
 
 Control and Riccati methods
 ---------------------------
 
-.. autofunction:: solve_dare
+.. api-table::
 
-.. autofunction:: solve_generalized_dare
-
-.. autoclass:: ProjectionSearchResult
-
-.. autofunction:: optimise_dynamical_dependence_projection
+   complextorch.solve_dare
+   complextorch.solve_generalized_dare
+   complextorch.ProjectionSearchResult
+   complextorch.optimise_dynamical_dependence_projection
 
 Dynamical-dependence optimization
 ---------------------------------
 
-:func:`optimise_dynamical_dependence` uses the canonical staged SSDI workflow
-when ``objective=None`` and returns :class:`DDSSDIOptimizationResult`. Explicit
-single-stage proxy or spectral optimization returns
-:class:`DDOptimizationResult`.
+:func:`~complextorch.optimise_dynamical_dependence` uses the canonical staged
+SSDI workflow when ``objective=None`` and returns
+:class:`~complextorch.DDSSDIOptimizationResult`. Explicit single-stage proxy or
+spectral optimization returns :class:`~complextorch.DDOptimizationResult`.
 
-.. autofunction:: optimise_dynamical_dependence
+.. api-table::
 
-.. autodata:: DDObjective
-
-.. autodata:: DDOptimizer
-
-.. autoclass:: DDOptimizationResult
-
-.. autoclass:: DDSSDIOptimizationResult
-
-.. autoclass:: DDGradientSearchResult
-
-.. autofunction:: dynamical_dependence
-
-.. autofunction:: stochastic_interaction
-
-.. autofunction:: innovations_proxy_sequence
-
-.. autofunction:: optimise_dynamical_dependence_proxy
-
-.. autofunction:: optimise_dynamical_dependence_spectral
-
-.. autofunction:: orthonormalise_projection
-
-.. autofunction:: proxy_dynamical_dependence
-
-.. autofunction:: proxy_dynamical_dependence_gradient
-
-.. autofunction:: spectral_dynamical_dependence
-
-.. autofunction:: spectral_dynamical_dependence_gradient
+   complextorch.optimise_dynamical_dependence
+   complextorch.DDObjective
+   complextorch.DDOptimizer
+   complextorch.DDOptimizationResult
+   complextorch.DDSSDIOptimizationResult
+   complextorch.DDGradientSearchResult
+   complextorch.dynamical_dependence
+   complextorch.stochastic_interaction
+   complextorch.innovations_proxy_sequence
+   complextorch.optimise_dynamical_dependence_proxy
+   complextorch.optimise_dynamical_dependence_spectral
+   complextorch.orthonormalise_projection
+   complextorch.proxy_dynamical_dependence
+   complextorch.proxy_dynamical_dependence_gradient
+   complextorch.spectral_dynamical_dependence
+   complextorch.spectral_dynamical_dependence_gradient
 
 Model-derived measures
 ----------------------
 
-.. autoclass:: ModelMeasureConfig
+.. api-table::
 
-.. autoclass:: ModelMeasureContext
-
-.. autofunction:: build_measure_context
-
-.. autofunction:: compute_all_model_measures
-
-.. autofunction:: model_autocovariances
-
-.. autofunction:: temporal_mvgc
-
-.. autofunction:: spectral_mvgc
-
-.. autofunction:: gaussian_mutual_information_rate
-
-.. autofunction:: gaussian_transfer_entropy_rate
-
-.. autofunction:: gaussian_instantaneous_information_rate
-
-.. autofunction:: spectral_gaussian_mutual_information_rate
-
-.. autofunction:: spectral_gaussian_transfer_entropy_rate
-
-.. autofunction:: o_information_rate
-
-.. autofunction:: spectral_o_information_rate
-
-.. autofunction:: delta_o_information_rate
-
-.. autofunction:: spectral_delta_o_information_rate
-
-.. autofunction:: partial_information_rate_decomposition
-
-.. autofunction:: spectral_partial_information_rate_decomposition
-
-.. autoclass:: PIRDResult
-
-.. autoclass:: SpectralPIRDResult
-
-.. autofunction:: partial_granger_causality_decomposition
-
-.. autofunction:: spectral_partial_granger_causality_decomposition
-
-.. autoclass:: PDGCResult
-
-.. autoclass:: SpectralPDGCResult
-
-.. autofunction:: hop_analysis
-
-.. autofunction:: spectral_hop_analysis
-
-.. autoclass:: HOPResult
-
-.. autoclass:: SpectralHOPResult
-
-.. autofunction:: phiid_from_model
-
-.. autofunction:: phiid_redundancy_from_model
-
-.. autoclass:: WhitenessResult
-
-.. autofunction:: residual_whiteness
-
-.. autofunction:: consistency
-
-.. autofunction:: mvgc_pvalue
-
-.. autofunction:: significance
+   complextorch.ModelMeasureConfig
+   complextorch.ModelMeasureContext
+   complextorch.build_measure_context
+   complextorch.compute_all_model_measures
+   complextorch.model_autocovariances
+   complextorch.temporal_mvgc
+   complextorch.spectral_mvgc
+   complextorch.gaussian_mutual_information_rate
+   complextorch.gaussian_transfer_entropy_rate
+   complextorch.gaussian_instantaneous_information_rate
+   complextorch.spectral_gaussian_mutual_information_rate
+   complextorch.spectral_gaussian_transfer_entropy_rate
+   complextorch.o_information_rate
+   complextorch.spectral_o_information_rate
+   complextorch.delta_o_information_rate
+   complextorch.spectral_delta_o_information_rate
+   complextorch.partial_information_rate_decomposition
+   complextorch.spectral_partial_information_rate_decomposition
+   complextorch.PIRDResult
+   complextorch.SpectralPIRDResult
+   complextorch.partial_granger_causality_decomposition
+   complextorch.spectral_partial_granger_causality_decomposition
+   complextorch.PDGCResult
+   complextorch.SpectralPDGCResult
+   complextorch.hop_analysis
+   complextorch.spectral_hop_analysis
+   complextorch.HOPResult
+   complextorch.SpectralHOPResult
+   complextorch.phiid_from_model
+   complextorch.phiid_redundancy_from_model
+   complextorch.WhitenessResult
+   complextorch.residual_whiteness
+   complextorch.consistency
+   complextorch.mvgc_pvalue
+   complextorch.significance
 
 Gaussian covariance primitives
 ------------------------------
@@ -205,89 +138,60 @@ Gaussian covariance primitives
 These public primitives live in :mod:`complextorch.measures` and are useful
 when the covariance matrix itself is the scientific input.
 
-.. currentmodule:: complextorch.measures
+.. api-table::
 
-.. autofunction:: conditional_covariance
-
-.. autofunction:: gaussian_conditional_mutual_information
-
-.. autofunction:: total_correlation
-
-.. autofunction:: dual_total_correlation
-
-.. autofunction:: o_information
-
-.. autofunction:: s_information
-
-.. autofunction:: local_gaussian_mutual_information
+   complextorch.measures.conditional_covariance
+   complextorch.measures.gaussian_conditional_mutual_information
+   complextorch.measures.total_correlation
+   complextorch.measures.dual_total_correlation
+   complextorch.measures.o_information
+   complextorch.measures.s_information
+   complextorch.measures.local_gaussian_mutual_information
 
 Dynamics and additional measure primitives
 ------------------------------------------
 
-.. autofunction:: entropy_rate
+.. api-table::
 
-.. autofunction:: predictive_information
-
-.. autofunction:: active_information_storage
-
-.. autofunction:: transfer_function
-
-.. autofunction:: inverse_transfer_function
-
-.. autofunction:: cross_spectral_density
-
-.. autofunction:: spectral_entropy
-
-.. autofunction:: state_space_temporal_mvgc
-
-.. autofunction:: pairwise_spectral_gc
-
-.. autofunction:: emergence_measures
-
-.. autofunction:: emergence_from_observations
-
-.. autofunction:: covariance_amplification
-
-.. autofunction:: dominant_timescale
-
-.. autofunction:: stability_margin
-
-.. autofunction:: gaussian_phiid_mmi
-
-.. autofunction:: gaussian_phiid_atoms
+   complextorch.measures.entropy_rate
+   complextorch.measures.predictive_information
+   complextorch.measures.active_information_storage
+   complextorch.measures.transfer_function
+   complextorch.measures.inverse_transfer_function
+   complextorch.measures.cross_spectral_density
+   complextorch.measures.spectral_entropy
+   complextorch.measures.state_space_temporal_mvgc
+   complextorch.measures.pairwise_spectral_gc
+   complextorch.measures.emergence_measures
+   complextorch.measures.emergence_from_observations
+   complextorch.measures.covariance_amplification
+   complextorch.measures.dominant_timescale
+   complextorch.measures.stability_margin
+   complextorch.measures.gaussian_phiid_mmi
+   complextorch.measures.gaussian_phiid_atoms
 
 Simulation, spectra, and multiscale utilities
 ---------------------------------------------
 
-.. currentmodule:: complextorch
+.. api-table::
 
-.. autofunction:: automatic_burnin
-
-.. autofunction:: simulate_var
-
-.. autofunction:: demo_var
-
-.. autofunction:: random_stable_var
-
-.. autofunction:: random_correlation_matrix
-
-.. autofunction:: random_positive_definite_covariance
-
-.. autofunction:: innovations_spectral_density
-
-.. autofunction:: integrate_spectral_rate
-
-.. autofunction:: downsample_innovations_state_space
-
-.. autofunction:: varma_to_innovations_state_space
+   complextorch.automatic_burnin
+   complextorch.simulate_var
+   complextorch.demo_var
+   complextorch.random_stable_var
+   complextorch.random_correlation_matrix
+   complextorch.random_positive_definite_covariance
+   complextorch.innovations_spectral_density
+   complextorch.integrate_spectral_rate
+   complextorch.downsample_innovations_state_space
+   complextorch.varma_to_innovations_state_space
 
 Adapters
 --------
 
-.. autofunction:: from_complexbox_timeseries
+.. api-table::
 
-.. autofunction:: to_complexbox_timeseries
-
-.. autofunction:: from_complexbox_var
-
-.. autofunction:: to_complexbox_var
+   complextorch.from_complexbox_timeseries
+   complextorch.to_complexbox_timeseries
+   complextorch.from_complexbox_var
+   complextorch.to_complexbox_var
