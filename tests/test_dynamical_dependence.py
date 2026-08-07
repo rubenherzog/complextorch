@@ -1,6 +1,7 @@
 """Equation-level regression tests for dynamical dependence."""
 
 import numpy as np
+import pytest
 import torch
 from scipy.linalg import solve_discrete_are
 
@@ -47,7 +48,12 @@ def test_dynamical_dependence_matches_independent_dare_reference():
     projection = torch.tensor([[1.0, 0.35]], dtype=torch.float64)
     expected = _reference_dd(system, projection)
     actual = dynamical_dependence(system, projection)
-    torch.testing.assert_close(actual, torch.tensor(expected, dtype=actual.dtype), rtol=1e-8, atol=1e-10)
+    torch.testing.assert_close(
+        actual,
+        torch.tensor(expected, dtype=actual.dtype),
+        rtol=1e-8,
+        atol=1e-10,
+    )
 
 
 def test_dynamical_dependence_identity_projection_is_zero():
@@ -55,6 +61,13 @@ def test_dynamical_dependence_identity_projection_is_zero():
     system = _iss_fixture()
     projection = torch.eye(2, dtype=torch.float64)
     actual = dynamical_dependence(system, projection)
+    torch.testing.assert_close(actual, torch.zeros_like(actual), rtol=0.0, atol=1e-10)
+
+
+def test_dynamical_dependence_omitted_projection_is_identity_compatibility():
+    """The legacy no-projection call is the mathematically valid identity case."""
+    system = _iss_fixture()
+    actual = dynamical_dependence(system)
     torch.testing.assert_close(actual, torch.zeros_like(actual), rtol=0.0, atol=1e-10)
 
 
@@ -69,6 +82,30 @@ def test_dynamical_dependence_is_invariant_to_macro_basis_change():
         rtol=1e-8,
         atol=1e-10,
     )
+
+
+def test_dynamical_dependence_batches_projection_candidates():
+    """Independent projection candidates share the model without being pooled."""
+    system = _iss_fixture()
+    projections = torch.tensor(
+        [[[1.0, 0.35]], [[0.20, 1.0]]], dtype=torch.float64
+    )
+    batched = dynamical_dependence(system, projections)
+    expected = torch.stack(
+        [dynamical_dependence(system, projection) for projection in projections]
+    )
+    assert batched.shape == (2,)
+    torch.testing.assert_close(batched, expected, rtol=1e-9, atol=1e-11)
+
+
+def test_dynamical_dependence_preserves_float32_dtype():
+    """Torch dtype is preserved through the iterative generalized DARE path."""
+    system = _iss_fixture(torch.float32)
+    projection = torch.tensor([[1.0, 0.35]], dtype=torch.float32)
+    value = dynamical_dependence(system, projection)
+    assert value.dtype == torch.float32
+    assert value.device == system.observation.device
+    assert torch.isfinite(value)
 
 
 def test_dynamical_dependence_var_detects_hidden_predictive_input():
@@ -114,3 +151,18 @@ def test_dynamical_dependence_log_base_only_changes_units():
     nats = dynamical_dependence(system, projection)
     bits = dynamical_dependence(system, projection, base=2.0)
     torch.testing.assert_close(bits, nats / np.log(2.0), rtol=1e-10, atol=1e-12)
+
+
+@pytest.mark.parametrize("base", [0.0, 1.0, -2.0, float("inf"), float("nan")])
+def test_dynamical_dependence_rejects_invalid_log_base(base):
+    """Information units require a finite positive logarithm base other than one."""
+    with pytest.raises(ValueError, match="base"):
+        dynamical_dependence(_iss_fixture(), torch.eye(2, dtype=torch.float64), base=base)
+
+
+def test_dynamical_dependence_rejects_projection_shape_mismatch():
+    """Projection columns must match the microscopic observation dimension."""
+    with pytest.raises(ValueError, match="observation dimension"):
+        dynamical_dependence(
+            _iss_fixture(), torch.ones((1, 3), dtype=torch.float64)
+        )
