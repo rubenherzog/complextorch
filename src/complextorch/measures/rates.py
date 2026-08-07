@@ -1,7 +1,7 @@
 """Gaussian temporal and spectral information-rate primitives.
 
 These functions implement the bivariate block quantities used by Faes OIR/HOP
-without introducing any O-information or PID public API.  Temporal rates are
+without introducing any O-information or PID public API. Temporal rates are
 computed directly from reduced innovations covariances; spectral rates are
 computed independently from spectral-density/transfer-function identities.
 """
@@ -18,16 +18,18 @@ from ..control import (
 )
 from ..linalg import spd_logdet
 from ..spectra import hermitian_logdet, hermitian_part, innovations_spectral_density
+from ._nested_var import normalise_indices
 
 
 def _normalise_group(indices, n_observations: int, *, name: str) -> tuple[int, ...]:
-    group = tuple(int(index) for index in indices)
-    if not group:
-        raise ValueError(f"{name} must contain at least one index")
-    if len(set(group)) != len(group):
+    """Return a validated non-empty group while rejecting duplicate indices."""
+    raw = (indices,) if isinstance(indices, int) else tuple(indices)
+    try:
+        group = normalise_indices(raw, n_observations)
+    except IndexError as exc:
+        raise ValueError(f"{name} contains an out-of-range index") from exc
+    if len(group) != len(raw):
         raise ValueError(f"{name} must not contain duplicate indices")
-    if min(group) < 0 or max(group) >= n_observations:
-        raise ValueError(f"{name} contains an out-of-range index")
     return group
 
 
@@ -36,6 +38,7 @@ def _normalise_pair(
     left,
     right,
 ) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """Validate two non-overlapping observation groups."""
     n_observations = system.observation.shape[-2]
     left_group = _normalise_group(left, n_observations, name="left")
     right_group = _normalise_group(right, n_observations, name="right")
@@ -63,6 +66,20 @@ def gaussian_mutual_information_rate(
 
     where each ``V`` is the innovations covariance of the corresponding exact
     marginal process.
+
+    Parameters
+    ----------
+    system
+        Exact innovations-form process.
+    left, right
+        Disjoint non-empty observation-index groups.
+    base
+        Logarithm base. Defaults to natural units.
+
+    Returns
+    -------
+    torch.Tensor
+        Scalar for an unbatched system or one value per batch element.
     """
     if base <= 0 or base == 1:
         raise ValueError("base must be positive and different from one")
@@ -94,6 +111,20 @@ def gaussian_transfer_entropy_rate(
        \dot T_{S\to T}=\frac12\log\frac{|V_T^R|}{|V_T|}.
 
     This is one half of time-domain Gaussian Granger causality.
+
+    Parameters
+    ----------
+    system
+        Exact innovations-form process.
+    source, target
+        Disjoint non-empty observation-index groups.
+    base
+        Logarithm base. Defaults to natural units.
+
+    Returns
+    -------
+    torch.Tensor
+        Scalar for an unbatched system or one value per batch element.
     """
     if base <= 0 or base == 1:
         raise ValueError("base must be positive and different from one")
@@ -123,6 +154,20 @@ def gaussian_instantaneous_information_rate(
 
        \dot I_{X\circ Y}=\frac12\log
        \frac{|V_{XX}|\,|V_{YY}|}{|V|}.
+
+    Parameters
+    ----------
+    system
+        Exact innovations-form process.
+    left, right
+        Disjoint non-empty observation-index groups.
+    base
+        Logarithm base. Defaults to natural units.
+
+    Returns
+    -------
+    torch.Tensor
+        Scalar for an unbatched system or one value per batch element.
     """
     if base <= 0 or base == 1:
         raise ValueError("base must be positive and different from one")
@@ -157,6 +202,24 @@ def spectral_gaussian_mutual_information_rate(
 
     This is the ``f12`` quantity in Faes ``hop_fdTE.m`` after its ``0.5``
     conversion from the OIR coupling convention.
+
+    Parameters
+    ----------
+    system
+        Exact innovations-form process.
+    left, right
+        Disjoint non-empty observation-index groups.
+    frequencies
+        One-dimensional frequency grid in cycles per unit time.
+    sampling_frequency
+        Sampling frequency associated with ``frequencies``.
+    base
+        Logarithm base. Defaults to natural units.
+
+    Returns
+    -------
+    torch.Tensor
+        Spectral rate density on the final frequency axis.
     """
     if base <= 0 or base == 1:
         raise ValueError("base must be positive and different from one")
@@ -196,6 +259,24 @@ def spectral_gaussian_transfer_entropy_rate(
 
     The frequency integral is independently testable against
     :func:`gaussian_transfer_entropy_rate`.
+
+    Parameters
+    ----------
+    system
+        Exact innovations-form process.
+    source, target
+        Disjoint non-empty observation-index groups.
+    frequencies
+        One-dimensional frequency grid in cycles per unit time.
+    sampling_frequency
+        Sampling frequency associated with ``frequencies``.
+    base
+        Logarithm base. Defaults to natural units.
+
+    Returns
+    -------
+    torch.Tensor
+        Spectral transfer-entropy density on the final frequency axis.
     """
     if base <= 0 or base == 1:
         raise ValueError("base must be positive and different from one")
