@@ -1,91 +1,18 @@
-name: finalize-selection-review
+name: tests
 on:
   push:
-permissions:
-  contents: write
+  pull_request:
 jobs:
-  finalize:
+  cpu:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10","3.12"]
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: refactor/selection-architecture
-          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e ".[dev]"
-      - name: Fix Bauer diagnostic candidate domain and add regression
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          source = Path('src/complextorch/selection/selection_state_space.py')
-          text = source.read_text(encoding='utf-8')
-          old = 'lower = max(n_variables, min(orders))'
-          count = text.count(old)
-          if count != 2:
-              raise SystemExit(f'expected two Bauer lower-bound sites, found {count}')
-          text = text.replace(old, 'lower = min(orders)')
-          source.write_text(text, encoding='utf-8')
-
-          test = Path('tests/test_state_space_order_search_cv.py')
-          text = test.read_text(encoding='utf-8')
-          marker = 'def test_bauer_diagnostics_allow_order_below_observation_dimension():'
-          if marker not in text:
-              insertion = '''\n\ndef test_bauer_diagnostics_allow_order_below_observation_dimension():\n    \"\"\"Fold diagnostics use the same Bauer candidate domain as selection.\"\"\"\n\n    search = StateSpaceOrderSearchCV(\n        orders=(1, 2, 3),\n        past_horizon=2,\n        refit=False,\n    )\n    search._begin_diagnostics(n_orders=3, n_folds=1)\n    decomposition = SimpleNamespace(\n        values=torch.zeros(1, 20, 3, dtype=torch.float64),\n        correlations=torch.tensor(\n            [[0.44, 0.09, 0.08, 0.07]], dtype=torch.float64\n        ),\n        n_columns=6000,\n        batch=1,\n    )\n    workspace = {\"decomposition\": decomposition}\n\n    search._fold_diagnostics(workspace, (1, 2, 3), fold_index=0)\n\n    assert np.isfinite(search._bauer_scores[0, 0])\n    assert search._bauer_orders[0] == 1\n'''
-              anchor = '\ndef test_gap_samples_do_not_enter_validation_score_directly():'
-              if anchor not in text:
-                  raise SystemExit('test insertion anchor not found')
-              text = text.replace(anchor, insertion + anchor, 1)
-              test.write_text(text, encoding='utf-8')
-          PY
-      - name: Validate touched architecture
-        run: |
-          ruff check \
-            src/complextorch/__init__.py \
-            src/complextorch/_subspace.py \
-            src/complextorch/adapters.py \
-            src/complextorch/measures/__init__.py \
-            src/complextorch/measures/_nested_var.py \
-            src/complextorch/measures/mvgc.py \
-            src/complextorch/selection \
-            src/complextorch/state_space.py \
-            src/complextorch/var.py \
-            tests/test_state_space_model_order.py \
-            tests/test_state_space_order_search_cv.py \
-            tests/test_temporal_order_search_shared.py
-          python -m compileall -q src/complextorch
-          pytest -q
-      - name: Restore standard workflow and commit reviewed tree
-        run: |
-          cat > .github/workflows/tests.yml <<'EOF'
-          name: tests
-          on:
-            push:
-            pull_request:
-          jobs:
-            cpu:
-              runs-on: ubuntu-latest
-              strategy:
-                matrix:
-                  python-version: ["3.10","3.12"]
-              steps:
-                - uses: actions/checkout@v4
-                - uses: actions/setup-python@v5
-                  with:
-                    python-version: ${{ matrix.python-version }}
-                - run: python -m pip install --upgrade pip
-                - run: python -m pip install -e ".[dev]"
-                - run: pytest -q
-          EOF
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- \
-            src/complextorch/selection/selection_state_space.py \
-            tests/test_state_space_order_search_cv.py \
-            .github/workflows/tests.yml
-          git diff --cached --check
-          git commit -m "Align Bauer diagnostics with latent-order domain"
-          git push origin HEAD:refactor/selection-architecture
+      - run: pytest -q
