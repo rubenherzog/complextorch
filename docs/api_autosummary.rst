@@ -116,6 +116,12 @@ from :doc:`api`.
    ~complextorch.measures.stability_margin
    ~complextorch.measures.gaussian_phiid_mmi
    ~complextorch.measures.gaussian_phiid_atoms
+   ~complextorch.available_synthetic_systems
+   ~complextorch.synthetic_system_parameters
+   ~complextorch.synthetic_transition_matrix
+   ~complextorch.equicorrelated_innovation_covariance
+   ~complextorch.planted_module_projection
+   ~complextorch.synthetic_var
    ~complextorch.automatic_burnin
    ~complextorch.simulate_var
    ~complextorch.demo_var
