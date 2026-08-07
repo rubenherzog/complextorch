@@ -27,7 +27,7 @@ from ._model_comparison import fit_nested_var_models, residual_target_covariance
 from .dynamics import transfer_function, cross_spectral_density
 
 
-def temporal_mvgc(observations: torch.Tensor, order: int, source, target, *, conditional=(), base: float = math.e, **var_kwargs) -> torch.Tensor:
+def temporal_mvgc(observations: torch.Tensor, order: int, source, target, *, conditional=None, base: float = math.e, **var_kwargs) -> torch.Tensor:
     """Compute conditional time-domain multivariate Granger causality.
     
     .. math::
@@ -46,7 +46,7 @@ def temporal_mvgc(observations: torch.Tensor, order: int, source, target, *, con
     return logdet_ratio(reduced_cov, full_cov, base=base)
 
 
-def spectral_mvgc(observations: torch.Tensor, order: int, source, target, frequencies: torch.Tensor, *, conditional=(), base: float = math.e, **var_kwargs) -> torch.Tensor:
+def spectral_mvgc(observations: torch.Tensor, order: int, source, target, frequencies: torch.Tensor, *, conditional=None, base: float = math.e, **var_kwargs) -> torch.Tensor:
     """Compute conditional spectral multivariate Granger causality.
     
     The frequency-resolved decomposition is obtained from innovations-form transfer
@@ -91,7 +91,7 @@ def _as_innovations(system: VARSystem | InnovationsStateSpace) -> InnovationsSta
     return var_to_innovations_state_space(system) if isinstance(system, VARSystem) else system
 
 
-def _normalise_partition(system: InnovationsStateSpace, target, source, conditional=()):
+def _normalise_partition(system: InnovationsStateSpace, target, source, conditional=None):
     """Normalise partition.
     
     Parameters
@@ -119,8 +119,17 @@ def _normalise_partition(system: InnovationsStateSpace, target, source, conditio
     n_variables = system.observation.shape[-2]
     target = normalise_indices(target, n_variables)
     source = normalise_indices(source, n_variables)
-    conditional = normalise_indices(conditional, n_variables) if conditional else ()
-    if set(target) & set(source) or set(target) & set(conditional) or set(source) & set(conditional):
+    if set(target) & set(source):
+        raise ValueError("target and source sets must be disjoint")
+    if conditional is None:
+        conditional = tuple(
+            index for index in range(n_variables) if index not in target and index not in source
+        )
+    elif len(tuple(conditional)) == 0:
+        conditional = ()
+    else:
+        conditional = normalise_indices(conditional, n_variables)
+    if set(target) & set(conditional) or set(source) & set(conditional):
         raise ValueError("target, source and conditional sets must be pairwise disjoint")
     return target, source, conditional
 
@@ -187,7 +196,7 @@ def state_space_temporal_mvgc(
     source,
     target,
     *,
-    conditional=(),
+    conditional=None,
     base: float = math.e,
 ) -> torch.Tensor:
     """Exact conditional GC from one full model and DARE-derived marginals."""
@@ -202,28 +211,140 @@ def state_space_temporal_mvgc(
     return (spd_logdet(reduced_covariance) - spd_logdet(full_covariance)) / math.log(base)
 
 
+def _partial_covariance(
+    covariance: torch.Tensor,
+    variables,
+    conditioned,
+) -> torch.Tensor:
+    """Return ``Cov(variables | conditioned)`` by an SPD Schur complement."""
+    variable_index = torch.as_tensor(tuple(variables), dtype=torch.long, device=covariance.device)
+    conditioned_index = torch.as_tensor(tuple(conditioned), dtype=torch.long, device=covariance.device)
+    vv = covariance.index_select(-2, variable_index).index_select(-1, variable_index)
+    if conditioned_index.numel() == 0:
+        return _hermitian(vv)
+    vc = covariance.index_select(-2, variable_index).index_select(-1, conditioned_index)
+    cc = covariance.index_select(-2, conditioned_index).index_select(-1, conditioned_index)
+    identity = torch.eye(cc.shape[-1], dtype=cc.dtype, device=cc.device).expand_as(cc)
+    conditional = vv - vc @ spd_solve(cc, identity) @ vc.transpose(-1, -2)
+    return _hermitian(conditional)
+
+
+def _innovations_inverse_transfer_function(
+    system: InnovationsStateSpace,
+    frequencies: torch.Tensor,
+) -> torch.Tensor:
+    """Evaluate ``H(z)^{-1}=I-C(zI-(A-KC))^{-1}K``."""
+    transition = system.transition
+    observation = system.observation
+    gain = system.gain
+    single = transition.ndim == 2
+    if single:
+        transition = transition.unsqueeze(0)
+        observation = observation.unsqueeze(0)
+        gain = gain.unsqueeze(0)
+    batch = max(x.shape[0] for x in (transition, observation, gain))
+    transition, observation, gain = [
+        x.expand(batch, *x.shape[1:]) if x.shape[0] == 1 else x
+        for x in (transition, observation, gain)
+    ]
+    frequencies = torch.as_tensor(
+        frequencies, dtype=transition.dtype, device=transition.device
+    )
+    complex_dtype = torch.complex128 if transition.dtype == torch.float64 else torch.complex64
+    a = transition.to(complex_dtype)
+    c = observation.to(complex_dtype)
+    k = gain.to(complex_dtype)
+    closed_loop = a - k @ c
+    state_identity = torch.eye(a.shape[-1], dtype=complex_dtype, device=a.device)
+    observation_identity = torch.eye(c.shape[-2], dtype=complex_dtype, device=a.device)
+    z = torch.exp(2j * torch.pi * frequencies).reshape(1, -1, 1, 1)
+    resolvent = torch.linalg.solve(
+        z * state_identity - closed_loop[:, None], k[:, None]
+    )
+    inverse = observation_identity - c[:, None] @ resolvent
+    return inverse[0] if single else inverse
+
+
 def state_space_spectral_mvgc(
     system: VARSystem | InnovationsStateSpace,
     source,
     target,
     frequencies: torch.Tensor,
     *,
-    conditional=(),
+    conditional=None,
     base: float = math.e,
 ) -> torch.Tensor:
-    """Exact conditional spectral GC using state-space marginalisation.
+    """Exact conditional spectral GC using the Geweke/MVGC construction.
 
-    Conditional source→target|conditional is computed as
-    joint(source,conditional)→target minus conditional→target. Both terms are
-    derived from the same full innovations model through generalized DAREs.
+    By default, ``conditional=None`` follows the ComplexBox/MVGC convention and
+    conditions on all variables not listed in ``target`` or ``source``. Pass
+    ``conditional=()`` explicitly to marginalise those variables and compute an
+    unconditioned source-to-target spectrum.
+
+    For the partition ``X=target``, ``Y=source`` and ``Z=conditional``, the
+    full process is first marginalised to ``(X,Z,Y)``. A reduced innovations
+    model for ``(X,Z)`` is then obtained by the generalized DARE. At each
+    frequency,
+
+    .. math::
+
+       f_{Y\to X\mid Z}(\omega)
+       = \log\frac{\det \Sigma^R_{XX}}
+       {\det(\Sigma^R_{XX}-Q(\omega)Q(\omega)^*)},
+
+    where ``Q = B^R_{X,:} H_{(X,Z),(Y,Z)} P``; ``B^R`` is the inverse
+    transfer function of the reduced model and ``P P^T`` is the partial
+    covariance of the full innovations ``(Y,Z)`` conditioned on ``X``.
     """
     innovations = _as_innovations(system)
     target, source, conditional = _normalise_partition(innovations, target, source, conditional)
-    joint, _ = _joint_state_space_spectral_gc(innovations, target, source + conditional, frequencies, base=base)
-    if not conditional:
-        return joint
-    conditioning, _ = _joint_state_space_spectral_gc(innovations, target, conditional, frequencies, base=base)
-    return joint - conditioning
+
+    full = reduce_innovations_state_space(
+        innovations, target + conditional + source
+    )
+    n_target = len(target)
+    n_conditional = len(conditional)
+    n_source = len(source)
+    target_pos = tuple(range(n_target))
+    conditional_pos = tuple(range(n_target, n_target + n_conditional))
+    source_pos = tuple(range(n_target + n_conditional, n_target + n_conditional + n_source))
+    reduced_pos = target_pos + conditional_pos
+    driver_pos = source_pos + conditional_pos
+
+    reduced = reduce_innovations_state_space(full, reduced_pos)
+    full_transfer = innovations_transfer_function(full, frequencies)
+    reduced_inverse = _innovations_inverse_transfer_function(reduced, frequencies)
+
+    full_covariance = full.innovation_covariance
+    reduced_covariance = reduced.innovation_covariance
+    single = full_transfer.ndim == 3
+    if single:
+        full_transfer = full_transfer.unsqueeze(0)
+        reduced_inverse = reduced_inverse.unsqueeze(0)
+        full_covariance = full_covariance.unsqueeze(0)
+        reduced_covariance = reduced_covariance.unsqueeze(0)
+
+    reduced_target_covariance = reduced_covariance[..., :n_target, :n_target]
+    partial = _partial_covariance(full_covariance, driver_pos, target_pos)
+    partial_cholesky = torch.linalg.cholesky(partial)
+
+    reduced_rows = torch.as_tensor(reduced_pos, dtype=torch.long, device=full_transfer.device)
+    driver_columns = torch.as_tensor(driver_pos, dtype=torch.long, device=full_transfer.device)
+    full_rw = full_transfer.index_select(-2, reduced_rows).index_select(-1, driver_columns)
+    inverse_x = reduced_inverse[..., :n_target, :]
+    q = inverse_x @ full_rw @ partial_cholesky[:, None].to(full_transfer.dtype)
+    correction = q @ q.conj().transpose(-1, -2)
+    denominator = _hermitian(
+        reduced_target_covariance[:, None].to(full_transfer.dtype) - correction
+    )
+    numerator = reduced_target_covariance[:, None].expand(
+        -1, denominator.shape[1], -1, -1
+    )
+    value = (
+        torch.linalg.slogdet(numerator).logabsdet
+        - torch.linalg.slogdet(denominator).logabsdet
+    ) / math.log(base)
+    return value[0] if single else value
 
 
 def integrate_spectral_mvgc(values: torch.Tensor, frequencies: torch.Tensor) -> torch.Tensor:

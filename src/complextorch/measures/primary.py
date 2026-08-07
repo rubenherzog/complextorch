@@ -56,7 +56,7 @@ class ModelMeasureConfig:
     cmem_decomposition_max_lag: int = 1
     source: tuple[int, ...] | None = None
     target: tuple[int, ...] | None = None
-    conditional: tuple[int, ...] = ()
+    conditional: tuple[int, ...] | None = None
     phiid_variables: tuple[int, int] | None = None
     phiid_lag: int = 1
     macro_projection: torch.Tensor | None = None
@@ -241,7 +241,7 @@ def pairwise_gaussian_mutual_information(
     )
     for left in range(n_variables):
         for right in range(left + 1, n_variables):
-            index = torch.tensor([left, right], dtype=torch.long, device=covariance.device)
+            index = torch.as_tensor([left, right], dtype=torch.long, device=covariance.device)
             value = gaussian_mutual_information(
                 covariance.index_select(-2, index).index_select(-1, index),
                 1,
@@ -391,15 +391,15 @@ def temporal_mvgc(
     source,
     target,
     *,
-    conditional=(),
+    conditional=None,
     base: float = math.e,
 ) -> torch.Tensor:
     """Compute conditional time-domain multivariate Granger causality.
     
     .. math::
     
-       F_{Y\to X\mid Z}
-       =\log\frac{\det\Sigma^{R}_{XX}}{\det\Sigma_{XX}}.
+       F_{Y\\to X\\mid Z}
+       =\\log\\frac{\\det\\Sigma^{R}_{XX}}{\\det\\Sigma_{XX}}.
     
     References
     ----------
@@ -421,7 +421,7 @@ def spectral_mvgc(
     target,
     frequencies: torch.Tensor,
     *,
-    conditional=(),
+    conditional=None,
     base: float = math.e,
 ) -> torch.Tensor:
     """Compute conditional spectral multivariate Granger causality.
@@ -595,7 +595,6 @@ def compute_all_model_measures(
         reason = "stationary observation covariance is not stored by InnovationsStateSpace"
         for name in ("gaussian", "autocovariances", "predictive_information", "active_information_storage", "cmem", "phiid", "emergence"):
             result["not_available"][name] = reason
-
     if config.source is not None and config.target is not None:
         result["mvgc"] = {
             "temporal": temporal_mvgc(
