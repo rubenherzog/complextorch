@@ -616,21 +616,30 @@ def compute_all_model_measures(
             )
         result["available"].append("mvgc")
 
-    if isinstance(model, StateSpaceModel):
-        result["control"] = {
-            "dynamical_dependence": dynamical_dependence(model, base=config.base),
-        }
-        if config.partition is not None:
-            result["control"]["stochastic_interaction"] = stochastic_interaction(
-                model,
-                config.partition,
-                base=config.base,
-            )
-        result["available"].append("control")
-    else:
-        result["not_available"]["control"] = (
-            "dynamical dependence requires an explicit latent StateSpaceModel"
+    control: dict[str, torch.Tensor] = {}
+    if config.macro_projection is not None:
+        # DD is a property of a specified coarse-graining, so route the same
+        # macro projection used by emergence through the innovations-form path.
+        control["dynamical_dependence"] = dynamical_dependence(
+            model,
+            config.macro_projection,
+            base=config.base,
         )
+    else:
+        result["not_available"]["dynamical_dependence"] = (
+            "dynamical dependence requires macro_projection"
+        )
+    if isinstance(model, StateSpaceModel) and config.partition is not None:
+        control["stochastic_interaction"] = stochastic_interaction(
+            model,
+            config.partition,
+            base=config.base,
+        )
+    if control:
+        result["control"] = control
+        result["available"].append("control")
+    elif "dynamical_dependence" not in result["not_available"]:
+        result["not_available"]["control"] = "no requested control measures are available"
 
     result["available"] = tuple(result["available"])
     return result
