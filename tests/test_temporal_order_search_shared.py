@@ -1,12 +1,14 @@
 """Shared API, prediction, gap, and Larimore-cache contracts."""
 import numpy as np
 import torch
+from sklearn.base import clone
 
 import complextorch.selection.selection_state_space as ss_selection
 from complextorch import (
     EpochTimeSeriesSplit,
     StateSpaceOrderSearchCV,
     VAROrderSearchCV,
+    VAROrderSelectionIC,
 )
 from complextorch.selection._temporal import _TemporalOrderSearchCV
 
@@ -40,6 +42,24 @@ def test_var_and_state_space_search_share_internal_engine_and_api():
     assert isinstance(state_space, _TemporalOrderSearchCV)
     assert var.get_params()["prediction_mode"] == "recursive"
     assert state_space.get_params()["gap_mode"] == "embargo"
+
+
+def test_selection_estimators_preserve_sklearn_constructor_contract():
+    """Selection estimators must be cloneable without mutating arguments."""
+    orders = [1, 2]
+    cv = EpochTimeSeriesSplit(n_splits=2)
+    var_cv = VAROrderSearchCV(orders, cv=cv, refit=False)
+    state_space_cv = StateSpaceOrderSearchCV(orders, 2, cv=cv, refit=False)
+    var_ic = VAROrderSelectionIC(orders=orders, refit=None)
+
+    assert var_cv.orders is orders
+    assert state_space_cv.orders is orders
+    assert var_ic.orders is orders
+    assert var_cv.cv is cv
+    assert state_space_cv.cv is cv
+    assert clone(var_cv).get_params()["orders"] == orders
+    assert clone(state_space_cv).get_params()["orders"] == orders
+    assert clone(var_ic).get_params()["orders"] == orders
 
 
 def test_state_space_reuses_one_cva_decomposition_per_fold(monkeypatch):
