@@ -1,8 +1,11 @@
 """Multidimensional CPU/GPU scaling benchmark for DD optimization.
 
-This benchmark compares the frozen ComplexBox-compatible optimizer with the
-Riemannian Armijo optimizer using the same *batched* restart tensor. It sweeps:
+The benchmark exercises the unified :func:`optimise_dynamical_dependence` API
+and compares its recommended/default ``complexbox`` backend with the optional
+``riemannian_armijo`` backend using identical batched restart tensors.
 
+Sweeps
+------
 - restart count: 1, 8, 32, 128;
 - proxy lags: 4, 16, 64, 256;
 - spectral frequencies: 17, 65, 257;
@@ -24,10 +27,7 @@ import torch
 from complextorch import (
     InnovationsStateSpace,
     dynamical_dependence,
-    optimise_dynamical_dependence_proxy,
-    optimise_dynamical_dependence_proxy_riemannian,
-    optimise_dynamical_dependence_spectral,
-    optimise_dynamical_dependence_spectral_riemannian,
+    optimise_dynamical_dependence,
     orthonormalise_projection,
 )
 
@@ -89,22 +89,17 @@ def _summary(
     system: InnovationsStateSpace,
     result,
     elapsed: float,
-    riemannian: bool,
 ) -> dict:
     exact_dd = dynamical_dependence(system, result.projection, base=math.e)
     if exact_dd.ndim == 0:
         exact_dd = exact_dd.unsqueeze(0)
     finite = torch.isfinite(result.objective) & torch.isfinite(exact_dd)
     finite = finite & torch.isfinite(result.projection).all(dim=(-2, -1))
-    if riemannian:
-        objective_evaluations = result.objective_evaluations.to(torch.float64)
-        convergence = (result.convergence == 1) | (result.convergence == 2)
-        line_search_failures = result.convergence == 3
-    else:
-        objective_evaluations = result.iterations.to(torch.float64)
-        convergence = result.convergence != 0
-        line_search_failures = torch.zeros_like(convergence)
-    iterations = result.iterations.to(torch.float64)
+    line_search_failures = (
+        result.convergence == 3
+        if optimizer == "riemannian_armijo"
+        else torch.zeros_like(result.converged)
+    )
     return {
         "sweep": sweep,
         "scale": int(scale),
@@ -121,9 +116,13 @@ def _summary(
         "exact_dd_best": float(exact_dd.min().detach().cpu()),
         "exact_dd_mean": float(exact_dd.mean().detach().cpu()),
         "exact_dd_std": float(exact_dd.std(unbiased=False).detach().cpu()),
-        "objective_evaluations_mean": float(objective_evaluations.mean().cpu()),
-        "iterations_mean": float(iterations.mean().cpu()),
-        "convergence_rate": float(convergence.to(torch.float64).mean().cpu()),
+        "objective_evaluations_mean": float(
+            result.objective_evaluations.to(torch.float64).mean().cpu()
+        ),
+        "iterations_mean": float(result.iterations.to(torch.float64).mean().cpu()),
+        "convergence_rate": float(
+            result.converged.to(torch.float64).mean().cpu()
+        ),
         "line_search_failure_rate": float(
             line_search_failures.to(torch.float64).mean().cpu()
         ),
@@ -140,121 +139,63 @@ def _time_call(device: torch.device, function, *args, **kwargs):
     return result, time.perf_counter() - start
 
 
-def _proxy_point(
+def _run_point(
     *,
     sweep: str,
     scale: int,
+    objective: str,
     n: int,
     runs: int,
     output_dimension: int,
-    lags: int,
     max_iterations: int,
     dtype: torch.dtype,
     device: torch.device,
+    lags: int | None = None,
+    frequencies: int | None = None,
 ) -> list[dict]:
     system = _system(n, dtype, device)
     initial = _initializations(runs, output_dimension, n, dtype, device)
-    baseline, baseline_time = _time_call(
-        device,
-        optimise_dynamical_dependence_proxy,
-        system,
-        initial,
-        lags=lags,
-        max_iterations=max_iterations,
-        variant=1,
-        initial_step_size=1e-3,
-    )
-    riemannian, riemannian_time = _time_call(
-        device,
-        optimise_dynamical_dependence_proxy_riemannian,
-        system,
-        initial,
-        lags=lags,
-        max_iterations=max_iterations,
-        initial_step_size=1.0,
-    )
-    return [
-        _summary(
-            sweep=sweep,
-            scale=scale,
-            objective="proxy",
-            optimizer="complexbox_baseline",
-            system=system,
-            result=baseline,
-            elapsed=baseline_time,
-            riemannian=False,
-        ),
-        _summary(
-            sweep=sweep,
-            scale=scale,
-            objective="proxy",
-            optimizer="riemannian_armijo_batched",
-            system=system,
-            result=riemannian,
-            elapsed=riemannian_time,
-            riemannian=True,
-        ),
-    ]
+    frequency_grid = None
+    if frequencies is not None:
+        frequency_grid = torch.linspace(
+            0.0, 0.5, frequencies, dtype=dtype, device=device
+        )
 
-
-def _spectral_point(
-    *,
-    sweep: str,
-    scale: int,
-    n: int,
-    runs: int,
-    output_dimension: int,
-    frequencies: int,
-    max_iterations: int,
-    dtype: torch.dtype,
-    device: torch.device,
-) -> list[dict]:
-    system = _system(n, dtype, device)
-    initial = _initializations(runs, output_dimension, n, dtype, device)
-    frequency_grid = torch.linspace(
-        0.0, 0.5, frequencies, dtype=dtype, device=device
-    )
-    baseline, baseline_time = _time_call(
-        device,
-        optimise_dynamical_dependence_spectral,
-        system,
-        initial,
-        frequency_grid,
-        max_iterations=max_iterations,
-        variant=1,
-        initial_step_size=1e-3,
-    )
-    riemannian, riemannian_time = _time_call(
-        device,
-        optimise_dynamical_dependence_spectral_riemannian,
-        system,
-        initial,
-        frequency_grid,
-        max_iterations=max_iterations,
-        initial_step_size=1.0,
-    )
-    return [
-        _summary(
-            sweep=sweep,
-            scale=scale,
-            objective="spectral",
-            optimizer="complexbox_baseline",
-            system=system,
-            result=baseline,
-            elapsed=baseline_time,
-            riemannian=False,
+    rows = []
+    for optimizer, optimizer_options in (
+        (
+            "complexbox",
+            {"variant": 1, "initial_step_size": 1e-3},
         ),
-        _summary(
-            sweep=sweep,
-            scale=scale,
-            objective="spectral",
-            optimizer="riemannian_armijo_batched",
-            system=system,
-            result=riemannian,
-            elapsed=riemannian_time,
-            riemannian=True,
+        (
+            "riemannian_armijo",
+            {"initial_step_size": 1.0},
         ),
-    ]
+    ):
+        result, elapsed = _time_call(
+            device,
+            optimise_dynamical_dependence,
+            system,
+            initial,
+            objective=objective,
+            optimizer=optimizer,
+            lags=lags,
+            frequencies=frequency_grid,
+            max_iterations=max_iterations,
+            optimizer_options=optimizer_options,
+        )
+        rows.append(
+            _summary(
+                sweep=sweep,
+                scale=scale,
+                objective=objective,
+                optimizer=optimizer,
+                system=system,
+                result=result,
+                elapsed=elapsed,
+            )
+        )
+    return rows
 
 
 def main() -> None:
@@ -277,9 +218,10 @@ def main() -> None:
 
     for runs in (1, 8, 32, 128):
         rows.extend(
-            _proxy_point(
+            _run_point(
                 sweep="restarts",
                 scale=runs,
+                objective="proxy",
                 n=5,
                 runs=runs,
                 output_dimension=2,
@@ -292,9 +234,10 @@ def main() -> None:
 
     for lags in (4, 16, 64, 256):
         rows.extend(
-            _proxy_point(
+            _run_point(
                 sweep="lags",
                 scale=lags,
+                objective="proxy",
                 n=5,
                 runs=8,
                 output_dimension=2,
@@ -307,9 +250,10 @@ def main() -> None:
 
     for frequencies in (17, 65, 257):
         rows.extend(
-            _spectral_point(
+            _run_point(
                 sweep="frequencies",
                 scale=frequencies,
+                objective="spectral",
                 n=5,
                 runs=8,
                 output_dimension=2,
@@ -322,9 +266,10 @@ def main() -> None:
 
     for n in (4, 8, 16, 32):
         rows.extend(
-            _proxy_point(
+            _run_point(
                 sweep="dimension",
                 scale=n,
+                objective="proxy",
                 n=n,
                 runs=8,
                 output_dimension=2,
