@@ -52,7 +52,9 @@ def test_order_is_selected_from_aggregated_candidate_scores_not_fold_voting():
         refit=False,
     ).fit(torch.zeros(1, 60, 2, dtype=torch.float64))
     assert search.best_order_ == 2
-    np.testing.assert_allclose(search.mean_test_scores_, [4.0, 5.0 / 3.0, 5.0 / 3.0])
+    np.testing.assert_allclose(
+        search.mean_test_scores_, [4.0, 5.0 / 3.0, 5.0 / 3.0]
+    )
     assert tuple(search.bauer_order_per_fold_) == (1, 3, 1)
 
 
@@ -83,6 +85,32 @@ def test_independent_mode_selects_one_global_order():
     assert search.fold_scores_.shape == (2, 2)
 
 
+def test_bauer_diagnostics_allow_order_below_observation_dimension():
+    """Bauer diagnostics must allow latent order below output dimension."""
+    search = StateSpaceOrderSearchCV(
+        orders=(1, 2, 3), past_horizon=2, refit=False
+    )
+    search._begin_diagnostics(n_orders=3, n_folds=1)
+    decomposition = SimpleNamespace(
+        values=torch.zeros(1, 20, 3, dtype=torch.float64),
+        correlations=torch.tensor(
+            [[0.44, 0.09, 0.08, 0.07]], dtype=torch.float64
+        ),
+        n_columns=6000,
+        batch=1,
+    )
+    search._fold_diagnostics(
+        {"decomposition": decomposition}, (1, 2, 3), fold_index=0
+    )
+    assert np.isfinite(search._bauer_scores[0, 0])
+    assert search._bauer_orders[0] == 1
+
+
+def test_state_space_cv_defaults_to_mle_innovation_covariance():
+    """CV and fixed-order Larimore fitting use the same covariance default."""
+    assert StateSpaceOrderSearchCV((1,), 2, refit=False).covariance == "mle"
+
+
 def test_gap_samples_do_not_enter_validation_score_directly():
     search = StateSpaceOrderSearchCV((1,), 1, refit=False)
     system = SimpleNamespace(
@@ -91,9 +119,10 @@ def test_gap_samples_do_not_enter_validation_score_directly():
         gain=torch.ones(1, 1, dtype=torch.float64),
     )
     estimator = SimpleNamespace(system_=system)
-    observations = torch.tensor([[[1.0], [2.0], [100.0], [3.0]]], dtype=torch.float64)
+    observations = torch.tensor(
+        [[[1.0], [2.0], [100.0], [3.0]]], dtype=torch.float64
+    )
     fold = TemporalFold(train_stop=2, test_start=3, test_stop=4)
     errors = search._innovation_errors(estimator, observations, fold)
-    # The current implementation warms the rolling predictor chronologically;
-    # only the final held-out innovation is returned.
+    # Gap observations may warm the predictor, but are never themselves scored.
     assert errors.shape == (1, 1, 1)

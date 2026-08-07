@@ -1,10 +1,15 @@
-r"""Temporal cross-validation for latent state-space dimension.
+r"""State-space latent-dimension selection.
 
-Every temporal training fold computes one Larimore CVA decomposition at the
-maximum identifiable rank. Candidate dimensions truncate that common canonical
-basis, estimate :math:`A,C,K,V` on training data, and are evaluated only on the
-held-out block. Bauer SVC is reported from the same fold decomposition as a
-training-only diagnostic.
+This module contains the state-space selectors, while reusable Larimore CVA
+linear-algebra primitives remain in :mod:`complextorch._subspace` and fixed-
+dimension fitting remains in :mod:`complextorch.state_space`.
+
+``StateSpaceOrderSelection`` applies Bauer SVC to a Larimore canonical-
+correlation spectrum. ``StateSpaceOrderSearchCV`` instead treats latent
+dimension as a temporal-validation hyperparameter: each fold computes one
+Larimore decomposition at maximum identifiable rank, candidate dimensions
+truncate the shared basis, and only held-out predictive loss selects the final
+dimension. Bauer SVC is exposed there as a training-only diagnostic.
 """
 from __future__ import annotations
 
@@ -14,18 +19,394 @@ from typing import Iterable, Literal
 
 import numpy as np
 import torch
+from sklearn.base import BaseEstimator
 
-from ._state_space_order import _bauer_svc, _block_hankel
-from ._temporal_order_search import _TemporalOrderSearchCV
-from .control import InnovationsStateSpace
-from .linalg import stable_cholesky
-from .selection import EpochTimeSeriesSplit
-from .state_space import (
+from .._subspace import _block_hankel, _larimore_decomposition
+from ..control import InnovationsStateSpace
+from ..linalg import stable_cholesky
+from ..state_space import (
     LarimoreStateSpace,
     _fit_innovations_state_space_from_states,
-    _larimore_decomposition,
     _normalise_ss_observations,
 )
+from ._temporal import EpochTimeSeriesSplit, _TemporalOrderSearchCV
+
+
+def _bauer_svc(
+    canonical_correlations: np.ndarray | torch.Tensor,
+    n_observations: int,
+    n_effective: int | torch.Tensor,
+    *,
+    min_order: int | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    r"""Select state dimension with Bauer's singular-value criterion.
+
+    Parameters
+    ----------
+    canonical_correlations
+        Unnormalised canonical correlations in descending order with shape
+        ``(..., r_max)``. Leading dimensions are processed independently.
+    n_observations
+        Number :math:`n_y` of observed variables.
+    n_effective
+        Effective number :math:`N_{\mathrm{eff}}` of Hankel columns. A scalar
+        or tensor broadcastable over the leading batch dimensions.
+    min_order
+        Smallest candidate state dimension. Defaults to one. Latent state
+        dimension is not constrained by the number of observed variables.
+
+    Returns
+    -------
+    best_order
+        Tensor containing the minimizing state dimension for each leading
+        batch element.
+    criterion
+        SVC values with shape ``(..., r_max - min_order + 1)``.
+
+    Notes
+    -----
+    For candidate dimension :math:`r`, Bauer SVC is
+
+    .. math::
+
+       \operatorname{SVC}(r)
+       = \rho_{r+1}^{2}
+         + \frac{2 n_y r\log N_{\mathrm{eff}}}{N_{\mathrm{eff}}}.
+
+    The canonical correlations are clipped to ``[0, 1]`` only to remove
+    floating-point excursions. They are never normalized by the leading
+    correlation before applying SVC.
+
+    References
+    ----------
+    - Bauer, D. (2001). Order estimation for subspace methods. *Automatica*,
+      37(10), 1561--1573.
+    - ComplexBox ``mvgc.modelorder.bauer_svc``.
+    """
+    rho = torch.as_tensor(canonical_correlations)
+    if rho.ndim < 1 or rho.shape[-1] == 0:
+        raise ValueError("canonical_correlations must end in a non-empty axis")
+    if not rho.is_floating_point():
+        rho = rho.to(torch.float64)
+    if not torch.isfinite(rho).all():
+        raise ValueError("canonical_correlations must be finite")
+    if n_observations < 1:
+        raise ValueError("n_observations must be positive")
+
+    r_max = rho.shape[-1]
+    lower = 1 if min_order is None else int(min_order)
+    if lower < 1:
+        raise ValueError("min_order must be at least one")
+    if lower > r_max:
+        raise ValueError(
+            f"minimum order {lower} exceeds maximum identifiable order {r_max}"
+        )
+
+    effective = torch.as_tensor(
+        n_effective, dtype=rho.dtype, device=rho.device
+    )
+    if torch.any(effective <= 1) or not torch.isfinite(effective).all():
+        raise ValueError("n_effective must be finite and greater than one")
+
+    orders = torch.arange(lower, r_max + 1, device=rho.device)
+    # Append the theoretical zero omitted correlation for the full-rank model;
+    # zero-based index r then retrieves rho_{r+1} in one-based notation.
+    padded = torch.cat(
+        (rho.clamp(0.0, 1.0), torch.zeros_like(rho[..., :1])), dim=-1
+    )
+    omitted = padded.index_select(-1, orders)
+
+    while effective.ndim < rho.ndim - 1:
+        effective = effective.unsqueeze(-1)
+    penalty = (
+        2.0
+        * float(n_observations)
+        * orders.to(rho.dtype)
+        * torch.log(effective.unsqueeze(-1))
+        / effective.unsqueeze(-1)
+    )
+    criterion = omitted.square() + penalty
+    best_order = orders[criterion.argmin(dim=-1)]
+    return best_order, criterion
+
+
+@dataclass(frozen=True)
+class _StateSpaceOrderComputation:
+    """Result of Larimore CVA followed by Bauer SVC."""
+
+    best_order: torch.Tensor
+    candidate_orders: torch.Tensor
+    criterion: torch.Tensor
+    canonical_correlations: torch.Tensor
+    normalized_canonical_correlations: torch.Tensor
+    n_effective: torch.Tensor
+
+
+def _larimore_state_space_order(
+    observations: np.ndarray | torch.Tensor,
+    past_horizon: int,
+    *,
+    future_horizon: int | None = None,
+    min_order: int | None = None,
+    mode: Literal["pooled", "independent"] = "pooled",
+    ridge: float = 1e-12,
+    device: str | torch.device = "auto",
+    dtype: str | torch.dtype = "float64",
+) -> _StateSpaceOrderComputation:
+    r"""Estimate latent state order by Larimore CVA and Bauer SVC.
+
+    Parameters
+    ----------
+    observations
+        Time series in ``(time, variables)`` or ComplexTorch batch-first
+        ``(batch, time, variables)`` layout.
+    past_horizon, future_horizon
+        Numbers of block rows in the past and future Hankel matrices. The
+        future horizon defaults to the past horizon.
+    min_order
+        Smallest candidate state dimension. Defaults to one.
+    mode
+        ``"pooled"`` aggregates valid Hankel columns across independent
+        trajectories; ``"independent"`` computes one order per trajectory.
+        Trajectory boundaries are never connected.
+    ridge
+        Non-negative diagonal regularizer used only for Cholesky whitening.
+    device, dtype
+        Torch execution device and floating-point dtype.
+
+    Returns
+    -------
+    _StateSpaceOrderComputation
+        Canonical correlations, SVC curve, candidate dimensions, effective
+        sample size, and selected state order.
+
+    References
+    ----------
+    - Larimore, W. E. (1990, 1996), canonical variate state construction.
+    - Bauer, D. (2001), singular-value model-order estimation.
+    - ComplexBox ``mvgc.modelorder.tsdata_to_ssmo``.
+    """
+    if past_horizon < 1:
+        raise ValueError("past_horizon must be positive")
+    future = past_horizon if future_horizon is None else int(future_horizon)
+    if future < 1:
+        raise ValueError("future_horizon must be positive")
+    if ridge < 0:
+        raise ValueError("ridge must be non-negative")
+    if mode not in {"pooled", "independent"}:
+        raise ValueError("mode must be 'pooled' or 'independent'")
+
+    values, _ = _normalise_ss_observations(
+        observations, device=device, dtype=dtype
+    )
+    n_batch, n_times, n_variables = values.shape
+    if past_horizon + future > n_times:
+        raise ValueError("past/future horizons are too large for the series")
+
+    # Center each trajectory independently before pooled sufficient statistics;
+    # this preserves independent-trial semantics and never introduces a
+    # transition or Hankel column spanning two trajectories.
+    values = values - values.mean(dim=1, keepdim=True)
+    past, future_blocks = _block_hankel(values, past_horizon, future)
+    columns_per_trajectory = past.shape[-1]
+
+    if mode == "pooled":
+        # Concatenate valid Hankel columns, not raw time series. Each trajectory
+        # therefore contributes statistics without boundary-crossing lags.
+        past = past.permute(1, 0, 2).reshape(past.shape[1], -1).unsqueeze(0)
+        future_blocks = (
+            future_blocks.permute(1, 0, 2)
+            .reshape(future_blocks.shape[1], -1)
+            .unsqueeze(0)
+        )
+        n_effective = torch.tensor(
+            n_batch * columns_per_trajectory,
+            device=values.device,
+            dtype=values.dtype,
+        )
+    else:
+        n_effective = torch.full(
+            (n_batch,),
+            columns_per_trajectory,
+            device=values.device,
+            dtype=values.dtype,
+        )
+
+    correlations, _, _ = _larimore_decomposition(
+        past, future_blocks, ridge=ridge
+    )
+    r_max = correlations.shape[-1]
+    lower = 1 if min_order is None else int(min_order)
+    best_order, criterion = _bauer_svc(
+        correlations,
+        n_observations=n_variables,
+        n_effective=n_effective,
+        min_order=lower,
+    )
+    candidate_orders = torch.arange(lower, r_max + 1, device=values.device)
+
+    # Normalization is visualization-only; Bauer always receives the raw
+    # canonical correlations above.
+    leading = correlations[..., :1]
+    normalized = torch.where(
+        leading > 0,
+        correlations / leading,
+        correlations,
+    )
+    if mode == "pooled":
+        best_order = best_order.squeeze(0)
+        criterion = criterion.squeeze(0)
+        correlations = correlations.squeeze(0)
+        normalized = normalized.squeeze(0)
+
+    return _StateSpaceOrderComputation(
+        best_order=best_order,
+        candidate_orders=candidate_orders,
+        criterion=criterion,
+        canonical_correlations=correlations,
+        normalized_canonical_correlations=normalized,
+        n_effective=n_effective,
+    )
+
+
+@dataclass(frozen=True)
+class StateSpaceOrderSelectionResult:
+    """Immutable result of state-space latent-order selection."""
+
+    best_order: torch.Tensor
+    orders: torch.Tensor
+    criterion: torch.Tensor
+    criterion_name: str
+    subspace_method: str
+    canonical_correlations: torch.Tensor
+    normalized_canonical_correlations: torch.Tensor
+    n_effective: torch.Tensor
+
+
+class StateSpaceOrderSelection(BaseEstimator):
+    r"""Select latent state dimension using Larimore CVA and Bauer SVC.
+
+    This estimator selects latent state dimension :math:`r`, not VAR lag order
+    :math:`p`. Larimore CVA provides the unnormalised canonical-correlation
+    spectrum and Bauer SVC chooses the minimizing candidate dimension.
+
+    Parameters
+    ----------
+    past_horizon
+        Number of block rows in the past Hankel matrix.
+    future_horizon
+        Number of block rows in the future Hankel matrix. Defaults to
+        ``past_horizon``.
+    min_order
+        Smallest candidate state dimension. Defaults to one; latent dimension
+        is not constrained by the observation dimension.
+    subspace_method
+        Subspace spectrum estimator. Only ``"larimore"`` is implemented.
+    criterion
+        State-order criterion. Only ``"bauer"`` is implemented.
+    mode
+        ``"pooled"`` aggregates Hankel statistics across trajectories;
+        ``"independent"`` selects one order per trajectory.
+    ridge
+        Non-negative diagonal regularizer used only in Cholesky whitening.
+    device, dtype
+        Torch execution device and floating-point dtype.
+    refit
+        If ``True``, fit :class:`LarimoreStateSpace` at the selected dimension.
+        This is currently supported only in pooled mode because independent
+        trajectories may select different dimensions.
+
+    References
+    ----------
+    - Larimore, W. E. (1990, 1996), canonical variate analysis for system
+      identification.
+    - Bauer, D. (2001). Order estimation for subspace methods. *Automatica*,
+      37(10), 1561--1573.
+    """
+
+    def __init__(
+        self,
+        past_horizon: int,
+        *,
+        future_horizon: int | None = None,
+        min_order: int | None = None,
+        subspace_method: Literal["larimore"] = "larimore",
+        criterion: Literal["bauer"] = "bauer",
+        mode: Literal["pooled", "independent"] = "pooled",
+        ridge: float = 1e-12,
+        device: str | torch.device = "auto",
+        dtype: str | torch.dtype = "float64",
+        refit: bool = False,
+    ):
+        """Initialize state-space order-selection settings."""
+        self.past_horizon = past_horizon
+        self.future_horizon = future_horizon
+        self.min_order = min_order
+        self.subspace_method = subspace_method
+        self.criterion = criterion
+        self.mode = mode
+        self.ridge = ridge
+        self.device = device
+        self.dtype = dtype
+        self.refit = refit
+
+    def fit(self, X: np.ndarray | torch.Tensor, y=None):
+        """Estimate the canonical spectrum and select latent state order."""
+        del y
+        if self.subspace_method != "larimore":
+            raise ValueError("subspace_method must be 'larimore'")
+        if self.criterion != "bauer":
+            raise ValueError("criterion must be 'bauer'")
+        if self.refit and self.mode != "pooled":
+            raise ValueError(
+                "refit=True currently requires mode='pooled'; independent "
+                "trajectories may select different state dimensions"
+            )
+
+        computation = _larimore_state_space_order(
+            X,
+            self.past_horizon,
+            future_horizon=self.future_horizon,
+            min_order=self.min_order,
+            mode=self.mode,
+            ridge=self.ridge,
+            device=self.device,
+            dtype=self.dtype,
+        )
+        result = StateSpaceOrderSelectionResult(
+            best_order=computation.best_order,
+            orders=computation.candidate_orders,
+            criterion=computation.criterion,
+            criterion_name=self.criterion,
+            subspace_method=self.subspace_method,
+            canonical_correlations=computation.canonical_correlations,
+            normalized_canonical_correlations=(
+                computation.normalized_canonical_correlations
+            ),
+            n_effective=computation.n_effective,
+        )
+        self.result_ = result
+        self.best_order_ = result.best_order
+        self.orders_ = result.orders
+        self.criterion_ = result.criterion
+        self.criterion_name_ = result.criterion_name
+        self.subspace_method_ = result.subspace_method
+        self.canonical_correlations_ = result.canonical_correlations
+        self.normalized_canonical_correlations_ = (
+            result.normalized_canonical_correlations
+        )
+        self.n_effective_ = result.n_effective
+        if self.refit:
+            self.best_estimator_ = LarimoreStateSpace(
+                n_states=int(self.best_order_),
+                past_horizon=self.past_horizon,
+                future_horizon=self.future_horizon,
+                ridge=self.ridge,
+                mode="pooled",
+                device=self.device,
+                dtype=self.dtype,
+            ).fit(X)
+        return self
 
 
 @dataclass(frozen=True)
@@ -52,7 +433,6 @@ class StateSpaceOrderSearchResult:
 
     def as_records(self):
         """Return records suitable for tabular serialization."""
-
         return [score.__dict__.copy() for score in self.scores]
 
 
@@ -61,7 +441,6 @@ class _LarimoreFoldWorkspace:
 
     def __init__(self, values, *, past_horizon, future_horizon, ridge, mode):
         """Build and cache one fold-level Larimore CVA decomposition."""
-
         self.values = values
         self.past_horizon = past_horizon
         self.future_horizon = future_horizon
@@ -90,7 +469,7 @@ class _LarimoreFoldWorkspace:
         ) = _larimore_decomposition(
             self.past_fit, self.future_fit, ridge=ridge
         )
-        # Apply the covariance or whitening solve through its triangular Cholesky factor.
+        # Solve L_P^T X = P to obtain L_P^{-T} P without an explicit inverse.
         self.whitened_past = torch.linalg.solve_triangular(
             self.cholesky_past.transpose(-1, -2),
             self.past_fit,
@@ -99,9 +478,10 @@ class _LarimoreFoldWorkspace:
 
     def fit_order(self, order, *, covariance):
         """Truncate the shared canonical basis and estimate ``A,C,K,V``."""
-
         if order > self.correlations.shape[-1]:
             raise ValueError("state dimension exceeds identifiable subspace rank")
+        # Larimore state coordinates are the retained canonical directions,
+        # weighted by their canonical correlations, applied to whitened pasts.
         state_columns = (
             self.correlations[..., :order].unsqueeze(-1)
             * self.right_vectors[..., :order, :]
@@ -147,7 +527,11 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
     :math:`z_{t+1}=Az_t` across the gap.
 
     A single Larimore CVA decomposition is computed per fold and shared across
-    all candidate dimensions. Bauer SVC remains a training-only diagnostic.
+    all candidate dimensions. Bauer SVC remains a training-only diagnostic and
+    uses the same candidate state dimensions as the CV search; latent order is
+    not lower-bounded by the observation dimension. Innovation covariance uses
+    maximum-likelihood normalization by default, matching
+    :class:`LarimoreStateSpace`.
     """
 
     def __init__(
@@ -160,7 +544,7 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
         scoring: Literal["nll", "rmse"] = "nll",
         selection_rule: Literal["best", "one_se"] = "one_se",
         ridge: float = 1e-12,
-        covariance: Literal["mle", "unbiased"] = "unbiased",
+        covariance: Literal["mle", "unbiased"] = "mle",
         mode: Literal["pooled", "independent"] = "pooled",
         device: str | torch.device = "auto",
         dtype: str | torch.dtype = "float64",
@@ -170,7 +554,6 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
         bauer_diagnostics: bool = True,
     ):
         """Initialize temporal state-space order-search settings."""
-
         self._set_temporal_search_parameters(
             orders=orders,
             cv=cv,
@@ -191,7 +574,6 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
 
     def _validate_common_settings(self):
         """Validate shared and Larimore-specific search settings."""
-
         orders = super()._validate_common_settings()
         future = (
             self.past_horizon
@@ -210,7 +592,6 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
 
     def _minimum_training_size(self, orders):
         """Return the minimum fold length required by horizons and rank."""
-
         future = (
             self.past_horizon
             if self.future_horizon is None
@@ -220,17 +601,17 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
 
     def _begin_diagnostics(self, n_orders, n_folds):
         """Allocate fold-wise Bauer diagnostic arrays."""
-
         self._bauer_scores = np.full((n_orders, n_folds), np.nan)
         self._bauer_orders = [None] * n_folds
 
     def _prepare_fold(self, data, fold, orders):
         """Center one fold and compute its reusable Larimore workspace."""
-
         values, _ = _normalise_ss_observations(
             data, device=self.device, dtype=self.dtype
         )
-        training_mean = values[:, :fold.train_stop].mean(dim=1, keepdim=True)
+        # Use the training mean for the entire fold so held-out observations do
+        # not influence preprocessing.
+        training_mean = values[:, : fold.train_stop].mean(dim=1, keepdim=True)
         centered = values - training_mean
         future = (
             self.past_horizon
@@ -238,7 +619,7 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
             else self.future_horizon
         )
         workspace = _LarimoreFoldWorkspace(
-            centered[:, :fold.train_stop],
+            centered[:, : fold.train_stop],
             past_horizon=self.past_horizon,
             future_horizon=future,
             ridge=self.ridge,
@@ -252,7 +633,6 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
 
     def _bauer_fold(self, training, orders):
         """Compatibility hook returning a Bauer curve for one training fold."""
-
         future = (
             self.past_horizon
             if self.future_horizon is None
@@ -266,7 +646,7 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
             mode=self.mode,
         )
         n_variables = training.shape[-1]
-        lower = max(n_variables, min(orders))
+        lower = min(orders)
         curve = np.full(len(orders), np.nan)
         if lower > workspace.correlations.shape[-1]:
             return curve, None
@@ -292,7 +672,6 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
 
     def _fold_diagnostics(self, workspace, orders, fold_index):
         """Store Bauer diagnostics without participating in CV selection."""
-
         workspace["fold_index"] = fold_index
         if not self.bauer_diagnostics:
             return
@@ -305,7 +684,7 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
             return
         decomposition = workspace["decomposition"]
         n_variables = decomposition.values.shape[-1]
-        lower = max(n_variables, min(orders))
+        lower = min(orders)
         if lower > decomposition.correlations.shape[-1]:
             return
         best, criterion = _bauer_svc(
@@ -315,7 +694,9 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
             * (decomposition.batch if self.mode == "pooled" else 1),
             min_order=lower,
         )
-        candidates = torch.arange(lower, decomposition.correlations.shape[-1] + 1)
+        candidates = torch.arange(
+            lower, decomposition.correlations.shape[-1] + 1
+        )
         for index, order in enumerate(orders):
             match = torch.nonzero(candidates == order, as_tuple=False)
             if match.numel():
@@ -332,7 +713,6 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
     @staticmethod
     def _expand(matrix, batch):
         """Broadcast a system matrix over observation trajectories."""
-
         if matrix.ndim == 2:
             matrix = matrix.unsqueeze(0)
         if matrix.shape[0] == 1 and batch > 1:
@@ -343,7 +723,6 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
 
     def _innovation_errors(self, estimator, observations, fold):
         """Compute validation innovations under rolling or recursive updates."""
-
         system = estimator.system_
         batch = observations.shape[0]
         transition = self._expand(system.transition, batch)
@@ -371,6 +750,8 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
                     and self.prediction_mode == "rolling"
                 )
             )
+            # Innovations form: z_{t+1} = A z_t + K epsilon_t. In recursive
+            # validation or embargo gaps, the K epsilon_t term is omitted.
             state = torch.einsum("bij,bj->bi", transition, state)
             if use_observation:
                 state = state + torch.einsum("bdm,bm->bd", gain, innovation)
@@ -378,7 +759,6 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
 
     def _score(self, errors, covariance):
         """Return held-out innovation RMSE or Gaussian NLL."""
-
         if self.scoring == "rmse":
             return float(torch.sqrt(errors.square().mean()))
         covariance = self._expand(covariance, errors.shape[0])
@@ -389,6 +769,7 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
         logdet = 2.0 * torch.log(
             torch.diagonal(chol, dim1=-2, dim2=-1)
         ).sum(-1)
+        # Gaussian negative log-likelihood: 1/2(e'V^-1e + log|V| + n log2pi).
         values = 0.5 * (
             (errors * solved).sum(-1)
             + logdet[:, None]
@@ -398,10 +779,8 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
 
     def _fit_and_score_fold(self, data, order, fold):
         """Compatibility hook fitting and scoring one order on one fold."""
-
-        workspace = self._prepare_fold(
-            data, fold, tuple(sorted(set(self.orders)))
-        )
+        orders = tuple(sorted({int(value) for value in self.orders}))
+        workspace = self._prepare_fold(data, fold, orders)
         estimator = workspace["decomposition"].fit_order(
             order, covariance=self.covariance
         )
@@ -412,8 +791,8 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
 
     def _evaluate_candidate(self, workspace, order, fold):
         """Fit one truncated candidate and evaluate its held-out loss."""
-        # Fit each candidate on every training window and aggregate held-out predictive loss across folds.
-
+        # Every dimension reuses the same fold-level CVA basis; only truncation
+        # and the A,C,K,V regressions are candidate-specific.
         if (
             type(self)._fit_and_score_fold
             is not StateSpaceOrderSearchCV._fit_and_score_fold
@@ -431,7 +810,6 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
 
     def _finalize_diagnostics(self, orders):
         """Expose Bauer curves and finite fold means as fitted attributes."""
-
         del orders
         self.bauer_scores_ = self._bauer_scores
         means = []
@@ -445,7 +823,6 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
 
     def _refit_best(self, data, order):
         """Refit a Larimore model at the selected dimension on all data."""
-
         return LarimoreStateSpace(
             n_states=order,
             past_horizon=self.past_horizon,
@@ -459,7 +836,6 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
 
     def fit(self, X, y=None):
         """Evaluate every candidate dimension on every temporal fold."""
-
         del y
         summary = self._run_temporal_search(X)
         scores = tuple(

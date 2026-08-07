@@ -1,39 +1,137 @@
 """Torch-first batched linear-dynamics inference and complexity measures."""
-import sys as _sys
-from . import _subspace as _subspace
 
-# Temporary private import alias; no compatibility module remains on disk.
-_sys.modules[__name__ + "._state_space_order"] = _subspace
-from .adapters import from_complexbox_timeseries, from_complexbox_var, to_complexbox_timeseries, to_complexbox_var
-from .representations import StateSpaceModel, VARSystem, build_var_system, companion_matrix
-from .selection import EpochTimeSeriesSplit, VAROrderSelectionIC, VARInformationCriteriaResult, StateSpaceOrderSelection, StateSpaceOrderSelectionResult
-from .var_selection_cv import VAROrderSearchCV, VAROrderSearchResult, VAROrderScore
-from .state_space_selection import StateSpaceOrderSearchCV, StateSpaceOrderSearchResult, StateSpaceOrderScore
-from .simulate import demo_var, random_stable_var, simulate_var, automatic_burnin, random_correlation_matrix, random_positive_definite_covariance
+from .adapters import (
+    from_complexbox_timeseries,
+    from_complexbox_var,
+    to_complexbox_timeseries,
+    to_complexbox_var,
+)
+from .control import (
+    InnovationsStateSpace,
+    ProjectionSearchResult,
+    dynamical_dependence,
+    innovations_form,
+    innovations_transfer_function,
+    optimise_dynamical_dependence_projection,
+    project_state_space,
+    reduce_innovations_state_space,
+    reduce_state_space,
+    solve_dare,
+    solve_generalized_dare,
+    stochastic_interaction,
+    var_to_innovations_state_space,
+)
+from .measures.primary import (
+    ModelMeasureConfig,
+    ModelMeasureContext,
+    build_measure_context,
+    compute_all_model_measures,
+    model_autocovariances,
+    phiid_from_model,
+    spectral_mvgc,
+    temporal_mvgc,
+)
+from .measures.secondary import (
+    WhitenessResult,
+    consistency,
+    mvgc_pvalue,
+    residual_whiteness,
+    significance,
+)
+from .representations import (
+    StateSpaceModel,
+    VARSystem,
+    build_var_system,
+    companion_matrix,
+)
+from .selection import (
+    EpochTimeSeriesSplit,
+    StateSpaceOrderScore,
+    StateSpaceOrderSearchCV,
+    StateSpaceOrderSearchResult,
+    StateSpaceOrderSelection,
+    StateSpaceOrderSelectionResult,
+    VARInformationCriteriaResult,
+    VAROrderScore,
+    VAROrderSearchCV,
+    VAROrderSearchResult,
+    VAROrderSelectionIC,
+)
+from .simulate import (
+    automatic_burnin,
+    demo_var,
+    random_correlation_matrix,
+    random_positive_definite_covariance,
+    random_stable_var,
+    simulate_var,
+)
+from .state_space import (
+    N4SID,
+    LarimoreStateSpace,
+    LinearGaussianEM,
+    kalman_filter,
+    kalman_smoother,
+)
 from .var import VAR, VARParameters
-from .control import solve_dare, solve_generalized_dare, innovations_form, InnovationsStateSpace, var_to_innovations_state_space, reduce_innovations_state_space, innovations_transfer_function, reduce_state_space, project_state_space, dynamical_dependence, stochastic_interaction, optimise_dynamical_dependence_projection, ProjectionSearchResult
-from .state_space import kalman_filter, kalman_smoother, N4SID, LarimoreStateSpace, LinearGaussianEM
-from . import state_space as _state_space
-_state_space._larimore_decomposition = _subspace._larimore_decomposition
-from .measures.primary import ModelMeasureConfig, ModelMeasureContext, build_measure_context, compute_all_model_measures, model_autocovariances, phiid_from_model, spectral_mvgc, temporal_mvgc
-from .measures.secondary import WhitenessResult, consistency, residual_whiteness, mvgc_pvalue, significance
-
-# Preserve ``complextorch.selection`` imports while routing the public CV API
-# through the shared temporal-search implementation.
-from . import selection as _selection
-_selection.VAROrderSearchCV = VAROrderSearchCV
-_selection.VAROrderSearchResult = VAROrderSearchResult
-_selection.VAROrderScore = VAROrderScore
 
 __all__ = [
-    "VAR", "VARParameters", "VARSystem", "StateSpaceModel", "build_var_system", "companion_matrix",
-    "EpochTimeSeriesSplit", "VAROrderSearchCV", "VAROrderSearchResult", "VAROrderScore", "VAROrderSelectionIC", "VARInformationCriteriaResult",
-    "StateSpaceOrderSelection", "StateSpaceOrderSelectionResult", "StateSpaceOrderSearchCV", "StateSpaceOrderSearchResult", "StateSpaceOrderScore",
-    "simulate_var", "automatic_burnin", "random_stable_var", "random_correlation_matrix", "random_positive_definite_covariance", "demo_var",
-    "from_complexbox_timeseries", "to_complexbox_timeseries", "from_complexbox_var", "to_complexbox_var",
-    "solve_dare", "solve_generalized_dare", "innovations_form", "InnovationsStateSpace", "var_to_innovations_state_space", "reduce_innovations_state_space", "innovations_transfer_function", "reduce_state_space", "project_state_space", "dynamical_dependence", "stochastic_interaction", "optimise_dynamical_dependence_projection", "ProjectionSearchResult",
-    "kalman_filter", "kalman_smoother", "N4SID", "LarimoreStateSpace", "LinearGaussianEM",
-    "ModelMeasureConfig", "ModelMeasureContext", "build_measure_context", "compute_all_model_measures", "model_autocovariances", "phiid_from_model", "spectral_mvgc", "temporal_mvgc",
-    "WhitenessResult", "consistency", "residual_whiteness", "mvgc_pvalue", "significance",
+    "N4SID",
+    "VAR",
+    "EpochTimeSeriesSplit",
+    "InnovationsStateSpace",
+    "LarimoreStateSpace",
+    "LinearGaussianEM",
+    "ModelMeasureConfig",
+    "ModelMeasureContext",
+    "ProjectionSearchResult",
+    "StateSpaceModel",
+    "StateSpaceOrderScore",
+    "StateSpaceOrderSearchCV",
+    "StateSpaceOrderSearchResult",
+    "StateSpaceOrderSelection",
+    "StateSpaceOrderSelectionResult",
+    "VARInformationCriteriaResult",
+    "VAROrderScore",
+    "VAROrderSearchCV",
+    "VAROrderSearchResult",
+    "VAROrderSelectionIC",
+    "VARParameters",
+    "VARSystem",
+    "WhitenessResult",
+    "automatic_burnin",
+    "build_measure_context",
+    "build_var_system",
+    "companion_matrix",
+    "compute_all_model_measures",
+    "consistency",
+    "demo_var",
+    "dynamical_dependence",
+    "from_complexbox_timeseries",
+    "from_complexbox_var",
+    "innovations_form",
+    "innovations_transfer_function",
+    "kalman_filter",
+    "kalman_smoother",
+    "model_autocovariances",
+    "mvgc_pvalue",
+    "optimise_dynamical_dependence_projection",
+    "phiid_from_model",
+    "project_state_space",
+    "random_correlation_matrix",
+    "random_positive_definite_covariance",
+    "random_stable_var",
+    "reduce_innovations_state_space",
+    "reduce_state_space",
+    "residual_whiteness",
+    "significance",
+    "simulate_var",
+    "solve_dare",
+    "solve_generalized_dare",
+    "spectral_mvgc",
+    "stochastic_interaction",
+    "temporal_mvgc",
+    "to_complexbox_timeseries",
+    "to_complexbox_var",
+    "var_to_innovations_state_space",
 ]
 __version__ = "0.8.0"

@@ -23,18 +23,18 @@ import torch
 from ..representations import VARSystem
 from ..control import InnovationsStateSpace, var_to_innovations_state_space, reduce_innovations_state_space, innovations_transfer_function
 from ..linalg import spd_logdet, spd_solve
-from ._model_comparison import fit_nested_var_models, residual_target_covariance, logdet_ratio, conditional_spectrum, var_model_spectrum, normalise_indices
+from ._nested_var import fit_nested_var_models, residual_target_covariance, logdet_ratio, conditional_spectrum, var_model_spectrum, normalise_indices
 from .dynamics import transfer_function, cross_spectral_density
 
 
 def temporal_mvgc(observations: torch.Tensor, order: int, source, target, *, conditional=None, base: float = math.e, **var_kwargs) -> torch.Tensor:
     """Compute conditional time-domain multivariate Granger causality.
-    
+
     .. math::
-    
+
        F_{Y\to X\mid Z}
        =\log\frac{\det\Sigma^{R}_{XX}}{\det\Sigma_{XX}}.
-    
+
     References
     ----------
     - Geweke (1982); Barnett and Seth (2014, 2015).
@@ -48,10 +48,10 @@ def temporal_mvgc(observations: torch.Tensor, order: int, source, target, *, con
 
 def spectral_mvgc(observations: torch.Tensor, order: int, source, target, frequencies: torch.Tensor, *, conditional=None, base: float = math.e, **var_kwargs) -> torch.Tensor:
     """Compute conditional spectral multivariate Granger causality.
-    
+
     The frequency-resolved decomposition is obtained from innovations-form transfer
     functions and integrates to temporal GC.
-    
+
     References
     ----------
     - Geweke (1982); Barnett and Seth (2014, 2015).
@@ -71,17 +71,17 @@ def spectral_mvgc(observations: torch.Tensor, order: int, source, target, freque
 
 def _as_innovations(system: VARSystem | InnovationsStateSpace) -> InnovationsStateSpace:
     """As innovations.
-    
+
     Parameters
     ----------
     system
         Canonical VAR or state-space system.
-    
+
     Returns
     -------
     object
         Computed result; see the annotated return type and shape notes.
-    
+
     Notes
     -----
     Batch dimensions are preserved unless explicitly documented otherwise.
@@ -93,7 +93,7 @@ def _as_innovations(system: VARSystem | InnovationsStateSpace) -> InnovationsSta
 
 def _normalise_partition(system: InnovationsStateSpace, target, source, conditional=None):
     """Normalise partition.
-    
+
     Parameters
     ----------
     system
@@ -104,12 +104,12 @@ def _normalise_partition(system: InnovationsStateSpace, target, source, conditio
         Indices of source variables.
     conditional
         Indices conditioned on in addition to source and target.
-    
+
     Returns
     -------
     object
         Computed result; see the annotated return type and shape notes.
-    
+
     Notes
     -----
     Batch dimensions are preserved unless explicitly documented otherwise.
@@ -136,17 +136,17 @@ def _normalise_partition(system: InnovationsStateSpace, target, source, conditio
 
 def _hermitian(matrix: torch.Tensor) -> torch.Tensor:
     """Hermitian.
-    
+
     Parameters
     ----------
     matrix
         Input required by this calculation.
-    
+
     Returns
     -------
     object
         Computed result; see the annotated return type and shape notes.
-    
+
     Notes
     -----
     Batch dimensions are preserved unless explicitly documented otherwise.
@@ -349,13 +349,13 @@ def state_space_spectral_mvgc(
 
 def integrate_spectral_mvgc(values: torch.Tensor, frequencies: torch.Tensor) -> torch.Tensor:
     """Integrate one-sided spectral GC to the time-domain value.
-    
+
     For normalized :math:`f\in[0,1/2]`,
-    
+
     .. math::
-    
+
        F=2\int_0^{1/2} f_{Y\to X}(\nu)\,d\nu.
-    
+
     References
     ----------
     - Geweke (1982); Barnett and Seth (2014).
