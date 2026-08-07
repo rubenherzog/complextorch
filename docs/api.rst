@@ -142,9 +142,7 @@ when the covariance matrix itself is the scientific input.
 .. autosummary::
    :toctree: generated
 
-   ~complextorch.measures.gaussian_entropy
    ~complextorch.measures.conditional_covariance
-   ~complextorch.measures.gaussian_mutual_information
    ~complextorch.measures.gaussian_conditional_mutual_information
    ~complextorch.measures.total_correlation
    ~complextorch.measures.dual_total_correlation
@@ -158,7 +156,6 @@ Dynamics and additional measure primitives
 .. autosummary::
    :toctree: generated
 
-   ~complextorch.measures.autocovariances
    ~complextorch.measures.entropy_rate
    ~complextorch.measures.predictive_information
    ~complextorch.measures.active_information_storage
@@ -167,8 +164,6 @@ Dynamics and additional measure primitives
    ~complextorch.measures.cross_spectral_density
    ~complextorch.measures.spectral_entropy
    ~complextorch.measures.state_space_temporal_mvgc
-   ~complextorch.measures.state_space_spectral_mvgc
-   ~complextorch.measures.integrate_spectral_mvgc
    ~complextorch.measures.pairwise_spectral_gc
    ~complextorch.measures.emergence_measures
    ~complextorch.measures.emergence_from_observations
