@@ -1,6 +1,7 @@
 name: finalize-selection-audit
 on:
   push:
+  pull_request:
 permissions:
   contents: write
 jobs:
@@ -156,10 +157,7 @@ jobs:
           present = [str(path) for path in forbidden_paths if path.exists()]
           if present:
               raise SystemExit(f'legacy files remain: {present}')
-          source = '\n'.join(
-              path.read_text(encoding='utf-8')
-              for path in root.rglob('*.py')
-          )
+          source = '\n'.join(path.read_text(encoding='utf-8') for path in root.rglob('*.py'))
           forbidden_refs = [
               '._state_space_order', '._temporal_order_search',
               '.var_selection_cv', '.state_space_selection',
