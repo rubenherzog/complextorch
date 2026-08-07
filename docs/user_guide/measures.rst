@@ -119,7 +119,7 @@ For variable :math:`i`, active information storage is
             X_{t-1}^{(i)},\ldots,X_{t-p}^{(i)}\right).
 
 Multivariate Granger causality
------------------------------
+------------------------------
 
 Partition variables into target :math:`X`, source :math:`Y`, and conditioning
 set :math:`Z`. Time-domain conditional MVGC is
@@ -326,29 +326,28 @@ frequency**. Integrated temporal atoms are therefore
 rather than a new decomposition obtained by first integrating each subset MIR
 and then taking a minimum.
 
-The public spectral result exposes:
+The public spectral result exposes source-subset MIR spectra, redundancy
+functions, all Möbius-inverted atoms, unique spectra per source, total redundant
+and synergistic spectra, and
 
-- source-subset MIR spectra;
-- redundancy-function spectra;
-- all Möbius-inverted lattice atoms;
-- coarse-grained unique spectra per source;
-- total redundant and synergistic spectra;
-- :math:`\Delta=\mathrm{redundant}-\mathrm{synergistic}`.
+.. math::
 
-For two sources, the coarse-grained atoms reduce to unique source 1, unique
-source 2, redundancy, and synergy. For three sources, the validated Faes/HOP
-coarse graining combines the 18-node Williams--Beer lattice into three unique
+   \Delta=\mathrm{redundant}-\mathrm{synergistic}.
+
+For two sources, the coarse-grained atoms are unique source 1, unique source 2,
+redundancy, and synergy. For three sources, the validated Faes/HOP coarse
+graining combines the 18-node Williams--Beer lattice into three unique
 components plus total redundant and synergistic components.
 
 ``partial_information_rate_decomposition`` integrates the spectral result. The
 ``half_open=True`` option follows the Faes/HOP half-open frequency-grid
-convention and the corresponding arithmetic-mean integration implemented by
+convention and arithmetic-mean integration implemented by
 ``integrate_spectral_rate``; otherwise endpoint-inclusive trapezoidal
 integration is used.
 
-PIRD is intentionally a consumer of shared primitives: it does not implement a
-second DARE solver, innovations reduction, spectral density, MIR calculation,
-spectral integrator, or Möbius-inversion engine.
+PIRD reuses the shared generalized-DARE reduction, spectral density, MIR,
+integration, PID lattice, and Möbius inversion primitives rather than
+implementing parallel numerical machinery.
 
 PhiID
 -----
@@ -369,7 +368,7 @@ antichains drawn from
    \{\mathrm{red},\mathrm{unq0},\mathrm{unq1},\mathrm{syn}\},
 
 producing 16 source-to-target atoms. Möbius inversion yields the atoms and
-satisfies the reconstruction identity
+satisfies
 
 .. math::
 
@@ -379,50 +378,39 @@ satisfies the reconstruction identity
 Dynamical dependence and SSDI
 -----------------------------
 
-Let the microscopic process be :math:`X_t\in\mathbb R^n` and define a linear
-macro-process
-
-.. math::
-
-   Y_t=LX_t,
-   \qquad L\in\mathbb R^{m\times n}.
-
-If :math:`\Sigma` is the microscopic innovations covariance and
-:math:`\Sigma_R` the exact innovations covariance of the projected process,
-ComplexTorch implements Gaussian dynamical dependence as
+Let :math:`Y_t=LX_t`, with :math:`L\in\mathbb R^{m\times n}`. If
+:math:`\Sigma` is the microscopic innovations covariance and :math:`\Sigma_R`
+the exact innovations covariance of the projected process, ComplexTorch uses
 
 .. math::
 
    F(X\to Y)
    =\log_b\frac{|\Sigma_R|}{|L\Sigma L^{\mathsf T}|}.
 
-Under the standard Gaussian Shannon convention,
+Under the Gaussian Shannon convention,
 
 .. math::
 
    T(X\to Y)=\frac12F(X\to Y).
 
-ComplexTorch's DD function returns :math:`F`, not :math:`F/2`. The default log
-base is 2; natural logarithms should be requested for direct comparison with
-natural-log SSDI/ComplexBox values.
+The DD function returns :math:`F`, not :math:`F/2`. The default log base is 2;
+use natural logarithms for direct natural-log SSDI/ComplexBox comparison.
 
-The unified optimizer is ``optimise_dynamical_dependence``. The default and
-recommended optimizer backend is ``complexbox``; ``riemannian_armijo`` is an
-opt-in alternative. Initial projections may have shape ``(m,n)`` or
-``(runs,m,n)`` for independent restarts. Optimization commonly uses
-row-orthonormal representatives
+The unified optimizer is ``optimise_dynamical_dependence``. ``complexbox`` is
+the default and recommended backend; ``riemannian_armijo`` is an opt-in
+alternative. Optimization commonly uses row-orthonormal representatives
 
 .. math::
 
    LL^{\mathsf T}=I_m,
 
 but the scientific object is the projected subspace rather than a particular
-basis for that subspace.
+basis.
 
 Predictive emergence quantities
 -------------------------------
 
-For a macro projection :math:`Y_t=MX_t`, ComplexTorch defines
+For :math:`Y_t=MX_t`, ComplexTorch defines
 
 .. math::
 
@@ -436,10 +424,9 @@ For a macro projection :math:`Y_t=MX_t`, ComplexTorch defines
 
    \Gamma=I(Y_t;X^-)-\sum_jI(Y_t^j;X^-).
 
-Here :math:`X^-` is the microscopic modeled past, :math:`Y^-` the corresponding
-macro-history, and :math:`Y_j^-` the own past of macrovariable :math:`j`.
 These quantities should be interpreted separately from SSDI dynamical
-dependence even though both compare micro- and macro-predictive structure.
+dependence even though both compare microscopic and macroscopic predictive
+structure.
 
 Criticality diagnostics
 -----------------------
@@ -454,15 +441,15 @@ For transition spectral radius :math:`\rho`, ComplexTorch exposes
 
    \tau=-\frac{\Delta t}{\log\rho},
 
-and, for VAR systems, covariance amplification
+and, for VAR systems,
 
 .. math::
 
    A_{\mathrm{cov}}
    =\frac{\operatorname{tr}\Gamma_0}{\operatorname{tr}\Sigma}.
 
-These are linear-system diagnostics. A large dominant timescale alone should not
-be interpreted as evidence for a physical phase transition.
+These are linear-system diagnostics and should not alone be interpreted as
+evidence of a physical phase transition.
 
 References
 ----------
