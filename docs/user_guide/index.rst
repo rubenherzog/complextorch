@@ -18,6 +18,7 @@ the cited scientific literature remains the primary mathematical authority.
    state_space
    selection
    control
+   dynamical_dependence
    measures
    phiid_redundancy
    numerics_reproducibility
