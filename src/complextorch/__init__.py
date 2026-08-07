@@ -51,6 +51,7 @@ from .measures.pdgc import (
     partial_granger_causality_decomposition,
     spectral_partial_granger_causality_decomposition,
 )
+from .measures.phid_primary import phiid_redundancy_from_model
 from .measures.pird import (
     PIRDResult,
     SpectralPIRDResult,
@@ -190,6 +191,7 @@ __all__ = [
     "partial_granger_causality_decomposition",
     "partial_information_rate_decomposition",
     "phiid_from_model",
+    "phiid_redundancy_from_model",
     "project_state_space",
     "proxy_dynamical_dependence",
     "proxy_dynamical_dependence_gradient",

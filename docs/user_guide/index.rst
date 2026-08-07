@@ -19,4 +19,5 @@ the cited scientific literature remains the primary mathematical authority.
    selection
    control
    measures
+   phiid_redundancy
    numerics_reproducibility
