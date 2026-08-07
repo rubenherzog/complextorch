@@ -58,3 +58,5 @@ jobs:
           git status --short
           git commit -m 'Refactor model-selection architecture'
           git push origin HEAD:refactor/selection-architecture
+
+# one-shot trigger
