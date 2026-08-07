@@ -404,13 +404,20 @@ def stochastic_interaction(system: StateSpaceModel, groups, *, base: float = 2.0
 
     where :math:`\Sigma` is the full innovations covariance and
     :math:`\Sigma_g^R` is the exact reduced innovations covariance of group
-    ``g``.
+    ``g``. The microscopic model is converted to innovations form once, and
+    each group is reduced through the same canonical projection primitive used
+    by dynamical dependence.
     """
     base_value = _validate_log_base(base)
-    full_v = innovations_form(system).covariance
+    innovations_system = _as_innovations_state_space(system)
+    full_v = innovations_system.innovation_covariance
     parts = torch.stack(
         [
-            spd_logdet(innovations_form(reduce_state_space(system, group)).covariance)
+            spd_logdet(
+                reduce_innovations_state_space(
+                    innovations_system, group
+                ).innovation_covariance
+            )
             for group in groups
         ],
         -1,
