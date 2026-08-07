@@ -166,3 +166,12 @@ def test_dynamical_dependence_rejects_projection_shape_mismatch():
         dynamical_dependence(
             _iss_fixture(), torch.ones((1, 3), dtype=torch.float64)
         )
+
+
+def test_dynamical_dependence_rejects_rank_deficient_projection():
+    """The log-determinant definition requires a full-row-rank coarse-graining."""
+    projection = torch.tensor(
+        [[1.0, 0.0], [2.0, 0.0]], dtype=torch.float64
+    )
+    with pytest.raises(ValueError, match="full row rank"):
+        dynamical_dependence(_iss_fixture(), projection)
