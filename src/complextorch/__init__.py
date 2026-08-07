@@ -38,6 +38,12 @@ from .dd_optimization import (
     spectral_dynamical_dependence,
     spectral_dynamical_dependence_gradient,
 )
+from .measures.oir import (
+    delta_o_information_rate,
+    o_information_rate,
+    spectral_delta_o_information_rate,
+    spectral_o_information_rate,
+)
 from .measures.primary import (
     ModelMeasureConfig,
     ModelMeasureContext,
@@ -48,12 +54,23 @@ from .measures.primary import (
     spectral_mvgc,
     temporal_mvgc,
 )
+from .measures.rates import (
+    gaussian_instantaneous_information_rate,
+    gaussian_mutual_information_rate,
+    gaussian_transfer_entropy_rate,
+    spectral_gaussian_mutual_information_rate,
+    spectral_gaussian_transfer_entropy_rate,
+)
 from .measures.secondary import (
     WhitenessResult,
     consistency,
     mvgc_pvalue,
     residual_whiteness,
     significance,
+)
+from .multiscale import (
+    downsample_innovations_state_space,
+    varma_to_innovations_state_space,
 )
 from .representations import (
     StateSpaceModel,
@@ -82,6 +99,7 @@ from .simulate import (
     random_stable_var,
     simulate_var,
 )
+from .spectra import innovations_spectral_density, integrate_spectral_rate
 from .state_space import (
     N4SID,
     LarimoreStateSpace,
@@ -125,17 +143,25 @@ __all__ = [
     "companion_matrix",
     "compute_all_model_measures",
     "consistency",
+    "delta_o_information_rate",
     "demo_var",
+    "downsample_innovations_state_space",
     "dynamical_dependence",
     "from_complexbox_timeseries",
     "from_complexbox_var",
+    "gaussian_instantaneous_information_rate",
+    "gaussian_mutual_information_rate",
+    "gaussian_transfer_entropy_rate",
     "innovations_form",
     "innovations_proxy_sequence",
+    "innovations_spectral_density",
     "innovations_transfer_function",
+    "integrate_spectral_rate",
     "kalman_filter",
     "kalman_smoother",
     "model_autocovariances",
     "mvgc_pvalue",
+    "o_information_rate",
     "optimise_dynamical_dependence",
     "optimise_dynamical_dependence_projection",
     "optimise_dynamical_dependence_proxy",
@@ -155,13 +181,18 @@ __all__ = [
     "simulate_var",
     "solve_dare",
     "solve_generalized_dare",
+    "spectral_delta_o_information_rate",
     "spectral_dynamical_dependence",
     "spectral_dynamical_dependence_gradient",
+    "spectral_gaussian_mutual_information_rate",
+    "spectral_gaussian_transfer_entropy_rate",
     "spectral_mvgc",
+    "spectral_o_information_rate",
     "stochastic_interaction",
     "temporal_mvgc",
     "to_complexbox_timeseries",
     "to_complexbox_var",
     "var_to_innovations_state_space",
+    "varma_to_innovations_state_space",
 ]
 __version__ = "0.8.0"

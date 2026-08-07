@@ -1,0 +1,117 @@
+{
+  "schema_version": 2,
+  "complextorch_base_commit": "66222743b43ce03647fceb7e82dc66b219e47660",
+  "validation_policy": "Scientific correctness is established by analytical identities, independent numerical formulations, synthetic generative systems, Monte-Carlo convergence, and batch/dtype/device invariants. External MATLAB parity is not required and is not claimed.",
+  "frequency_convention": "cycles/sample on [0, 0.5], temporal rate = 2*integral_0^0.5",
+  "source_provenance": {
+    "HOP.zip": "29bb5a8672dd2071696d0416444b13e8ecc6b728efc2ed15e1b7ea0c97e4d0b5",
+    "OIR.zip": "247c678d35841da0d01da1cb68a6bb82d2274345a150bc79e9284fba98224f22",
+    "PIRD.zip": "249c22c64ae1a89901f4110e9dde426134b14ac7b32daeea225a82830eb1dab1",
+    "msID.zip": "a2c36b4fd8edc36037caa1b00c855571207fbfbbc4ea5f1bb2c8ef0aad02e9ca",
+    "msGC.zip": "e3f0711a102e1b7f2bca668acf7e074360e861ae50b7081187a8b141c28492d6",
+    "ssgc-master.zip": "465bd78f619e40788bbc812381389eca165c4bc51787d109f931b16e2bebb328"
+  },
+  "fixtures": {
+    "F01": {
+      "target": "VAR->ISS orientation and spectrum",
+      "source_functions": ["hop_ar2iss", "oir_ar2iss", "ar2iss"],
+      "oracle_type": "independent_numerical",
+      "oracle": "direct VAR transfer-polynomial spectrum",
+      "test": "test_f01_var_and_innovations_state_space_spectra_are_identical"
+    },
+    "F02": {
+      "target": "marginal innovations with correlated noise",
+      "source_functions": ["hop_submodel", "oir_submodel", "ss2iss"],
+      "oracle_type": "independent_numerical",
+      "oracle": "SciPy generalized DARE backend and Riccati residual",
+      "test": "test_f02_marginal_reduction_matches_scipy_generalized_dare_oracle"
+    },
+    "F03": {
+      "target": "spectral MIR/TE integration",
+      "source_functions": ["hop_mir", "oir_mir", "hop_fdTE", "oir_fdGC"],
+      "oracle_type": "independent_mathematical_path",
+      "oracle": "direct temporal innovations-covariance MIR/TE and MIR=TE_fwd+TE_rev+instantaneous",
+      "tests": [
+        "test_spectral_mir_integrates_to_direct_temporal_mir",
+        "test_spectral_te_integrates_to_direct_temporal_te",
+        "test_faes_mir_decomposition_matches_direct_temporal_components"
+      ]
+    },
+    "F04": {
+      "target": "minimal three-variable OIR consistency",
+      "source_functions": ["oir_deltaO", "oir_mir"],
+      "oracle_type": "analytical_limit",
+      "oracle": "static Gaussian O-information in the IID limit",
+      "test": "test_f04_iid_three_variable_oir_reduces_to_static_gaussian_o_information"
+    },
+    "F05": {
+      "target": "two-source PIRD lattice",
+      "source_functions": ["hop_sspird", "pird2", "lrp_pird"],
+      "oracle_type": "analytical_and_temporal",
+      "oracle": "explicit two-source PID formulas plus direct temporal source/joint MIRs",
+      "tests": [
+        "test_pid_lattice_matches_two_source_formulas_and_three_source_size",
+        "test_pird_lattice_reconstructs_direct_temporal_mirs"
+      ]
+    },
+    "F06": {
+      "target": "three-source 18-node PID lattice",
+      "source_functions": ["hop_sspird", "lrp_pird"],
+      "oracle_type": "independent_recursive_and_temporal",
+      "oracle": "recursive Williams-Beer Möbius inversion plus all direct temporal source-subset MIRs",
+      "tests": [
+        "test_pid_mobius_matches_independent_recursive_reference_for_three_sources",
+        "test_three_source_spectral_pid_reconstructs_every_temporal_subset_mir"
+      ]
+    },
+    "F07": {
+      "target": "PDGC common kernel",
+      "source_functions": ["hop_pdgc", "hop_sgc", "iss_SGC"],
+      "oracle_type": "independent_mathematical_path",
+      "oracle": "direct temporal Barnett/Seth state-space GC",
+      "test": "test_f07_pdgc_kernel_reconstructs_direct_temporal_state_space_gc"
+    },
+    "F08": {
+      "target": "VARMA->ISS q=0 identity",
+      "source_functions": ["varma2iss", "iss_varma2iss"],
+      "oracle_type": "exact_identity",
+      "oracle": "existing VAR->ISS representation",
+      "test": "test_varma_q0_matches_existing_var_innovations_form"
+    },
+    "F09": {
+      "target": "nontrivial VARMA->ISS spectrum",
+      "source_functions": ["varma2iss", "iss_varma2iss"],
+      "oracle_type": "independent_numerical",
+      "oracle": "direct VARMA transfer-polynomial spectrum",
+      "test": "test_f09_varma_aoki_realization_matches_direct_varma_spectrum"
+    },
+    "F10": {
+      "target": "downsample scale=1 identity",
+      "source_functions": ["iss_ds"],
+      "oracle_type": "exact_identity",
+      "oracle": "object identity and unchanged ISS matrices",
+      "test": "test_downsample_factor_one_is_exact_identity"
+    },
+    "F11": {
+      "target": "downsample scales=2,5",
+      "source_functions": ["iss_ds", "ss2iss"],
+      "oracle_type": "analytical_and_independent_numerical",
+      "oracle": "A^k/Q_k/S_k identities, generalized DARE residual, and Torch/SciPy parity",
+      "test": "test_f11_downsampling_scales_two_and_five_match_independent_dare_backends"
+    }
+  },
+  "cross_cutting_validation": {
+    "synthetic_known_systems": [
+      "IID independent: MIR=TE=instantaneous=0",
+      "IID correlated: MIR=instantaneous>0 and TE=0",
+      "unidirectional VAR: forward TE/GC>0 and reverse TE/GC=0",
+      "independent dynamic blocks: cross-block MIR/TE=0"
+    ],
+    "spectral_consistency": "two-sided integral of the one-sided ISS spectrum recovers zero-lag covariance",
+    "invariance": "MIR and TE are invariant to invertible instantaneous transforms within source/target blocks",
+    "monte_carlo": "independent OLS estimates from long simulated VAR trajectories converge to theoretical MIR/TE/GC",
+    "batch_semantics": "batched results equal explicit per-system loop results",
+    "precision": "float32 tracks float64 within documented numerical tolerance",
+    "device": "CUDA matches CPU when a CUDA runner/device is available"
+  }
+}
