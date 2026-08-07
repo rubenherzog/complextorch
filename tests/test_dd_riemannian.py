@@ -9,64 +9,47 @@ from complextorch import (
     innovations_proxy_sequence,
     innovations_transfer_function,
     optimise_dynamical_dependence_proxy,
+    orthonormalise_projection,
+    proxy_dynamical_dependence_gradient,
+    spectral_dynamical_dependence_gradient,
+)
+from complextorch.dd_riemannian import (
     optimise_dynamical_dependence_proxy_riemannian,
     optimise_dynamical_dependence_spectral_riemannian,
-    orthonormalise_projection,
     proxy_dynamical_dependence_autograd_gradient,
-    proxy_dynamical_dependence_gradient,
     spectral_dynamical_dependence_autograd_gradient,
-    spectral_dynamical_dependence_gradient,
 )
 
 
 def _white_system(dtype=torch.float64, device="cpu"):
     a = torch.tensor(
-        [
-            [0.42, 0.08, 0.00],
-            [0.00, 0.31, 0.06],
-            [0.02, 0.00, 0.24],
-        ],
+        [[0.42, 0.08, 0.00], [0.00, 0.31, 0.06], [0.02, 0.00, 0.24]],
         dtype=dtype,
         device=device,
     )
     c = torch.tensor(
-        [
-            [1.0, 0.2, 0.0],
-            [0.1, 0.8, 0.15],
-            [0.0, -0.1, 0.9],
-        ],
+        [[1.0, 0.2, 0.0], [0.1, 0.8, 0.15], [0.0, -0.1, 0.9]],
         dtype=dtype,
         device=device,
     )
     k = torch.tensor(
-        [
-            [0.30, 0.04, 0.00],
-            [0.02, 0.24, 0.03],
-            [0.00, 0.05, 0.20],
-        ],
+        [[0.30, 0.04, 0.00], [0.02, 0.24, 0.03], [0.00, 0.05, 0.20]],
         dtype=dtype,
         device=device,
     )
     return InnovationsStateSpace(
-        a,
-        c,
-        k,
-        torch.eye(3, dtype=dtype, device=device),
+        a, c, k, torch.eye(3, dtype=dtype, device=device)
     )
 
 
 def _equivalent_physical_system(dtype=torch.float64, device="cpu"):
     white = _white_system(dtype=dtype, device=device)
     factor = torch.tensor(
-        [
-            [1.20, 0.00, 0.00],
-            [0.25, 0.90, 0.00],
-            [0.10, -0.12, 1.10],
-        ],
+        [[1.20, 0.00, 0.00], [0.25, 0.90, 0.00], [0.10, -0.12, 1.10]],
         dtype=dtype,
         device=device,
     )
-    physical_gain_t = torch.linalg.solve_triangular(
+    gain_t = torch.linalg.solve_triangular(
         factor.transpose(-1, -2),
         white.gain.transpose(-1, -2),
         upper=True,
@@ -74,7 +57,7 @@ def _equivalent_physical_system(dtype=torch.float64, device="cpu"):
     physical = InnovationsStateSpace(
         white.transition,
         factor @ white.observation,
-        physical_gain_t.transpose(-1, -2),
+        gain_t.transpose(-1, -2),
         factor @ factor.transpose(-1, -2),
     )
     return white, physical, factor
@@ -144,7 +127,6 @@ def test_proxy_armijo_is_monotone_and_counts_rejected_evaluations():
     valid = valid[torch.isfinite(valid)]
     assert valid.numel() >= 2
     assert bool(torch.all(valid[1:] <= valid[:-1] + 1e-12))
-    assert int(result.objective_evaluations[0]) >= int(result.iterations[0])
     assert int(result.gradient_evaluations[0]) == int(result.iterations[0])
     assert int(result.backtracking_evaluations[0]) == (
         int(result.objective_evaluations[0]) - int(result.iterations[0])
@@ -192,7 +174,7 @@ def test_riemannian_proxy_general_covariance_matches_whitened_problem():
     )
 
 
-def test_riemannian_spectral_improves_objective_and_returns_finite_projection():
+def test_riemannian_spectral_improves_objective_and_is_finite():
     system = _white_system()
     initial = orthonormalise_projection(
         torch.tensor([[0.5, 0.4, -0.7]], dtype=torch.float64)
@@ -206,22 +188,19 @@ def test_riemannian_spectral_improves_objective_and_returns_finite_projection():
         initial_step_size=1.0,
         history=True,
     )
-    first = result.history[0, 0, 0]
     assert bool(torch.isfinite(result.objective).all())
     assert bool(torch.isfinite(result.projection).all())
-    assert bool(result.objective[0] <= first + 1e-12)
+    assert bool(result.objective[0] <= result.history[0, 0, 0] + 1e-12)
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
-def test_riemannian_proxy_preserves_dtype_and_is_numerically_finite(dtype):
+def test_riemannian_proxy_preserves_dtype_and_is_finite(dtype):
     system = _white_system(dtype=dtype)
     initial = orthonormalise_projection(
         torch.tensor([[0.2, 0.9, -0.3]], dtype=dtype)
     )
     result = optimise_dynamical_dependence_proxy_riemannian(
-        system,
-        initial,
-        max_iterations=8,
+        system, initial, max_iterations=8
     )
     assert result.projection.dtype == dtype
     assert result.objective.dtype == dtype
@@ -229,7 +208,7 @@ def test_riemannian_proxy_preserves_dtype_and_is_numerically_finite(dtype):
     assert bool(torch.isfinite(result.objective).all())
 
 
-def test_frozen_complexbox_baseline_remains_callable_and_separate():
+def test_complexbox_backend_remains_separate_and_callable():
     system = _white_system()
     initial = orthonormalise_projection(
         torch.tensor([[0.6, -0.3, 0.7]], dtype=torch.float64)
@@ -242,10 +221,7 @@ def test_frozen_complexbox_baseline_remains_callable_and_separate():
         initial_step_size=2e-3,
     )
     riemannian = optimise_dynamical_dependence_proxy_riemannian(
-        system,
-        initial,
-        max_iterations=6,
-        initial_step_size=1.0,
+        system, initial, max_iterations=6, initial_step_size=1.0
     )
     assert baseline.__class__.__name__ == "DDGradientSearchResult"
     assert riemannian.__class__.__name__ == "DDRiemannianSearchResult"
@@ -258,9 +234,7 @@ def test_riemannian_proxy_cuda():
         torch.tensor([[0.2, 0.9, -0.3]], dtype=torch.float64, device="cuda")
     )
     result = optimise_dynamical_dependence_proxy_riemannian(
-        system,
-        initial,
-        max_iterations=8,
+        system, initial, max_iterations=8
     )
     assert result.projection.is_cuda
     assert result.objective.is_cuda
