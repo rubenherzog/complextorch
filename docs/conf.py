@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import complextorch
+
+sys.path.insert(0, str(Path(__file__).parent / "_ext"))
 
 project = "ComplexTorch"
 author = "Rubén Herzog"
@@ -10,6 +15,7 @@ release = complextorch.__version__
 version = release
 
 extensions = [
+    "api_table",
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
     "sphinx.ext.mathjax",
