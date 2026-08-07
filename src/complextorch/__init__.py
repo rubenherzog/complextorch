@@ -122,6 +122,16 @@ from .state_space import (
     kalman_filter,
     kalman_smoother,
 )
+from .synthetic import (
+    SYNTHETIC_SYSTEMS,
+    SYNTHETIC_SYSTEM_PARAMETERS,
+    available_synthetic_systems,
+    equicorrelated_innovation_covariance,
+    planted_module_projection,
+    synthetic_system_parameters,
+    synthetic_transition_matrix,
+    synthetic_var,
+)
 from .var import VAR, VARParameters
 
 __all__ = [
@@ -134,6 +144,8 @@ __all__ = [
     "N4SID",
     "PDGCResult",
     "PIRDResult",
+    "SYNTHETIC_SYSTEMS",
+    "SYNTHETIC_SYSTEM_PARAMETERS",
     "SpectralHOPResult",
     "SpectralPDGCResult",
     "SpectralPIRDResult",
@@ -160,6 +172,7 @@ __all__ = [
     "VARSystem",
     "WhitenessResult",
     "automatic_burnin",
+    "available_synthetic_systems",
     "build_measure_context",
     "build_var_system",
     "companion_matrix",
@@ -169,6 +182,7 @@ __all__ = [
     "demo_var",
     "downsample_innovations_state_space",
     "dynamical_dependence",
+    "equicorrelated_innovation_covariance",
     "from_complexbox_timeseries",
     "from_complexbox_var",
     "gaussian_instantaneous_information_rate",
@@ -194,6 +208,7 @@ __all__ = [
     "partial_information_rate_decomposition",
     "phiid_from_model",
     "phiid_redundancy_from_model",
+    "planted_module_projection",
     "project_state_space",
     "proxy_dynamical_dependence",
     "proxy_dynamical_dependence_gradient",
@@ -218,6 +233,9 @@ __all__ = [
     "spectral_partial_granger_causality_decomposition",
     "spectral_partial_information_rate_decomposition",
     "stochastic_interaction",
+    "synthetic_system_parameters",
+    "synthetic_transition_matrix",
+    "synthetic_var",
     "temporal_mvgc",
     "to_complexbox_timeseries",
     "to_complexbox_var",
