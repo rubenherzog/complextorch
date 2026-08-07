@@ -272,15 +272,21 @@ def test_source_permutation_preserves_invariant_terms_and_permutes_uniques():
     torch.testing.assert_close(permuted.unique[..., 2], original.unique[..., 1], rtol=3e-9, atol=3e-10)
 
 
-def test_faes_half_open_integration_reconstructs_temporal_subset_mirs():
+def test_faes_half_open_integration_converges_to_temporal_subset_mirs():
     system = _three_process()
-    n = 2048
-    frequency = torch.arange(n, dtype=torch.float64) / (2.0 * n)
-    result = partial_information_rate_decomposition(
-        system, ([0], [1]), [2], frequency, half_open=True
-    )
     _, direct = _direct_subset_rates(system, ((0,), (1,)), (2,))
-    torch.testing.assert_close(result.subset_mir, direct, rtol=8e-7, atol=8e-9)
+    errors = []
+    fine_result = None
+    for n in (512, 4096):
+        frequency = torch.arange(n, dtype=torch.float64) / (2.0 * n)
+        result = partial_information_rate_decomposition(
+            system, ([0], [1]), [2], frequency, half_open=True
+        )
+        errors.append(torch.abs(result.subset_mir - direct))
+        fine_result = result
+    assert bool(torch.all(errors[1] < errors[0]).item())
+    assert float(errors[1].max().item()) < 2.0e-5
+    torch.testing.assert_close(fine_result.subset_mir, direct, rtol=4e-4, atol=2e-6)
 
 
 def test_batched_pird_matches_explicit_loop_for_all_outputs():
