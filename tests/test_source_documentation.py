@@ -27,6 +27,7 @@ SCIENTIFIC_MODULES = {
     "gaussian.py",
     "mvgc.py",
     "mvgc_api.py",
+    "oir.py",
     "phid.py",
     "primary.py",
     "secondary.py",
