@@ -78,6 +78,14 @@ Measures
    ~complextorch.gaussian_instantaneous_information_rate
    ~complextorch.spectral_gaussian_mutual_information_rate
    ~complextorch.spectral_gaussian_transfer_entropy_rate
+   ~complextorch.o_information_rate
+   ~complextorch.spectral_o_information_rate
+   ~complextorch.delta_o_information_rate
+   ~complextorch.spectral_delta_o_information_rate
+   ~complextorch.partial_information_rate_decomposition
+   ~complextorch.spectral_partial_information_rate_decomposition
+   ~complextorch.PIRDResult
+   ~complextorch.SpectralPIRDResult
    ~complextorch.phiid_from_model
    ~complextorch.compute_all_model_measures
    ~complextorch.residual_whiteness
