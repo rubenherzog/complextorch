@@ -15,6 +15,8 @@ References
 - Kalman, R. E. (1960). A new approach to linear filtering and prediction.
 - Anderson, B. D. O. and Moore, J. B. (1979). *Optimal Filtering*.
 - Barnett, L. and Seth, A. K. (2015). Granger causality for state-space models.
+- Barnett, L. and Seth, A. K. (2023). Dynamical independence: Discovering
+  emergent macroscopic processes in complex dynamical systems.
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -173,7 +175,7 @@ def var_to_innovations_state_space(system: VARSystem) -> InnovationsStateSpace:
 
 
 def reduce_innovations_state_space(system: InnovationsStateSpace, indices) -> InnovationsStateSpace:
-    """Obtain an exact marginal innovations model via generalized DARE."""
+    """Obtain an exact marginal innovations model via generalized DARE.""
     # Marginalize unobserved channels by solving the reduced innovations problem rather than deleting covariance blocks naively.
     index = torch.as_tensor(tuple(indices), dtype=torch.long, device=system.observation.device)
     a, single = _batched(system.transition, 3)
@@ -238,41 +240,178 @@ def project_state_space(system: StateSpaceModel, projection: torch.Tensor) -> St
     return StateSpaceModel(system.transition, observation, system.process_covariance, noise, system.state_covariance, system.sampling_frequency, None)
 
 
-def dynamical_dependence(system: StateSpaceModel, *, base: float = 2.0):
-    """Dynamical dependence.
-    
+def _as_innovations_state_space(
+    system: StateSpaceModel | InnovationsStateSpace | VARSystem,
+) -> InnovationsStateSpace:
+    """Return the microscopic process in canonical innovations form."""
+    if isinstance(system, InnovationsStateSpace):
+        return system
+    if isinstance(system, VARSystem):
+        return var_to_innovations_state_space(system)
+    if isinstance(system, StateSpaceModel):
+        form = innovations_form(system)
+        return InnovationsStateSpace(
+            system.transition,
+            system.observation,
+            form.gain,
+            form.covariance,
+        )
+    raise TypeError(
+        "system must be a StateSpaceModel, InnovationsStateSpace, or VARSystem"
+    )
+
+
+def _projected_innovation_covariances(
+    system: InnovationsStateSpace,
+    projection: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, bool]:
+    r"""Return full-history and reduced innovations covariances for ``Y=LX``.
+
+    For an innovations-form microscopic process
+
+    .. math::
+
+       z_{t+1}=Az_t+K\varepsilon_t,\qquad
+       X_t=Cz_t+\varepsilon_t,\qquad
+       \operatorname{cov}(\varepsilon_t)=\Sigma,
+
+    the projected process ``Y=LX`` has observation noise covariance
+    :math:`R=L\Sigma L^\top`, process covariance
+    :math:`Q=K\Sigma K^\top`, and process--observation cross covariance
+    :math:`S=K\Sigma L^\top`.  Its reduced innovations covariance
+    :math:`\Sigma_R` is obtained from the corresponding generalized DARE.
+    """
+    a, system_single = _batched(system.transition, 3)
+    c, _ = _batched(system.observation, 3)
+    k, _ = _batched(system.gain, 3)
+    v, _ = _batched(system.innovation_covariance, 3)
+
+    matrix = torch.as_tensor(projection, dtype=c.dtype, device=c.device)
+    projection_single = matrix.ndim == 2
+    if projection_single:
+        matrix = matrix.unsqueeze(0)
+    if matrix.ndim != 3:
+        raise ValueError("projection must have shape (m,n) or (batch,m,n)")
+    if matrix.shape[-1] != c.shape[-2]:
+        raise ValueError("projection input dimension must match observation dimension")
+    if not 1 <= matrix.shape[-2] <= matrix.shape[-1]:
+        raise ValueError("projection output dimension must be between 1 and n")
+
+    batch = max(a.shape[0], c.shape[0], k.shape[0], v.shape[0], matrix.shape[0])
+    tensors = (a, c, k, v, matrix)
+    if any(x.shape[0] not in (1, batch) for x in tensors):
+        raise ValueError("incompatible batch dimensions")
+    a, c, k, v, matrix = [
+        x.expand(batch, *x.shape[1:]) if x.shape[0] == 1 else x
+        for x in tensors
+    ]
+
+    # Barnett--Seth Eq. (22): the denominator is the innovation covariance of
+    # Y when the full microscopic past is available, L Sigma L^T.
+    full_history_v = symmetrise(matrix @ v @ matrix.transpose(-1, -2))
+    process_q = k @ v @ k.transpose(-1, -2)
+    reduced_c = matrix @ c
+    cross_s = k @ v @ matrix.transpose(-1, -2)
+
+    # Barnett--Seth Eqs. (33)--(34): marginalising the microscopic process
+    # creates correlated process/observation noise, so S must enter the DARE.
+    p = solve_generalized_dare(
+        a,
+        reduced_c,
+        process_q,
+        full_history_v,
+        cross_s,
+    )
+    if p.ndim == 2:
+        p = p.unsqueeze(0)
+    reduced_v = symmetrise(
+        reduced_c @ p @ reduced_c.transpose(-1, -2) + full_history_v
+    )
+    single = system_single and projection_single
+    if single:
+        return full_history_v[0], reduced_v[0], True
+    return full_history_v, reduced_v, False
+
+
+def dynamical_dependence(
+    system: StateSpaceModel | InnovationsStateSpace | VARSystem,
+    projection: torch.Tensor,
+    *,
+    base: float = np.e,
+) -> torch.Tensor:
+    r"""Return linear-Gaussian dynamical dependence for ``Y_t=L X_t``.
+
+    Dynamical dependence is the Granger-causality form of transfer entropy
+    from the microscopic process ``X`` to its linear coarse-graining ``Y``.
+    For full-row-rank ``L``, Barnett and Seth (2023), Eq. (22), gives
+
+    .. math::
+
+       F(X\to Y)
+       = \log\frac{|\Sigma_R|}{|L\Sigma L^\top|},
+
+    where :math:`\Sigma` is the innovations covariance of ``X`` and
+    :math:`\Sigma_R` is the innovations covariance of the reduced process
+    ``Y``.  No factor ``1/2`` appears in the Granger-causality convention used
+    by SSDI/ComplexBox.
+
     Parameters
     ----------
     system
-        Canonical VAR or state-space system.
+        Microscopic process as a general ``StateSpaceModel``, an
+        ``InnovationsStateSpace``, or a canonical ``VARSystem``.  General
+        state-space models are first converted to innovations form.
+    projection
+        Linear coarse-graining ``L`` with shape ``(m, n)`` or
+        ``(batch, m, n)``.  Orthonormal rows are not required; dynamical
+        dependence is invariant under nonsingular changes of macro basis.
     base
-        Logarithm base used for information quantities.
-    
+        Logarithm base.  The default is ``e`` (nats), matching the natural-log
+        convention in ComplexBox.  Use ``base=2`` for bits.
+
     Returns
     -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
+    torch.Tensor
+        Scalar for unbatched systems/projections or shape ``(batch,)`` after
+        broadcasting compatible batch dimensions.
+
     Notes
     -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
+    The reduced DARE includes the process--observation cross covariance
+    ``K Sigma L.T``.  Omitting this term does not represent the projected
+    innovations process and generally changes the dynamical dependence.
+
+    References
+    ----------
+    - Barnett, L. and Seth, A. K. (2023). *Physical Review E* 108, 014304,
+      Eqs. (22), (33), and (34).
     """
-    # Measure predictive information lost after projecting the observation process to a lower-dimensional subspace.
-    if system.state_covariance is None:
-        raise ValueError("state_covariance is required")
-    stationary = symmetrise(system.observation @ system.state_covariance @ system.observation.transpose(-1, -2) + system.observation_covariance)
-    innovations = innovations_form(system).covariance
-    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
-    return 0.5 * (spd_logdet(stationary) - spd_logdet(innovations)) / np.log(base)
+    base_value = float(base)
+    if not np.isfinite(base_value) or base_value <= 0.0 or base_value == 1.0:
+        raise ValueError("base must be finite, positive, and different from 1")
+
+    innovations_system = _as_innovations_state_space(system)
+    full_history_v, reduced_v, _ = _projected_innovation_covariances(
+        innovations_system, projection
+    )
+    # Eq. (22): GC/SSDI uses the log-determinant ratio without a factor 1/2.
+    return (spd_logdet(reduced_v) - spd_logdet(full_history_v)) / np.log(base_value)
 
 
-def stochastic_interaction(system: StateSpaceModel, groups, *, base: float = 2.0):
-    """SSDI/stochastic interaction using the common reduced-model path."""
-    # Compare joint and component innovation volumes; the log-determinant gap quantifies failure of dynamical factorization.
-    parts = torch.stack([dynamical_dependence(reduce_state_space(system, group), base=base) for group in groups], -1)
-    return parts.sum(-1) - dynamical_dependence(system, base=base)
+def stochastic_interaction(system: StateSpaceModel, groups, *, base: float = np.e):
+    """Return Gaussian stochastic interaction from reduced innovation volumes."""
+    base_value = float(base)
+    if not np.isfinite(base_value) or base_value <= 0.0 or base_value == 1.0:
+        raise ValueError("base must be finite, positive, and different from 1")
+    full_v = innovations_form(system).covariance
+    parts = torch.stack(
+        [
+            spd_logdet(innovations_form(reduce_state_space(system, group)).covariance)
+            for group in groups
+        ],
+        -1,
+    )
+    return (parts.sum(-1) - spd_logdet(full_v)) / np.log(base_value)
 
 
 @dataclass(frozen=True)
@@ -300,7 +439,9 @@ def optimise_dynamical_dependence_projection(system: StateSpaceModel, output_dim
         raw = torch.randn((n_observations, output_dimension), generator=generator, dtype=system.observation.dtype, device=system.observation.device)
         orthogonal, _ = torch.linalg.qr(raw, mode="reduced")
         projection = orthogonal.transpose(-1, -2)
-        values.append(dynamical_dependence(project_state_space(system, projection)))
+        # Keep the existing random-search algorithm unchanged; only evaluate
+        # the corrected DD objective on the original microscopic system.
+        values.append(dynamical_dependence(system, projection))
         projections.append(projection)
     history = torch.stack(values)
     scores = history.mean(tuple(range(1, history.ndim))) if history.ndim > 1 else history
