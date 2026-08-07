@@ -1,4 +1,4 @@
-"""Cross-validated VAR lag-order search on the shared temporal engine."""
+"""VAR lag-order selection by information criteria or temporal CV."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -8,9 +8,9 @@ import numpy as np
 import torch
 from sklearn.base import BaseEstimator
 
-from ._temporal import _TemporalOrderSearchCV, EpochTimeSeriesSplit
-from ..linalg import stable_cholesky, spd_logdet
+from ..linalg import spd_logdet, stable_cholesky
 from ..var import VAR
+from ._temporal import EpochTimeSeriesSplit, _TemporalOrderSearchCV
 
 
 def _information_criteria(
@@ -20,8 +20,21 @@ def _information_criteria(
     *,
     hurvich_tsai: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return MVGC2-compatible per-observation AIC, BIC and HQC."""
-    # Combine Gaussian residual log-likelihood with AIC, BIC, and HQC parameter penalties.
+    r"""Return MVGC2-compatible per-observation AIC, BIC, and HQC.
+
+    ``loglik`` is the Gaussian log-likelihood contribution per effective
+    observation. With parameter-to-sample ratio :math:`k/N`, the criteria use
+    the MVGC convention
+
+    .. math::
+
+       \mathrm{AIC}=-2\ell+2k/N,
+       \qquad
+       \mathrm{BIC}=-2\ell+(k/N)\log N,
+
+    with HQC using :math:`2(k/N)\log\log N`. The optional Hurvich--Tsai
+    correction multiplies the AIC penalty by :math:`N/(N-k-1)`.
+    """
     likelihood = np.asarray(loglik, dtype=float)
     parameters = np.asarray(n_parameters, dtype=float)
     observations = np.asarray(n_observations, dtype=float)
@@ -39,12 +52,8 @@ def _information_criteria(
 
 @dataclass(frozen=True)
 class VARInformationCriteriaResult:
-    """AIC, BIC and HQC curves and their minimizing VAR orders.
+    """AIC, BIC, and HQC curves and their minimizing VAR orders."""
 
-    Notes
-    -----
-    Public fitted attributes use the trailing-underscore convention.
-    """
     p_aic: int
     p_bic: int
     p_hqc: int
@@ -56,7 +65,14 @@ class VARInformationCriteriaResult:
 
 
 class VAROrderSelectionIC(BaseEstimator):
-    """MVGC2-compatible in-sample AIC/BIC/HQC order selection."""
+    r"""Select VAR lag order with in-sample AIC, BIC, and HQC.
+
+    Each candidate lag :math:`p` is fitted independently, and the Gaussian
+    residual likelihood is combined with the corresponding information-
+    criterion penalty. ``refit`` selects which minimizing criterion determines
+    ``best_order_`` and ``best_estimator_``; this selector is distinct from
+    temporal cross-validation in :class:`VAROrderSearchCV`.
+    """
 
     def __init__(
         self,
@@ -68,30 +84,26 @@ class VAROrderSelectionIC(BaseEstimator):
         dtype: str = "float64",
         refit: str | None = "hqc",
     ):
-        """Initialize the estimator or result container.
+        """Initialize VAR information-criterion selection.
 
         Parameters
         ----------
         orders
-            Candidate autoregressive orders.
+            Candidate positive autoregressive orders.
         solver
-            Numerical solver or estimation algorithm.
+            Numerical VAR solver forwarded unchanged to :class:`VAR`.
         hurvich_tsai
-            Input required by this calculation.
+            Apply the Hurvich--Tsai small-sample correction to AIC.
         device
-            Torch device or ``'auto'``.
+            Torch device or ``"auto"``.
         dtype
             Torch floating-point dtype name or object.
         refit
-            Input required by this calculation.
-
-        Notes
-        -----
-        Batch dimensions are preserved unless explicitly documented otherwise.
-        The implementation validates dimensional and positive-definiteness
-        requirements before executing the numerical core.
+            Criterion used to choose and expose ``best_estimator_``. One of
+            ``"aic"``, ``"bic"``, ``"hqc"``, or ``None`` to skip refitting.
         """
-        self.orders = tuple(int(value) for value in orders)
+        # Preserve constructor arguments exactly for sklearn BaseEstimator.
+        self.orders = orders
         self.solver = solver
         self.hurvich_tsai = hurvich_tsai
         self.device = device
@@ -99,28 +111,25 @@ class VAROrderSelectionIC(BaseEstimator):
         self.refit = refit
 
     def fit(self, X: np.ndarray | torch.Tensor, y=None):
-        """Fit fit from observations.
+        """Fit every candidate order and compute AIC, BIC, and HQC curves.
 
         Parameters
         ----------
         X
-            Observations with shape ``(time, variables)`` or ``(batch, time, variables)``.
+            Observations with shape ``(time, variables)`` or
+            ``(batch, time, variables)``. Batched trajectories are fitted
+            without constructing transitions across trajectory boundaries.
         y
             Unused scikit-learn compatibility target.
 
         Returns
         -------
-        object
-            The fitted estimator instance.
-
-        Notes
-        -----
-        Batch dimensions are preserved unless explicitly documented otherwise.
-        The implementation validates dimensional and positive-definiteness
-        requirements before executing the numerical core.
+        VAROrderSelectionIC
+            Fitted selector with criterion curves and minimizing orders.
         """
         del y
-        if not self.orders or min(self.orders) < 1:
+        orders = tuple(int(value) for value in self.orders)
+        if not orders or min(orders) < 1:
             raise ValueError("orders must be positive")
         data = torch.as_tensor(X)
         if data.ndim == 2:
@@ -132,7 +141,7 @@ class VAROrderSelectionIC(BaseEstimator):
         n_parameters = []
         n_observations = []
         fitted = {}
-        for order in self.orders:
+        for order in orders:
             estimator = VAR(
                 order=order,
                 solver=self.solver,
@@ -144,11 +153,13 @@ class VAROrderSelectionIC(BaseEstimator):
             ).fit(data)
             fitted[order] = estimator
             covariance = estimator.noise_covariance_[0]
+            # For a Gaussian innovation model, E[e' Sigma^-1 e] = n_variables;
+            # this gives the maximized per-observation log-likelihood used by
+            # the MVGC information-criterion convention.
             loglik.append(
                 -0.5
                 * (
                     n_variables * np.log(2.0 * np.pi)
-                    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
                     + float(spd_logdet(covariance))
                     + n_variables
                 )
@@ -163,14 +174,14 @@ class VAROrderSelectionIC(BaseEstimator):
             hurvich_tsai=self.hurvich_tsai,
         )
         result = VARInformationCriteriaResult(
-            self.orders[int(np.nanargmin(aic))],
-            self.orders[int(np.nanargmin(bic))],
-            self.orders[int(np.nanargmin(hqc))],
+            orders[int(np.nanargmin(aic))],
+            orders[int(np.nanargmin(bic))],
+            orders[int(np.nanargmin(hqc))],
             aic,
             bic,
             hqc,
             likelihood,
-            self.orders,
+            orders,
         )
         self.result_ = result
         self.p_aic_ = result.p_aic
@@ -217,7 +228,6 @@ class VAROrderSearchResult:
 
     def as_records(self):
         """Return records suitable for tabular serialization."""
-
         return [score.__dict__.copy() for score in self.scores]
 
 
@@ -250,7 +260,6 @@ class VAROrderSearchCV(_TemporalOrderSearchCV):
         hurvich_tsai: bool = False,
     ):
         """Initialize temporal VAR order-search settings."""
-
         self._set_temporal_search_parameters(
             orders=orders,
             cv=cv,
@@ -270,14 +279,12 @@ class VAROrderSearchCV(_TemporalOrderSearchCV):
 
     def _begin_diagnostics(self, n_orders, n_folds):
         """Allocate training-fold AIC, BIC, and HQC arrays."""
-
         self._aic = np.full((n_orders, n_folds), np.nan)
         self._bic = np.full((n_orders, n_folds), np.nan)
         self._hqc = np.full((n_orders, n_folds), np.nan)
 
     def _prepare_fold(self, data, fold, orders):
         """Return the raw series and training prefix for one fold."""
-
         return {
             "data": data,
             "training": data[:, : fold.train_stop],
@@ -287,7 +294,6 @@ class VAROrderSearchCV(_TemporalOrderSearchCV):
 
     def _fit_var(self, training, order):
         """Fit one fixed-order VAR exclusively on the training prefix."""
-
         return VAR(
             order=order,
             alpha=self.alpha,
@@ -303,14 +309,12 @@ class VAROrderSearchCV(_TemporalOrderSearchCV):
     @staticmethod
     def _expand(matrix, batch):
         """Broadcast a fitted parameter tensor over observation trajectories."""
-
         if matrix.shape[0] == 1 and batch > 1:
             return matrix.expand(batch, *matrix.shape[1:])
         return matrix
 
     def _predict_block(self, estimator, data, fold):
         """Predict a validation block under configured update semantics."""
-
         batch = data.shape[0]
         coefficients = self._expand(estimator.coef_, batch)
         intercept = self._expand(estimator.intercept_, batch)
@@ -331,24 +335,18 @@ class VAROrderSearchCV(_TemporalOrderSearchCV):
                 predictions.append(prediction)
             use_observation = (
                 (in_gap and self.gap_mode == "warmup")
-                or (
-                    (not in_gap)
-                    and self.prediction_mode == "rolling"
-                )
+                or ((not in_gap) and self.prediction_mode == "rolling")
             )
             next_value = (
                 data[:, time_index].to(prediction)
                 if use_observation
                 else prediction
             )
-            state = torch.cat(
-                (state[:, 1:], next_value[:, None]), dim=1
-            )
+            state = torch.cat((state[:, 1:], next_value[:, None]), dim=1)
         return torch.stack(predictions, dim=1)
 
     def _score(self, errors, covariance):
         """Return held-out RMSE or Gaussian NLL."""
-
         if self.scoring == "rmse":
             return float(torch.sqrt(errors.square().mean()))
         covariance = self._expand(covariance, errors.shape[0])
@@ -359,27 +357,24 @@ class VAROrderSearchCV(_TemporalOrderSearchCV):
         values = 0.5 * (
             (errors * solved).sum(-1)
             + 2.0
-            * torch.log(
-                torch.diagonal(chol, dim1=-2, dim2=-1)
-            ).sum(-1)[:, None]
+            * torch.log(torch.diagonal(chol, dim1=-2, dim2=-1)).sum(-1)[
+                :, None
+            ]
             + errors.shape[-1] * np.log(2.0 * np.pi)
         )
         return float(values.mean())
 
     def _fold_diagnostics(self, workspace, orders, fold_index):
         """Store fold and candidate indices needed by IC diagnostics."""
-
         workspace["fold_index"] = fold_index
         workspace["orders"] = orders
 
     def _evaluate_candidate(self, workspace, order, fold):
         """Fit and score one candidate and record its training IC values."""
-        # Fit each candidate on every training window and aggregate held-out predictive loss across folds.
-
+        # Every candidate is fitted only on the chronological training prefix;
+        # the held-out block contributes only to predictive loss.
         estimator = self._fit_var(workspace["training"], order)
-        prediction = self._predict_block(
-            estimator, workspace["data"], fold
-        )
+        prediction = self._predict_block(estimator, workspace["data"], fold)
         target = workspace["data"][
             :, fold.test_start : fold.test_stop
         ].to(prediction)
@@ -391,13 +386,10 @@ class VAROrderSearchCV(_TemporalOrderSearchCV):
             order_index,
             workspace["fold_index"],
         )
-        return self._score(
-            target - prediction, estimator.noise_covariance_
-        )
+        return self._score(target - prediction, estimator.noise_covariance_)
 
     def _store_ic(self, estimator, training, order, order_index, fold_index):
         """Compute and store training-only AIC, BIC, and HQC diagnostics."""
-
         n_trials, n_times, n_variables = training.shape
         logdet = spd_logdet(estimator.noise_covariance_)
         loglik = -0.5 * (
@@ -418,7 +410,6 @@ class VAROrderSearchCV(_TemporalOrderSearchCV):
 
     def _finalize_diagnostics(self, orders):
         """Expose fold-level and mean IC diagnostics as fitted attributes."""
-
         del orders
         self.train_aic_ = self._aic
         self.train_bic_ = self._bic
@@ -429,12 +420,10 @@ class VAROrderSearchCV(_TemporalOrderSearchCV):
 
     def _refit_best(self, data, order):
         """Refit the selected VAR order on all observations."""
-
         return self._fit_var(data, order)
 
     def fit(self, X, y=None):
         """Evaluate every candidate VAR order on every temporal fold."""
-
         del y
         summary = self._run_temporal_search(X)
         scores = tuple(
