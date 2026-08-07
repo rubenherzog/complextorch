@@ -98,9 +98,8 @@ def _bauer_svc(
         Effective number :math:`N_{\mathrm{eff}}` of Hankel columns. A scalar
         or tensor broadcastable over the leading batch dimensions.
     min_order
-        Smallest candidate state dimension. Defaults to ``n_observations``;
-        values below ``n_observations`` are rejected to preserve the
-        MVGC/ComplexBox full-model convention.
+        Smallest candidate state dimension. Defaults to one. The latent state
+        dimension is not constrained by the number of observed variables.
 
     Returns
     -------
@@ -132,9 +131,9 @@ def _bauer_svc(
         raise ValueError("n_observations must be positive")
 
     r_max = rho.shape[-1]
-    lower = n_observations if min_order is None else int(min_order)
-    if lower < n_observations:
-        raise ValueError("min_order must be at least n_observations")
+    lower = 1 if min_order is None else int(min_order)
+    if lower < 1:
+        raise ValueError("min_order must be at least one")
     if lower > r_max:
         raise ValueError(
             f"minimum order {lower} exceeds maximum identifiable order {r_max}"
@@ -301,8 +300,8 @@ def _larimore_state_space_order(
         Numbers of block rows in the past and future Hankel matrices. The
         future horizon defaults to the past horizon.
     min_order
-        Smallest candidate state dimension. Defaults to the number of observed
-        variables, as required by the full-model MVGC workflow.
+        Smallest candidate state dimension. Defaults to one, consistent with
+        Larimore/Bauer system order being independent of observation dimension.
     mode
         ``"pooled"`` concatenates Hankel columns across trajectories, matching
         ComplexBox trials. ``"independent"`` computes one order per batch.
@@ -340,8 +339,9 @@ def _larimore_state_space_order(
     if past_horizon + future > n_times:
         raise ValueError("past/future horizons are too large for the series")
 
-    # Demean each trajectory independently before pooling, matching the
-    # independent-trial convention used in MVGC and ComplexBox.
+    # Demean each trajectory independently before pooling. This preserves the
+    # ComplexTorch independent-trajectory contract; ComplexBox instead removes
+    # one global mean across concatenated trials.
     values = values - values.mean(dim=1, keepdim=True)
     past, future_blocks = _block_hankel(values, past_horizon, future)
     columns_per_trajectory = past.shape[-1]
@@ -370,7 +370,7 @@ def _larimore_state_space_order(
         past, future_blocks, ridge=ridge
     )
     r_max = correlations.shape[-1]
-    lower = n_variables if min_order is None else int(min_order)
+    lower = 1 if min_order is None else int(min_order)
     best_order, criterion = _bauer_svc(
         correlations,
         n_observations=n_variables,
@@ -419,4 +419,3 @@ def _larimore_decomposition(past, future, *, ridge):
     ).transpose(-1, -2)
     _, correlations, right = torch.linalg.svd(whitened, full_matrices=False)
     return correlations, right, lp
-
