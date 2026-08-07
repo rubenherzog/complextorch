@@ -7,8 +7,8 @@ measures.
 
 This documentation is built directly from the repository. The curated user
 guide explains the scientific and mathematical conventions implemented by the
-library, while the public API pages remain linked to package docstrings so that
-signatures and source documentation stay synchronized with the code.
+library, while executable examples are run during the documentation build and
+the public API pages remain linked to package docstrings.
 
 .. toctree::
    :maxdepth: 2
@@ -16,6 +16,7 @@ signatures and source documentation stay synchronized with the code.
 
    getting_started
    user_guide/index
+   auto_examples/index
    api
 
 Indices and tables
