@@ -140,8 +140,8 @@ def test_three_source_hop_uses_same_eighteen_node_lattice():
     result = spectral_hop_analysis(system, ((0,), (1,), (2,)), (3,), _grid(n=65))
     assert len(result.pird.antichains) == 18
     assert result.pird.antichains == result.pdgc.antichains
-    assert result.pird.unique.shape == (3, 65)
-    assert result.pdgc.unique.shape == (3, 65)
+    assert result.pird.unique.shape == (1, 3, 65)
+    assert result.pdgc.unique.shape == (1, 3, 65)
 
 
 def test_grouped_multichannel_hop_preserves_group_semantics():
@@ -154,8 +154,8 @@ def test_grouped_multichannel_hop_preserves_group_semantics():
     result = spectral_hop_analysis(system, ((0, 1), (2, 3)), (4,), _grid(n=65))
     assert result.sources == ((0, 1), (2, 3))
     assert result.target == (4,)
-    assert result.pird.subset_mir.shape == (3, 65)
-    assert result.pdgc.subset_gc.shape == (3, 65)
+    assert result.pird.subset_mir.shape == (1, 3, 65)
+    assert result.pdgc.subset_gc.shape == (1, 3, 65)
 
 
 def test_batched_hop_matches_explicit_system_loop():
@@ -174,7 +174,7 @@ def test_batched_hop_matches_explicit_system_loop():
             for name in names:
                 torch.testing.assert_close(
                     getattr(getattr(batched, component), name)[index],
-                    getattr(getattr(loop, component), name),
+                    getattr(getattr(loop, component), name)[0],
                 )
 
 
