@@ -1,18 +1,13 @@
-"""Unified public API for dynamical-dependence optimization.
+"""Public dynamical-independence optimisation API.
 
-This module provides a thin, extensible dispatcher over the audited DD
-optimization backends. The ComplexBox-compatible optimizer remains the default
-and recommended implementation. Alternative optimizers are opt-in and retain
-separate internal implementations.
-
-The dispatcher intentionally does not reimplement DD objectives, innovation
-whitening, Grassmann retractions, or optimizer update rules. Those remain in
-``dd_optimization`` and backend-specific modules so that adding a new optimizer
-does not duplicate the scientific preprocessing contract.
+The default call executes the staged SSDI workflow inherited from Barnett--Seth
+and ComplexBox: proxy-DD pre-optimisation, Grassmann clustering, then spectral
+DD refinement. Explicit ``objective="proxy"`` or ``objective="spectral"``
+requests retain the previous one-stage dispatcher for backward compatibility.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal, Mapping
 
 import torch
@@ -28,51 +23,60 @@ from .dd_riemannian import (
     optimise_dynamical_dependence_proxy_riemannian,
     optimise_dynamical_dependence_spectral_riemannian,
 )
+from .dd_ssdi import optimise_ssdi_workflow
 
 DDObjective = Literal["proxy", "spectral"]
 DDOptimizer = Literal["complexbox", "riemannian_armijo"]
+DDWorkflow = Literal["direct", "ssdi"]
 
 
 @dataclass(frozen=True)
 class DDOptimizationResult:
-    """Backend-independent result of DD subspace optimization.
+    """Backend-independent result of DD subspace optimisation.
 
     Attributes
     ----------
     objective
-        Sorted final objective values, shape ``(runs,)``.
+        Sorted final objective values, shape ``(runs,)``. In the default staged
+        workflow these are the spectral-DD values of the refined cluster
+        representatives.
     projection
         Corresponding row-orthonormal projections in physical observation
         coordinates, shape ``(runs, m, n)``.
     iterations
         Number/index of optimizer states using the backend's documented
-        convention. Existing backend conventions are preserved for backward
-        numerical parity.
+        convention. Existing backend conventions are preserved for numerical
+        parity.
     converged
-        Boolean success indicator per run. ComplexBox codes 1--3 count as
-        converged. Riemannian Armijo codes 1--2 count as converged, while code
-        3 denotes line-search failure.
+        Boolean success indicator per returned run.
     convergence
-        Raw backend termination code. This is retained because the detailed
-        code meanings differ between optimizer families.
+        Raw backend termination code.
     step_size
-        Final step size per run.
+        Final step size per returned run.
     objective_evaluations
-        Scalar objective evaluations per run. For the ComplexBox backend this
-        equals its recorded iteration/state count; for Armijo it additionally
-        includes rejected line-search candidates.
+        Scalar objective evaluations per returned run.
     gradient_evaluations
-        Gradient evaluations per run.
+        Gradient evaluations per returned run.
     backtracking_evaluations
         Rejected line-search candidate evaluations. Zero for ComplexBox.
     history
-        Optional normalized history with shape ``(runs, states, 4)`` and
-        columns ``(objective, step_size, gradient_norm,
-        cumulative_objective_evaluations)``. Entries after stopping are NaN.
+        Optional normalized optimization history.
     optimizer
-        Optimizer backend name.
+        Numerical optimiser backend.
     objective_name
-        DD objective name: ``"proxy"`` or ``"spectral"``.
+        DD objective represented by the top-level endpoints.
+    workflow
+        ``"ssdi"`` for the default proxy→cluster→spectral workflow or
+        ``"direct"`` for an explicitly selected one-stage objective.
+    preoptimization
+        Complete normalized proxy result for staged SSDI, otherwise ``None``.
+    cluster_indices
+        Indices into the sorted proxy result selected by SSDI ``Lcluster``.
+    cluster_sizes
+        Number of proxy endpoints represented by each selected cluster.
+    cluster_distances
+        Pairwise normalized maximum-principal-angle Grassmann distance matrix
+        among all sorted proxy endpoints.
     """
 
     objective: torch.Tensor
@@ -87,6 +91,11 @@ class DDOptimizationResult:
     history: torch.Tensor | None
     optimizer: DDOptimizer
     objective_name: DDObjective
+    workflow: DDWorkflow = "direct"
+    preoptimization: DDOptimizationResult | None = None
+    cluster_indices: torch.Tensor | None = None
+    cluster_sizes: torch.Tensor | None = None
+    cluster_distances: torch.Tensor | None = None
 
 
 def _complexbox_history(
@@ -161,68 +170,21 @@ def _backend_kwargs(
     return options
 
 
-def optimise_dynamical_dependence(
+def _optimise_direct(
     system: Model,
     initial_projection: torch.Tensor,
     *,
     objective: DDObjective,
-    optimizer: DDOptimizer = "complexbox",
-    lags: int | None = None,
-    frequencies: torch.Tensor | None = None,
-    max_iterations: int | None = None,
-    history: bool = False,
-    optimizer_options: Mapping[str, Any] | None = None,
+    optimizer: DDOptimizer,
+    lags: int | None,
+    frequencies: torch.Tensor | None,
+    max_iterations: int | None,
+    history: bool,
+    optimizer_options: Mapping[str, Any] | None,
 ) -> DDOptimizationResult:
-    """Optimize a dynamical-dependence macro-subspace with a selected backend.
-
-    Parameters
-    ----------
-    system
-        Microscopic VAR/state-space/innovations model accepted by the existing
-        DD optimization backends.
-    initial_projection
-        Initial row projection with shape ``(m, n)`` or batched independent
-        restarts with shape ``(runs, m, n)``.
-    objective
-        ``"proxy"`` for the finite-lag SSDI proxy objective or ``"spectral"``
-        for the spectral DD objective.
-    optimizer
-        Optimization backend. ``"complexbox"`` is the default, recommended,
-        and reference-compatible optimizer. ``"riemannian_armijo"`` is an
-        optional Riemannian gradient-descent backend with Armijo backtracking.
-    lags
-        Number of proxy lags. Used only for ``objective="proxy"``.
-    frequencies
-        Frequency grid required for ``objective="spectral"``.
-    max_iterations
-        Optional common iteration limit. If omitted, each backend keeps its
-        established default, preserving the legacy API behavior.
-    history
-        Record normalized optimization history.
-    optimizer_options
-        Backend-specific keyword options. For ComplexBox these currently
-        include ``variant``, ``initial_step_size``, ``gdls``, and ``tol``. For
-        Riemannian Armijo these include ``initial_step_size``,
-        ``armijo_constant``, ``backtrack_factor``, ``max_backtracks``,
-        ``min_step``, ``gradient_tolerance``, and ``objective_tolerance``.
-
-    Returns
-    -------
-    DDOptimizationResult
-        Common result contract independent of the selected optimizer backend.
-
-    Notes
-    -----
-    This function is intentionally a dispatcher rather than a second
-    implementation of the scientific pipeline. Legacy public functions remain
-    available and retain their exact backend-specific return types.
-    """
+    """Preserve the established explicit one-stage optimizer behavior."""
     if objective not in ("proxy", "spectral"):
         raise ValueError("objective must be 'proxy' or 'spectral'")
-    if optimizer not in ("complexbox", "riemannian_armijo"):
-        raise ValueError(
-            "optimizer must be 'complexbox' or 'riemannian_armijo'"
-        )
     if objective == "proxy" and frequencies is not None:
         raise ValueError("frequencies is only valid for objective='spectral'")
     if objective == "spectral":
@@ -278,9 +240,176 @@ def optimise_dynamical_dependence(
     )
 
 
+def optimise_dynamical_dependence(
+    system: Model,
+    initial_projection: torch.Tensor | None = None,
+    *,
+    objective: DDObjective | None = None,
+    optimizer: DDOptimizer = "complexbox",
+    output_dimension: int | None = None,
+    restarts: int = 100,
+    lags: int | None = None,
+    frequencies: torch.Tensor | None = None,
+    frequency_bins: int = 513,
+    cluster_tolerance: float = 1e-6,
+    max_iterations: int | None = None,
+    history: bool = False,
+    optimizer_options: Mapping[str, Any] | None = None,
+    preoptimization_options: Mapping[str, Any] | None = None,
+    spectral_options: Mapping[str, Any] | None = None,
+    seed: int | None = None,
+) -> DDOptimizationResult:
+    r"""Optimize a dynamically independent macro-subspace.
+
+    By default, this runs the complete SSDI algorithmic workflow inherited from
+    Barnett--Seth / MATLAB SSDI / ComplexBox: many proxy-DD pre-optimizations,
+    Grassmann ``Lcluster`` reduction, and spectral-DD refinement from one
+    representative per cluster. For :class:`~complextorch.VARSystem` input, the
+    proxy stage uses the transformed VAR coefficient sequence directly, exactly
+    as SSDI ``cak2ddx`` does; the spectral stage uses the equivalent innovations
+    state-space transfer function.
+
+    Explicitly passing ``objective="proxy"`` or ``objective="spectral"``
+    retains the previous one-stage dispatcher and backend-specific numerical
+    semantics.
+
+    Parameters
+    ----------
+    system
+        Microscopic VAR/state-space/innovations model.
+    initial_projection
+        Optional initial row projection, shape ``(m,n)``, or independent
+        restart batch, shape ``(runs,m,n)``. If omitted in staged mode,
+        ``output_dimension`` is required and ``restarts`` random orthonormal
+        subspaces are generated.
+    objective
+        ``None`` (default) for the complete SSDI workflow. ``"proxy"`` or
+        ``"spectral"`` explicitly selects the legacy one-stage optimizer.
+    optimizer
+        ``"complexbox"`` is the default/reference gradient-search backend.
+        ``"riemannian_armijo"`` is an optional native-Torch optimizer that
+        executes the same staged scientific workflow.
+    output_dimension
+        Macro dimension used when staged random initializations are generated.
+    restarts
+        Number of proxy pre-optimization restarts generated when
+        ``initial_projection`` is omitted. Default 100.
+    lags
+        Optional proxy horizon for staged state-space input or explicit direct
+        proxy optimization. Staged VAR input always uses all VAR coefficients.
+    frequencies
+        Optional one-sided normalized frequency grid. If omitted in staged mode,
+        ``frequency_bins`` equally spaced points on ``[0, 0.5]`` are used.
+    frequency_bins
+        Default staged spectral grid size. Default 513.
+    cluster_tolerance
+        Normalized maximum-principal-angle threshold used by the exact greedy
+        SSDI ``Lcluster`` semantics. Default ``1e-6``.
+    max_iterations
+        Iteration ceiling for each proxy and spectral optimization. Staged mode
+        defaults to 10,000 for each stage.
+    history
+        Record normalized optimizer histories.
+    optimizer_options
+        Backend-specific options applied to both staged phases, or to the
+        selected direct objective.
+    preoptimization_options, spectral_options
+        Backend-specific overrides for the staged proxy and spectral phases.
+        ComplexBox-compatible staged defaults are variant 1, step sizes
+        ``1.0``/``0.1``, ``gdls=2``, and tolerances ``1e-8``/``1e-10``.
+    seed
+        Optional Torch seed used only when staged initial restarts are generated.
+
+    Returns
+    -------
+    DDOptimizationResult
+        In staged mode, the top-level fields describe the spectrally refined
+        cluster representatives. ``preoptimization`` and the cluster fields
+        retain all proxy-stage diagnostics.
+
+    Notes
+    -----
+    The staged ComplexBox-compatible workflow defaults to gradient-search
+    variant 1 rather than variant 2. The reference variant-2 update moves the
+    current subspace even when its best-so-far scalar objective is not updated,
+    so the reported scalar can cease to correspond to the returned projection.
+    Variant 2 remains available explicitly through ``optimizer_options`` for
+    literal reference-behavior studies.
+
+    References
+    ----------
+    - Barnett, L. and Seth, A. K. (2023), Physical Review E 108, 014304.
+    - ``lcbarnett/ssdi`` commit ``b38ce65f9df18916da216848560c1789e456c04f``.
+    - ``bmilinkovic/complexbox`` commit
+      ``87b5e2cd9bba22ddd978bade6f614da7d6190db2``.
+    """
+    if optimizer not in ("complexbox", "riemannian_armijo"):
+        raise ValueError(
+            "optimizer must be 'complexbox' or 'riemannian_armijo'"
+        )
+
+    if objective is not None:
+        if initial_projection is None:
+            raise ValueError(
+                "initial_projection is required for explicit one-stage objective optimization"
+            )
+        if preoptimization_options is not None or spectral_options is not None:
+            raise ValueError(
+                "preoptimization_options/spectral_options are only valid for the staged SSDI workflow"
+            )
+        return _optimise_direct(
+            system,
+            initial_projection,
+            objective=objective,
+            optimizer=optimizer,
+            lags=lags,
+            frequencies=frequencies,
+            max_iterations=max_iterations,
+            history=history,
+            optimizer_options=optimizer_options,
+        )
+
+    staged = optimise_ssdi_workflow(
+        system,
+        initial_projection,
+        optimizer=optimizer,
+        output_dimension=output_dimension,
+        restarts=restarts,
+        lags=lags,
+        frequencies=frequencies,
+        frequency_bins=frequency_bins,
+        cluster_tolerance=cluster_tolerance,
+        max_iterations=max_iterations,
+        history=history,
+        optimizer_options=optimizer_options,
+        preoptimization_options=preoptimization_options,
+        spectral_options=spectral_options,
+        seed=seed,
+    )
+    pre = _normalise_result(
+        staged.preoptimization,
+        optimizer=optimizer,
+        objective_name="proxy",
+    )
+    final = _normalise_result(
+        staged.spectral,
+        optimizer=optimizer,
+        objective_name="spectral",
+    )
+    return replace(
+        final,
+        workflow="ssdi",
+        preoptimization=pre,
+        cluster_indices=staged.cluster_indices,
+        cluster_sizes=staged.cluster_sizes,
+        cluster_distances=staged.cluster_distances,
+    )
+
+
 __all__ = [
     "DDObjective",
     "DDOptimizationResult",
     "DDOptimizer",
+    "DDWorkflow",
     "optimise_dynamical_dependence",
 ]
