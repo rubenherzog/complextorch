@@ -86,6 +86,10 @@ Measures
    ~complextorch.spectral_partial_information_rate_decomposition
    ~complextorch.PIRDResult
    ~complextorch.SpectralPIRDResult
+   ~complextorch.partial_granger_causality_decomposition
+   ~complextorch.spectral_partial_granger_causality_decomposition
+   ~complextorch.PDGCResult
+   ~complextorch.SpectralPDGCResult
    ~complextorch.phiid_from_model
    ~complextorch.compute_all_model_measures
    ~complextorch.residual_whiteness
