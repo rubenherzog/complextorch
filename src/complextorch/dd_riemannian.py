@@ -178,154 +178,6 @@ def _validate_armijo_parameters(
         raise ValueError("tolerances must be non-negative")
 
 
-def _riemannian_armijo_single(
-    initial_projection: torch.Tensor,
-    *,
-    objective: Callable[[torch.Tensor], torch.Tensor],
-    gradient: Callable[[torch.Tensor], tuple[torch.Tensor, torch.Tensor]],
-    max_iterations: int,
-    initial_step_size: float,
-    armijo_constant: float,
-    backtrack_factor: float,
-    max_backtracks: int,
-    min_step: float,
-    gradient_tolerance: float,
-    objective_tolerance: float,
-    history: bool,
-) -> DDRiemannianSearchResult:
-    """Optimize one row-Grassmann representative with Armijo backtracking."""
-    matrix = torch.as_tensor(initial_projection)
-    if matrix.ndim != 2:
-        raise ValueError("single-run projection must have shape (m,n)")
-    matrix = orthonormalise_projection(matrix)
-
-    value = objective(matrix)
-    if value.ndim != 0:
-        value = value.squeeze()
-    grad, grad_norm = gradient(matrix)
-    objective_evaluations = 1
-    gradient_evaluations = 1
-    rejected_evaluations = 0
-    step_size = torch.as_tensor(
-        initial_step_size, dtype=matrix.dtype, device=matrix.device
-    )
-    convergence = 0
-    iterations = 1
-
-    hist = None
-    if history:
-        hist = torch.full(
-            (max_iterations, 4),
-            torch.nan,
-            dtype=matrix.dtype,
-            device=matrix.device,
-        )
-        hist[0] = torch.stack(
-            (
-                value,
-                step_size,
-                grad_norm,
-                torch.as_tensor(
-                    float(objective_evaluations),
-                    dtype=matrix.dtype,
-                    device=matrix.device,
-                ),
-            )
-        )
-
-    with torch.no_grad():
-        for state_index in range(2, max_iterations + 1):
-            if bool(grad_norm <= gradient_tolerance):
-                convergence = 1
-                break
-
-            previous = value
-            squared_norm = grad_norm * grad_norm
-            trial_step = step_size
-            accepted = False
-            candidate = matrix
-            candidate_value = value
-
-            for _ in range(max_backtracks):
-                candidate = orthonormalise_projection(matrix - trial_step * grad)
-                candidate_value = objective(candidate)
-                if candidate_value.ndim != 0:
-                    candidate_value = candidate_value.squeeze()
-                objective_evaluations += 1
-                armijo_bound = value - armijo_constant * trial_step * squared_norm
-                if bool(
-                    torch.isfinite(candidate_value)
-                    & (candidate_value <= armijo_bound)
-                ):
-                    accepted = True
-                    break
-                rejected_evaluations += 1
-                trial_step = trial_step * backtrack_factor
-                if bool(trial_step < min_step):
-                    break
-
-            step_size = trial_step
-            if not accepted:
-                convergence = 3
-                break
-
-            matrix = candidate
-            value = candidate_value
-            grad, grad_norm = gradient(matrix)
-            gradient_evaluations += 1
-            iterations = state_index
-
-            if hist is not None:
-                hist[state_index - 1] = torch.stack(
-                    (
-                        value,
-                        step_size,
-                        grad_norm,
-                        torch.as_tensor(
-                            float(objective_evaluations),
-                            dtype=matrix.dtype,
-                            device=matrix.device,
-                        ),
-                    )
-                )
-
-            scale = torch.maximum(
-                torch.ones((), dtype=value.dtype, device=value.device),
-                torch.abs(previous),
-            )
-            if bool(
-                torch.abs(previous - value) <= objective_tolerance * scale
-            ):
-                convergence = 2
-                break
-
-            # Try one larger step at the next state; Armijo will backtrack if
-            # the local curvature does not support it.
-            step_size = step_size / backtrack_factor
-
-    return DDRiemannianSearchResult(
-        objective=value.reshape(1),
-        projection=matrix.unsqueeze(0),
-        convergence=torch.tensor(
-            [convergence], dtype=torch.int64, device=matrix.device
-        ),
-        step_size=step_size.reshape(1),
-        iterations=torch.tensor(
-            [iterations], dtype=torch.int64, device=matrix.device
-        ),
-        objective_evaluations=torch.tensor(
-            [objective_evaluations], dtype=torch.int64, device=matrix.device
-        ),
-        gradient_evaluations=torch.tensor(
-            [gradient_evaluations], dtype=torch.int64, device=matrix.device
-        ),
-        backtracking_evaluations=torch.tensor(
-            [rejected_evaluations], dtype=torch.int64, device=matrix.device
-        ),
-        history=None if hist is None else hist.unsqueeze(0),
-    )
-
-
 def _riemannian_armijo(
     initial_projection: torch.Tensor,
     *,
@@ -341,7 +193,14 @@ def _riemannian_armijo(
     objective_tolerance: float,
     history: bool,
 ) -> DDRiemannianSearchResult:
-    """Run independent Armijo searches and sort by final objective."""
+    """Run independent Armijo searches in one batched Torch state.
+
+    Restarts are independent mathematically but evaluated together whenever
+    they are at the same optimizer stage. During backtracking, boolean masks
+    select only runs that still need a candidate evaluation. Runs that accept,
+    converge, or fail line search leave the active batch without creating any
+    transitions or state coupling between restarts.
+    """
     _validate_armijo_parameters(
         max_iterations=max_iterations,
         initial_step_size=initial_step_size,
@@ -352,56 +211,188 @@ def _riemannian_armijo(
         gradient_tolerance=gradient_tolerance,
         objective_tolerance=objective_tolerance,
     )
-    projection = torch.as_tensor(initial_projection)
-    if projection.ndim == 2:
-        projection = projection.unsqueeze(0)
-    if projection.ndim != 3 or projection.shape[0] < 1:
+    matrix = torch.as_tensor(initial_projection)
+    if matrix.ndim == 2:
+        matrix = matrix.unsqueeze(0)
+    if matrix.ndim != 3 or matrix.shape[0] < 1:
         raise ValueError(
             "initial_projection must have shape (m,n) or (runs,m,n)"
         )
+    matrix = orthonormalise_projection(matrix)
+    nruns = matrix.shape[0]
 
-    runs = [
-        _riemannian_armijo_single(
-            projection[index],
-            objective=objective,
-            gradient=gradient,
-            max_iterations=max_iterations,
-            initial_step_size=initial_step_size,
-            armijo_constant=armijo_constant,
-            backtrack_factor=backtrack_factor,
-            max_backtracks=max_backtracks,
-            min_step=min_step,
-            gradient_tolerance=gradient_tolerance,
-            objective_tolerance=objective_tolerance,
-            history=history,
-        )
-        for index in range(projection.shape[0])
-    ]
+    value = objective(matrix)
+    if value.ndim == 0:
+        value = value.unsqueeze(0)
+    grad, grad_norm = gradient(matrix)
+    if grad.ndim == 2:
+        grad = grad.unsqueeze(0)
+        grad_norm = grad_norm.unsqueeze(0)
 
-    objective_values = torch.cat([run.objective for run in runs])
-    order = torch.argsort(objective_values, stable=True)
-    history_values = None
+    objective_evaluations = torch.ones(
+        nruns, dtype=torch.int64, device=matrix.device
+    )
+    gradient_evaluations = torch.ones_like(objective_evaluations)
+    rejected_evaluations = torch.zeros_like(objective_evaluations)
+    step_size = torch.full(
+        (nruns,), float(initial_step_size), dtype=matrix.dtype, device=matrix.device
+    )
+    convergence = torch.zeros(nruns, dtype=torch.int64, device=matrix.device)
+    iterations = torch.ones(nruns, dtype=torch.int64, device=matrix.device)
+    active = torch.ones(nruns, dtype=torch.bool, device=matrix.device)
+
+    hist = None
     if history:
-        history_values = torch.cat(
-            [run.history for run in runs if run.history is not None]
+        hist = torch.full(
+            (nruns, max_iterations, 4),
+            torch.nan,
+            dtype=matrix.dtype,
+            device=matrix.device,
+        )
+        hist[:, 0, :] = torch.stack(
+            (
+                value,
+                step_size,
+                grad_norm,
+                objective_evaluations.to(matrix.dtype),
+            ),
+            dim=-1,
         )
 
+    with torch.no_grad():
+        for state_index in range(2, max_iterations + 1):
+            gradient_stopped = active & (grad_norm <= gradient_tolerance)
+            convergence = torch.where(
+                gradient_stopped,
+                torch.ones_like(convergence),
+                convergence,
+            )
+            active = active & ~gradient_stopped
+            if not bool(torch.any(active).item()):
+                break
+
+            working = active.clone()
+            previous = value.clone()
+            squared_norm = grad_norm * grad_norm
+            trial_step = step_size.clone()
+            pending = working.clone()
+            accepted = torch.zeros_like(active)
+            candidate_matrix = matrix.clone()
+            candidate_value = value.clone()
+
+            # Evaluate all runs needing the same backtracking stage together.
+            for _ in range(max_backtracks):
+                if not bool(torch.any(pending).item()):
+                    break
+                indices = torch.nonzero(pending, as_tuple=False).flatten()
+                trial = orthonormalise_projection(
+                    matrix[indices]
+                    - trial_step[indices, None, None] * grad[indices]
+                )
+                trial_value = objective(trial)
+                if trial_value.ndim == 0:
+                    trial_value = trial_value.unsqueeze(0)
+                objective_evaluations[indices] += 1
+                bound = (
+                    value[indices]
+                    - armijo_constant
+                    * trial_step[indices]
+                    * squared_norm[indices]
+                )
+                local_accept = torch.isfinite(trial_value) & (trial_value <= bound)
+                accepted_indices = indices[local_accept]
+                rejected_indices = indices[~local_accept]
+
+                if accepted_indices.numel():
+                    candidate_matrix[accepted_indices] = trial[local_accept]
+                    candidate_value[accepted_indices] = trial_value[local_accept]
+                    accepted[accepted_indices] = True
+                    pending[accepted_indices] = False
+
+                if rejected_indices.numel():
+                    rejected_evaluations[rejected_indices] += 1
+                    trial_step[rejected_indices] = (
+                        trial_step[rejected_indices] * backtrack_factor
+                    )
+                    too_small = rejected_indices[
+                        trial_step[rejected_indices] < min_step
+                    ]
+                    if too_small.numel():
+                        pending[too_small] = False
+
+            failed = working & ~accepted
+            convergence = torch.where(
+                failed,
+                torch.full_like(convergence, 3),
+                convergence,
+            )
+            active = active & ~failed
+            step_size = torch.where(working, trial_step, step_size)
+
+            if bool(torch.any(accepted).item()):
+                indices = torch.nonzero(accepted, as_tuple=False).flatten()
+                matrix[indices] = candidate_matrix[indices]
+                value[indices] = candidate_value[indices]
+                grad_new, grad_norm_new = gradient(matrix[indices])
+                if grad_new.ndim == 2:
+                    grad_new = grad_new.unsqueeze(0)
+                    grad_norm_new = grad_norm_new.unsqueeze(0)
+                grad[indices] = grad_new
+                grad_norm[indices] = grad_norm_new
+                gradient_evaluations[indices] += 1
+                iterations[indices] = state_index
+
+                if hist is not None:
+                    hist[indices, state_index - 1, :] = torch.stack(
+                        (
+                            value[indices],
+                            step_size[indices],
+                            grad_norm[indices],
+                            objective_evaluations[indices].to(matrix.dtype),
+                        ),
+                        dim=-1,
+                    )
+
+                scale = torch.maximum(
+                    torch.ones_like(value[indices]),
+                    torch.abs(previous[indices]),
+                )
+                local_objective_stopped = (
+                    torch.abs(previous[indices] - value[indices])
+                    <= objective_tolerance * scale
+                )
+                objective_stopped = torch.zeros_like(active)
+                objective_stopped[indices] = local_objective_stopped
+                convergence = torch.where(
+                    objective_stopped,
+                    torch.full_like(convergence, 2),
+                    convergence,
+                )
+                active = active & ~objective_stopped
+
+                # Match the single-run algorithm: only continuing runs propose
+                # one larger step at the next state.
+                continuing = accepted & ~objective_stopped
+                step_size = torch.where(
+                    continuing,
+                    step_size / backtrack_factor,
+                    step_size,
+                )
+
+            if not bool(torch.any(active).item()):
+                break
+
+    order = torch.argsort(value, stable=True)
     return DDRiemannianSearchResult(
-        objective=objective_values[order],
-        projection=torch.cat([run.projection for run in runs], dim=0)[order],
-        convergence=torch.cat([run.convergence for run in runs])[order],
-        step_size=torch.cat([run.step_size for run in runs])[order],
-        iterations=torch.cat([run.iterations for run in runs])[order],
-        objective_evaluations=torch.cat(
-            [run.objective_evaluations for run in runs]
-        )[order],
-        gradient_evaluations=torch.cat(
-            [run.gradient_evaluations for run in runs]
-        )[order],
-        backtracking_evaluations=torch.cat(
-            [run.backtracking_evaluations for run in runs]
-        )[order],
-        history=None if history_values is None else history_values[order],
+        objective=value[order],
+        projection=matrix[order],
+        convergence=convergence[order],
+        step_size=step_size[order],
+        iterations=iterations[order],
+        objective_evaluations=objective_evaluations[order],
+        gradient_evaluations=gradient_evaluations[order],
+        backtracking_evaluations=rejected_evaluations[order],
+        history=None if hist is None else hist[order],
     )
 
 
