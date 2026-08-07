@@ -1,14 +1,14 @@
 r"""Partial information rate decomposition for Gaussian random processes.
 
 PIRD decomposes the mutual-information rate between a target process and a
-collection of source processes into PID atoms.  Following Faes and the HOP
+collection of source processes into PID atoms. Following Faes and the HOP
 implementation, the redundancy function is the frequency-wise minimum of the
-source-subset mutual-information-rate spectra.  Möbius inversion on the
+source-subset mutual-information-rate spectra. Möbius inversion on the
 Williams--Beer redundancy lattice then yields the spectral atoms, which are
 integrated to obtain temporal partial information rates.
 
 This module intentionally reuses the shared Gaussian MIR, spectral integration,
-and generic PID-lattice primitives.  It does not implement an alternative
+and generic PID-lattice primitives. It does not implement an alternative
 state-space reduction, DARE solver, spectral density, or Möbius algorithm.
 All leading batch dimensions are preserved natively by Torch; Python loops only
 enumerate source subsets and lattice antichains, never batch elements.
@@ -30,7 +30,6 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from itertools import combinations
 
 import torch
 
@@ -59,10 +58,10 @@ class SpectralPIRDResult:
     target
         Normalized target observation group.
     source_subsets
-        Non-empty subsets of zero-based source-group positions.  The same order
+        Non-empty subsets of zero-based source-group positions. The same order
         indexes ``subset_mir``.
     antichains
-        PID redundancy-lattice antichains.  The same order indexes
+        PID redundancy-lattice antichains. The same order indexes
         ``redundancy`` and ``atoms``.
     subset_mir
         Source-subset MIR spectra with shape ``(..., n_subsets, n_frequency)``.
@@ -76,7 +75,7 @@ class SpectralPIRDResult:
         Coarse-grained unique spectra, one per source, shape
         ``(..., n_sources, n_frequency)``.
     redundant, synergistic, delta
-        Coarse-grained spectra.  ``delta = redundant - synergistic``.
+        Coarse-grained spectra. ``delta = redundant - synergistic``.
     """
 
     frequencies: torch.Tensor
@@ -98,7 +97,7 @@ class PIRDResult:
     """Integrated partial information rate decomposition.
 
     Tensor shapes equal those of :class:`SpectralPIRDResult` with the final
-    frequency dimension removed.  ``unique`` retains the source axis.
+    frequency dimension removed. ``unique`` retains the source axis.
     """
 
     sources: tuple[Group, ...]
@@ -120,9 +119,10 @@ def _normalise_pird_groups(
     target: int | Sequence[int],
 ) -> tuple[tuple[Group, ...], Group]:
     """Validate two or three disjoint source groups and one target group."""
-    source_groups = _normalise_groups(system, sources)
-    if len(source_groups) not in (2, 3):
+    raw_sources = tuple(sources)
+    if len(raw_sources) not in (2, 3):
         raise ValueError("PIRD currently supports exactly two or three source groups")
+    source_groups = _normalise_groups(system, raw_sources)
     n_observations = system.observation.shape[-2]
     target_group = _normalise_group(target, n_observations, name="target")
     source_indices = set(_flatten(source_groups))
@@ -146,43 +146,43 @@ def _indices_for_subset(sources: tuple[Group, ...], subset: Subset) -> Group:
 
 def _coarse_grain_labels(lattice: PIDLattice) -> tuple[str, ...]:
     """Return Faes/HOP coarse-graining labels for two- or three-source atoms."""
+    def node(*subsets: tuple[int, ...]) -> frozenset[frozenset[int]]:
+        """Build an order-independent semantic antichain key."""
+        return frozenset(frozenset(subset) for subset in subsets)
+
     if lattice.n_sources == 2:
         labels = {
-            ((0,),): "U0",
-            ((1,),): "U1",
-            ((0, 1),): "Sy",
-            ((0,), (1,)): "Rd",
+            node((0,)): "U0",
+            node((1,)): "U1",
+            node((0, 1)): "Sy",
+            node((0,), (1,)): "Rd",
         }
     elif lattice.n_sources == 3:
         labels = {
-            ((0,),): "U0",
-            ((1,),): "U1",
-            ((2,),): "U2",
-            ((0, 1),): "Sy",
-            ((0, 2),): "Sy",
-            ((1, 2),): "Sy",
-            ((0, 1, 2),): "Sy",
-            ((0,), (1,)): "Rd",
-            ((0,), (2,)): "Rd",
-            ((0,), (1, 2)): "U0",
-            ((1,), (2,)): "Rd",
-            ((1,), (0, 2)): "U1",
-            ((2,), (0, 1)): "U2",
-            ((0, 1), (0, 2)): "Sy",
-            ((0, 1), (1, 2)): "Sy",
-            ((0, 2), (1, 2)): "Sy",
-            ((0,), (1,), (2,)): "Rd",
-            ((0, 1), (0, 2), (1, 2)): "Sy",
+            node((0,)): "U0",
+            node((1,)): "U1",
+            node((2,)): "U2",
+            node((0, 1)): "Sy",
+            node((0, 2)): "Sy",
+            node((1, 2)): "Sy",
+            node((0, 1, 2)): "Sy",
+            node((0,), (1,)): "Rd",
+            node((0,), (2,)): "Rd",
+            node((0,), (1, 2)): "U0",
+            node((1,), (2,)): "Rd",
+            node((1,), (0, 2)): "U1",
+            node((2,), (0, 1)): "U2",
+            node((0, 1), (0, 2)): "Sy",
+            node((0, 1), (1, 2)): "Sy",
+            node((0, 2), (1, 2)): "Sy",
+            node((0,), (1,), (2,)): "Rd",
+            node((0, 1), (0, 2), (1, 2)): "Sy",
         }
     else:
         raise ValueError("coarse graining is defined here only for two or three sources")
 
-    def key(antichain: Antichain) -> tuple[tuple[int, ...], ...]:
-        """Convert an antichain to the exact source-position tuple key."""
-        return tuple(tuple(sorted(subset)) for subset in antichain)
-
     try:
-        return tuple(labels[key(antichain)] for antichain in lattice.antichains)
+        return tuple(labels[frozenset(antichain)] for antichain in lattice.antichains)
     except KeyError as exc:
         raise RuntimeError("PID lattice does not match the validated HOP coarse graining") from exc
 
@@ -193,9 +193,8 @@ def _coarse_grain_atoms(
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Aggregate atom spectra into unique, redundant, synergistic, and delta terms."""
     labels = _coarse_grain_labels(lattice)
-    n_sources = lattice.n_sources
     unique_terms = []
-    for source in range(n_sources):
+    for source in range(lattice.n_sources):
         positions = [index for index, label in enumerate(labels) if label == f"U{source}"]
         unique_terms.append(atoms[..., positions, :].sum(dim=-2))
     unique = torch.stack(unique_terms, dim=-2)
@@ -218,7 +217,7 @@ def spectral_partial_information_rate_decomposition(
     r"""Compute the frequency-resolved Gaussian partial information rate decomposition.
 
     For every non-empty source subset :math:`A`, first compute the Gaussian
-    spectral mutual-information rate :math:`i_A(f)=i(X_A;Y;f)`.  For a
+    spectral mutual-information rate :math:`i_A(f)=i(X_A;Y;f)`. For a
     redundancy-lattice antichain :math:`\alpha`, the minimum-MIR redundancy
     function is
 
@@ -234,7 +233,7 @@ def spectral_partial_information_rate_decomposition(
     system
         Exact innovations-form process, batched or unbatched.
     sources
-        Exactly two or three disjoint source groups.  Each group is an
+        Exactly two or three disjoint source groups. Each group is an
         observation index or a sequence of observation indices.
     target
         Target observation group, disjoint from every source group.
@@ -243,7 +242,7 @@ def spectral_partial_information_rate_decomposition(
     sampling_frequency
         Positive sampling frequency associated with ``frequencies``.
     base
-        Logarithm base.  Defaults to natural units.
+        Logarithm base. Defaults to natural units.
 
     Returns
     -------
@@ -253,7 +252,7 @@ def spectral_partial_information_rate_decomposition(
 
     Notes
     -----
-    The implementation is batch-native.  Loops enumerate at most seven source
+    The implementation is batch-native. Loops enumerate at most seven source
     subsets and 18 antichains; no loop iterates over batch elements.
     """
     _validate_log_base(base)
@@ -329,7 +328,7 @@ def partial_information_rate_decomposition(
     half_open
         If ``True``, use the exact Faes/HOP half-open grid convention and
         arithmetic-mean integration implemented by
-        :func:`complextorch.integrate_spectral_rate`.  Otherwise use trapezoidal
+        :func:`complextorch.integrate_spectral_rate`. Otherwise use trapezoidal
         integration on an endpoint-inclusive grid.
 
     Returns
@@ -380,7 +379,7 @@ def direct_subset_mutual_information_rates(
 ) -> tuple[tuple[Subset, ...], torch.Tensor]:
     """Return exact temporal source-subset MIRs for validation and diagnostics.
 
-    This helper does not define PIRD atoms.  It provides the exact temporal MIR
+    This helper does not define PIRD atoms. It provides the exact temporal MIR
     values against which integrated spectral subset MIRs and reconstructed PID
     lattice nodes can be checked.
     """
