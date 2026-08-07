@@ -32,6 +32,12 @@ jobs:
               '            from ..state_space import LarimoreStateSpace',
           )
           p.write_text(text, encoding='utf-8')
+          for root in (Path('src'), Path('tests'), Path('examples')):
+              if not root.exists():
+                  continue
+              for path in root.rglob('*.py'):
+                  lines = path.read_text(encoding='utf-8').splitlines()
+                  path.write_text('\n'.join(line.rstrip() for line in lines) + '\n', encoding='utf-8')
           PY
       - name: Audit architecture
         run: |
@@ -70,26 +76,31 @@ jobs:
       - run: pytest -q
       - name: Restore normal CI and remove refactor scaffolding
         run: |
-          cat > .github/workflows/tests.yml <<'YAML'
-          name: tests
-          on:
-            push:
-            pull_request:
-          jobs:
-            cpu:
-              runs-on: ubuntu-latest
-              strategy:
-                matrix:
-                  python-version: ["3.10","3.12"]
-              steps:
-                - uses: actions/checkout@v4
-                - uses: actions/setup-python@v5
-                  with:
-                    python-version: ${{ matrix.python-version }}
-                - run: python -m pip install --upgrade pip
-                - run: python -m pip install -e ".[dev]"
-                - run: pytest -q
-          YAML
+          python - <<'PY'
+          from pathlib import Path
+          expression = '$' + '{{ matrix.python-version }}'
+          content = (
+              'name: tests\n'
+              'on:\n'
+              '  push:\n'
+              '  pull_request:\n'
+              'jobs:\n'
+              '  cpu:\n'
+              '    runs-on: ubuntu-latest\n'
+              '    strategy:\n'
+              '      matrix:\n'
+              '        python-version: ["3.10","3.12"]\n'
+              '    steps:\n'
+              '      - uses: actions/checkout@v4\n'
+              '      - uses: actions/setup-python@v5\n'
+              '        with:\n'
+              f'          python-version: {expression}\n'
+              '      - run: python -m pip install --upgrade pip\n'
+              '      - run: python -m pip install -e ".[dev]"\n'
+              '      - run: pytest -q\n'
+          )
+          Path('.github/workflows/tests.yml').write_text(content, encoding='utf-8')
+          PY
           git rm -- scripts/refactor_selection_architecture.py scripts/remove_duplicate_larimore.py .github/workflows/refactor-selection-architecture.yml
       - name: Commit final refactor tree
         run: |
