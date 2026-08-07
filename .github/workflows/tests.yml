@@ -7,16 +7,29 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10"]
+        python-version: ["3.10","3.12"]
     steps:
       - uses: actions/checkout@v4
-      - name: Diagnose architecture transform
+      - name: Apply architecture refactor in CI workspace
         run: |
-          set +e
           python scripts/refactor_selection_architecture.py
-          status=$?
-          set -e
-          echo "refactor exit=$status"
-          echo "--- stale references ---"
-          grep -R -n -E '_model_comparison|_state_space_order|_temporal_order_search|var_selection_cv|state_space_selection|_typing' src tests examples || true
-          exit $status
+          python scripts/remove_duplicate_larimore.py
+      - name: Capture transformed tree
+        if: matrix.python-version == '3.12'
+        run: |
+          git diff --binary > refactor.patch
+          tar -czf refactor-tree.tar.gz src tests examples
+      - name: Upload transformed tree
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: refactor-selection-tree
+          path: |
+            refactor.patch
+            refactor-tree.tar.gz
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]"
+      - run: pytest -q
