@@ -119,6 +119,7 @@ def lcluster(
 
 
 def _single_var(system: VARSystem) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return coefficients and covariance for one microscopic VAR system."""
     coefficients = torch.as_tensor(system.coefficients)
     covariance = torch.as_tensor(system.innovation_covariance)
     if coefficients.ndim == 4:
@@ -184,6 +185,7 @@ def _complexbox_proxy_var(
     history: bool,
     options: Mapping[str, Any],
 ) -> DDGradientSearchResult:
+    """Run ComplexBox-style proxy pre-optimization on direct VAR coefficients."""
     sequence, initial, factor, identity_coordinates = _var_proxy_inputs(
         system, initial_projection, lags=lags
     )
@@ -227,6 +229,7 @@ def _riemannian_proxy_var(
     history: bool,
     options: Mapping[str, Any],
 ) -> DDRiemannianSearchResult:
+    """Run Riemannian proxy pre-optimization on direct VAR coefficients."""
     sequence, initial, factor, identity_coordinates = _var_proxy_inputs(
         system, initial_projection, lags=lags
     )
@@ -276,6 +279,7 @@ def _proxy_stage(
     history: bool,
     options: Mapping[str, Any],
 ) -> RawSearchResult:
+    """Execute the SSDI proxy pre-optimization stage for one backend."""
     if isinstance(system, VARSystem):
         if optimizer == "complexbox":
             return _complexbox_proxy_var(
@@ -326,6 +330,7 @@ def _spectral_stage(
     history: bool,
     options: Mapping[str, Any],
 ) -> RawSearchResult:
+    """Execute the full spectral-DD refinement stage for one backend."""
     opts = dict(options)
     if optimizer == "complexbox":
         opts.setdefault("variant", 1)
