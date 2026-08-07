@@ -9,13 +9,6 @@ both. Model fitting remains in :mod:`complextorch.var` and
 """
 
 from ._temporal import EpochTimeSeriesSplit, TemporalFold
-from .selection_var import (
-    VARInformationCriteriaResult,
-    VAROrderScore,
-    VAROrderSearchCV,
-    VAROrderSearchResult,
-    VAROrderSelectionIC,
-)
 from .selection_state_space import (
     StateSpaceOrderScore,
     StateSpaceOrderSearchCV,
@@ -23,18 +16,25 @@ from .selection_state_space import (
     StateSpaceOrderSelection,
     StateSpaceOrderSelectionResult,
 )
+from .selection_var import (
+    VARInformationCriteriaResult,
+    VAROrderScore,
+    VAROrderSearchCV,
+    VAROrderSearchResult,
+    VAROrderSelectionIC,
+)
 
 __all__ = [
     "EpochTimeSeriesSplit",
-    "TemporalFold",
-    "VAROrderSelectionIC",
-    "VARInformationCriteriaResult",
-    "VAROrderSearchCV",
-    "VAROrderSearchResult",
-    "VAROrderScore",
-    "StateSpaceOrderSelection",
-    "StateSpaceOrderSelectionResult",
+    "StateSpaceOrderScore",
     "StateSpaceOrderSearchCV",
     "StateSpaceOrderSearchResult",
-    "StateSpaceOrderScore",
+    "StateSpaceOrderSelection",
+    "StateSpaceOrderSelectionResult",
+    "TemporalFold",
+    "VARInformationCriteriaResult",
+    "VAROrderScore",
+    "VAROrderSearchCV",
+    "VAROrderSearchResult",
+    "VAROrderSelectionIC",
 ]
