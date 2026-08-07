@@ -38,6 +38,12 @@ from .dd_optimization import (
     spectral_dynamical_dependence,
     spectral_dynamical_dependence_gradient,
 )
+from .measures.oir import (
+    delta_o_information_rate,
+    o_information_rate,
+    spectral_delta_o_information_rate,
+    spectral_o_information_rate,
+)
 from .measures.primary import (
     ModelMeasureConfig,
     ModelMeasureContext,
@@ -137,6 +143,7 @@ __all__ = [
     "companion_matrix",
     "compute_all_model_measures",
     "consistency",
+    "delta_o_information_rate",
     "demo_var",
     "downsample_innovations_state_space",
     "dynamical_dependence",
@@ -154,6 +161,7 @@ __all__ = [
     "kalman_smoother",
     "model_autocovariances",
     "mvgc_pvalue",
+    "o_information_rate",
     "optimise_dynamical_dependence",
     "optimise_dynamical_dependence_projection",
     "optimise_dynamical_dependence_proxy",
@@ -173,11 +181,13 @@ __all__ = [
     "simulate_var",
     "solve_dare",
     "solve_generalized_dare",
+    "spectral_delta_o_information_rate",
     "spectral_dynamical_dependence",
     "spectral_dynamical_dependence_gradient",
     "spectral_gaussian_mutual_information_rate",
     "spectral_gaussian_transfer_entropy_rate",
     "spectral_mvgc",
+    "spectral_o_information_rate",
     "stochastic_interaction",
     "temporal_mvgc",
     "to_complexbox_timeseries",
