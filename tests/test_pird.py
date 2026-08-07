@@ -7,12 +7,12 @@ import complextorch
 from complextorch import (
     InnovationsStateSpace,
     build_var_system,
+    gaussian_mutual_information_rate,
     partial_information_rate_decomposition,
     spectral_partial_information_rate_decomposition,
     var_to_innovations_state_space,
 )
 from complextorch.measures._pid_lattice import pid_lattice, pid_redundancy_from_atoms
-from complextorch.measures.pird import direct_subset_mutual_information_rates
 
 
 def _iss(coefficients, covariance, *, dtype=torch.float64):
@@ -26,13 +26,7 @@ def _iss(coefficients, covariance, *, dtype=torch.float64):
 
 def _three_process(dtype=torch.float64):
     coefficients = torch.tensor(
-        [
-            [
-                [0.42, 0.00, 0.00],
-                [0.08, 0.34, 0.00],
-                [0.30, -0.18, 0.28],
-            ]
-        ],
+        [[[0.42, 0.00, 0.00], [0.08, 0.34, 0.00], [0.30, -0.18, 0.28]]],
         dtype=dtype,
     )
     covariance = torch.tensor(
@@ -44,14 +38,12 @@ def _three_process(dtype=torch.float64):
 
 def _four_process(dtype=torch.float64):
     coefficients = torch.tensor(
-        [
-            [
-                [0.38, 0.00, 0.00, 0.00],
-                [0.04, 0.33, 0.00, 0.00],
-                [0.00, -0.06, 0.29, 0.00],
-                [0.26, 0.17, -0.14, 0.25],
-            ]
-        ],
+        [[
+            [0.38, 0.00, 0.00, 0.00],
+            [0.04, 0.33, 0.00, 0.00],
+            [0.00, -0.06, 0.29, 0.00],
+            [0.26, 0.17, -0.14, 0.25],
+        ]],
         dtype=dtype,
     )
     covariance = torch.tensor(
@@ -75,8 +67,28 @@ def _subset_position(result, subset):
 
 
 def _antichain_position(result, antichain):
-    canonical = tuple(frozenset(subset) for subset in antichain)
-    return result.antichains.index(canonical)
+    target = frozenset(frozenset(subset) for subset in antichain)
+    return next(
+        index
+        for index, node in enumerate(result.antichains)
+        if frozenset(node) == target
+    )
+
+
+def _direct_subset_rates(system, sources, target):
+    subsets = tuple(
+        frozenset(index for index in range(len(sources)) if mask & (1 << index))
+        for mask in range(1, 1 << len(sources))
+    )
+    rates = []
+    for subset in subsets:
+        indices = tuple(
+            observation
+            for source_index in sorted(subset)
+            for observation in sources[source_index]
+        )
+        rates.append(gaussian_mutual_information_rate(system, indices, target))
+    return subsets, torch.stack(rates, dim=-1)
 
 
 def test_public_pird_api_is_exported_and_documented():
@@ -88,15 +100,12 @@ def test_public_pird_api_is_exported_and_documented():
     )
     for name in names:
         assert name in complextorch.__all__
-        value = getattr(complextorch, name)
-        assert value.__doc__
+        assert getattr(complextorch, name).__doc__
 
 
 def test_two_source_pird_matches_explicit_minimum_information_formulas():
-    system = _three_process()
-    frequency = _grid(n=513)
     result = spectral_partial_information_rate_decomposition(
-        system, sources=([0], [1]), target=[2], frequencies=frequency
+        _three_process(), ([0], [1]), [2], _grid(n=513)
     )
     i0 = result.subset_mir[..., _subset_position(result, {0}), :]
     i1 = result.subset_mir[..., _subset_position(result, {1}), :]
@@ -124,7 +133,7 @@ def test_two_source_pird_matches_explicit_minimum_information_formulas():
 
 
 def _manual_three_source_atoms(result):
-    """Independent 18-node PIRD oracle following the handwritten Faes recursion."""
+    """Independent 18-node oracle following the handwritten PIRD recursion."""
     rate = {
         subset: result.subset_mir[..., index, :]
         for index, subset in enumerate(result.source_subsets)
@@ -136,7 +145,7 @@ def _manual_three_source_atoms(result):
         ((1,), (2,)),
         ((0,), (1, 2)),
         ((1,), (0, 2)),
-        ((2,), (0, 1)),
+        ((0, 1), (2,)),
         ((0,),),
         ((1,),),
         ((2,),),
@@ -149,11 +158,10 @@ def _manual_three_source_atoms(result):
         ((1, 2),),
         ((0, 1, 2),),
     )
-    redundancy = []
+    r = []
     for antichain in rows:
         terms = torch.stack([rate[frozenset(subset)] for subset in antichain], dim=-1)
-        redundancy.append(terms.amin(dim=-1))
-    r = redundancy
+        r.append(terms.amin(dim=-1))
     atoms = [None] * 18
     atoms[0] = r[0]
     atoms[1] = r[1] - atoms[0]
@@ -176,78 +184,92 @@ def _manual_three_source_atoms(result):
     return rows, atoms
 
 
-def test_three_source_generic_mobius_matches_independent_handwritten_pird_oracle():
-    system = _four_process()
-    frequency = _grid(n=257)
+def test_three_source_generic_mobius_matches_handwritten_pird_oracle():
     result = spectral_partial_information_rate_decomposition(
-        system, sources=([0], [1], [2]), target=[3], frequencies=frequency
+        _four_process(), ([0], [1], [2]), [3], _grid(n=257)
     )
     rows, manual_atoms = _manual_three_source_atoms(result)
     assert len(result.antichains) == 18
     for antichain, expected in zip(rows, manual_atoms, strict=True):
         position = _antichain_position(result, antichain)
-        torch.testing.assert_close(
-            result.atoms[..., position, :], expected, rtol=0.0, atol=2e-12
-        )
+        torch.testing.assert_close(result.atoms[..., position, :], expected, rtol=0.0, atol=2e-12)
 
 
 def test_every_temporal_subset_mir_is_reconstructed_from_integrated_atoms():
     system = _four_process()
-    frequency = _grid(n=2049)
+    sources = ((0,), (1,), (2,))
     result = partial_information_rate_decomposition(
-        system, sources=([0], [1], [2]), target=[3], frequencies=frequency
+        system, sources, [3], _grid(n=2049)
     )
-    subsets, direct = direct_subset_mutual_information_rates(
-        system, sources=([0], [1], [2]), target=[3]
-    )
+    subsets, direct = _direct_subset_rates(system, sources, (3,))
     lattice = pid_lattice(3, device=result.atoms.device)
     reconstructed = pid_redundancy_from_atoms(result.atoms, lattice)
     for subset_index, subset in enumerate(subsets):
         position = lattice.index((tuple(sorted(subset)),))
-        torch.testing.assert_close(
-            result.subset_mir[..., subset_index], direct[..., subset_index],
-            rtol=5e-7, atol=6e-9,
-        )
-        torch.testing.assert_close(
-            reconstructed[..., position], direct[..., subset_index],
-            rtol=5e-7, atol=6e-9,
-        )
+        torch.testing.assert_close(result.subset_mir[..., subset_index], direct[..., subset_index], rtol=5e-7, atol=6e-9)
+        torch.testing.assert_close(reconstructed[..., position], direct[..., subset_index], rtol=5e-7, atol=6e-9)
     joint_position = subsets.index(frozenset({0, 1, 2}))
-    torch.testing.assert_close(
-        result.atoms.sum(dim=-1), direct[..., joint_position], rtol=5e-7, atol=6e-9
-    )
+    torch.testing.assert_close(result.atoms.sum(dim=-1), direct[..., joint_position], rtol=5e-7, atol=6e-9)
 
 
 def test_spectral_atoms_reconstruct_every_redundancy_function_pointwise():
     result = spectral_partial_information_rate_decomposition(
-        _four_process(),
-        sources=([0], [1], [2]),
-        target=[3],
-        frequencies=_grid(n=129),
+        _four_process(), ([0], [1], [2]), [3], _grid(n=129)
     )
     lattice = pid_lattice(3, device=result.atoms.device)
     reconstructed = pid_redundancy_from_atoms(result.atoms.movedim(-2, -1), lattice)
-    torch.testing.assert_close(
-        reconstructed.movedim(-1, -2), result.redundancy, rtol=0.0, atol=2e-12
-    )
+    torch.testing.assert_close(reconstructed.movedim(-1, -2), result.redundancy, rtol=0.0, atol=2e-12)
 
 
 def test_coarse_graining_conserves_joint_mir_for_two_and_three_sources():
     frequency = _grid(n=1025)
-    for system, sources, target in (
-        (_three_process(), ([0], [1]), [2]),
-        (_four_process(), ([0], [1], [2]), [3]),
-    ):
-        result = partial_information_rate_decomposition(
-            system, sources=sources, target=target, frequencies=frequency
-        )
+    cases = (
+        (_three_process(), ((0,), (1,)), (2,)),
+        (_four_process(), ((0,), (1,), (2,)), (3,)),
+    )
+    for system, sources, target in cases:
+        result = partial_information_rate_decomposition(system, sources, target, frequency)
         joint_subset = frozenset(range(len(sources)))
         joint = result.subset_mir[..., result.source_subsets.index(joint_subset)]
-        coarse = (
-            result.unique.sum(dim=-1) + result.redundant + result.synergistic
-        )
+        coarse = result.unique.sum(dim=-1) + result.redundant + result.synergistic
         torch.testing.assert_close(coarse, joint, rtol=5e-7, atol=6e-9)
         torch.testing.assert_close(result.atoms.sum(dim=-1), joint, rtol=5e-7, atol=6e-9)
+
+
+def test_iid_examples_have_expected_redundancy_vs_synergy_balance():
+    zero = torch.zeros((1, 3, 3), dtype=torch.float64)
+    redundant_covariance = torch.tensor(
+        [[1.2, 0.8, 0.8], [0.8, 1.2, 0.8], [0.8, 0.8, 1.2]], dtype=torch.float64
+    )
+    synergistic_covariance = torch.tensor(
+        [[1.0, 0.0, 1.0], [0.0, 1.0, 1.0], [1.0, 1.0, 2.5]], dtype=torch.float64
+    )
+    frequency = _grid(n=65)
+    redundant = partial_information_rate_decomposition(
+        _iss(zero, redundant_covariance), ([0], [1]), [2], frequency
+    )
+    synergistic = partial_information_rate_decomposition(
+        _iss(zero, synergistic_covariance), ([0], [1]), [2], frequency
+    )
+    assert bool((redundant.delta > 0).all().item())
+    assert bool((synergistic.delta < 0).all().item())
+
+
+def test_source_permutation_preserves_invariant_terms_and_permutes_uniques():
+    system = _four_process()
+    frequency = _grid(n=513)
+    original = partial_information_rate_decomposition(
+        system, ([0], [1], [2]), [3], frequency
+    )
+    permuted = partial_information_rate_decomposition(
+        system, ([2], [0], [1]), [3], frequency
+    )
+    torch.testing.assert_close(permuted.redundant, original.redundant, rtol=3e-9, atol=3e-10)
+    torch.testing.assert_close(permuted.synergistic, original.synergistic, rtol=3e-9, atol=3e-10)
+    torch.testing.assert_close(permuted.delta, original.delta, rtol=3e-9, atol=3e-10)
+    torch.testing.assert_close(permuted.unique[..., 0], original.unique[..., 2], rtol=3e-9, atol=3e-10)
+    torch.testing.assert_close(permuted.unique[..., 1], original.unique[..., 0], rtol=3e-9, atol=3e-10)
+    torch.testing.assert_close(permuted.unique[..., 2], original.unique[..., 1], rtol=3e-9, atol=3e-10)
 
 
 def test_faes_half_open_integration_reconstructs_temporal_subset_mirs():
@@ -255,15 +277,9 @@ def test_faes_half_open_integration_reconstructs_temporal_subset_mirs():
     n = 2048
     frequency = torch.arange(n, dtype=torch.float64) / (2.0 * n)
     result = partial_information_rate_decomposition(
-        system,
-        sources=([0], [1]),
-        target=[2],
-        frequencies=frequency,
-        half_open=True,
+        system, ([0], [1]), [2], frequency, half_open=True
     )
-    _, direct = direct_subset_mutual_information_rates(
-        system, sources=([0], [1]), target=[2]
-    )
+    _, direct = _direct_subset_rates(system, ((0,), (1,)), (2,))
     torch.testing.assert_close(result.subset_mir, direct, rtol=8e-7, atol=8e-9)
 
 
@@ -273,70 +289,59 @@ def test_batched_pird_matches_explicit_loop_for_all_outputs():
             [[0.40, 0.00, 0.00], [0.05, 0.32, 0.00], [0.22, 0.11, 0.27]],
             [[0.34, -0.04, 0.00], [0.08, 0.36, 0.00], [0.15, -0.12, 0.30]],
             [[0.30, 0.03, 0.00], [-0.02, 0.28, 0.00], [0.18, 0.14, 0.33]],
-        ],
-        dtype=torch.float64,
+        ], dtype=torch.float64,
     ).unsqueeze(1)
     covariance = torch.tensor(
         [
             [[1.0, 0.08, 0.03], [0.08, 0.9, -0.02], [0.03, -0.02, 0.8]],
             [[0.9, -0.05, 0.02], [-0.05, 1.1, 0.04], [0.02, 0.04, 0.85]],
             [[1.2, 0.04, -0.03], [0.04, 0.8, 0.05], [-0.03, 0.05, 0.95]],
-        ],
-        dtype=torch.float64,
+        ], dtype=torch.float64,
     )
     system = _iss(coefficient, covariance)
     frequency = _grid(n=129)
     spectral = spectral_partial_information_rate_decomposition(
-        system, sources=([0], [1]), target=[2], frequencies=frequency
+        system, ([0], [1]), [2], frequency
     )
     temporal = partial_information_rate_decomposition(
-        system, sources=([0], [1]), target=[2], frequencies=frequency
+        system, ([0], [1]), [2], frequency
     )
     assert spectral.atoms.shape[:2] == (3, 4)
     assert temporal.atoms.shape == (3, 4)
     assert temporal.unique.shape == (3, 2)
 
+    fields = ("subset_mir", "redundancy", "atoms", "unique", "redundant", "synergistic", "delta")
     for batch in range(3):
         single = InnovationsStateSpace(
-            system.transition[batch],
-            system.observation[batch],
-            system.gain[batch],
-            system.innovation_covariance[batch],
+            system.transition[batch], system.observation[batch], system.gain[batch], system.innovation_covariance[batch]
         )
         single_spectral = spectral_partial_information_rate_decomposition(
-            single, sources=([0], [1]), target=[2], frequencies=frequency
+            single, ([0], [1]), [2], frequency
         )
         single_temporal = partial_information_rate_decomposition(
-            single, sources=([0], [1]), target=[2], frequencies=frequency
+            single, ([0], [1]), [2], frequency
         )
-        for field in ("subset_mir", "redundancy", "atoms", "unique", "redundant", "synergistic", "delta"):
-            torch.testing.assert_close(
-                getattr(spectral, field)[batch], getattr(single_spectral, field)
-            )
-            torch.testing.assert_close(
-                getattr(temporal, field)[batch], getattr(single_temporal, field)
-            )
+        for field in fields:
+            torch.testing.assert_close(getattr(spectral, field)[batch], getattr(single_spectral, field))
+            torch.testing.assert_close(getattr(temporal, field)[batch], getattr(single_temporal, field))
 
 
 def test_grouped_sources_are_supported_without_reshaping_channels():
     dtype = torch.float64
-    coefficients = torch.zeros((1, 5, 5), dtype=dtype)
-    coefficients[0] = torch.tensor(
-        [
+    coefficients = torch.tensor(
+        [[
             [0.25, 0.00, 0.00, 0.00, 0.00],
             [0.05, 0.28, 0.00, 0.00, 0.00],
             [0.00, 0.00, 0.30, 0.00, 0.00],
             [0.00, 0.00, 0.04, 0.27, 0.00],
             [0.16, 0.10, 0.13, -0.08, 0.22],
-        ], dtype=dtype,
+        ]], dtype=dtype,
     )
-    covariance = torch.eye(5, dtype=dtype)
-    system = _iss(coefficients, covariance)
     result = partial_information_rate_decomposition(
-        system,
-        sources=([0, 1], [2, 3]),
-        target=[4],
-        frequencies=_grid(n=513),
+        _iss(coefficients, torch.eye(5, dtype=dtype)),
+        ([0, 1], [2, 3]),
+        [4],
+        _grid(n=513),
     )
     assert result.sources == ((0, 1), (2, 3))
     assert result.target == (4,)
@@ -344,80 +349,57 @@ def test_grouped_sources_are_supported_without_reshaping_channels():
 
 
 def test_float32_tracks_float64_and_preserves_dtype():
-    frequency64 = _grid(torch.float64, 257)
-    frequency32 = frequency64.to(torch.float32)
     result64 = partial_information_rate_decomposition(
-        _three_process(torch.float64), ([0], [1]), [2], frequency64
+        _three_process(torch.float64), ([0], [1]), [2], _grid(torch.float64, 257)
     )
     result32 = partial_information_rate_decomposition(
-        _three_process(torch.float32), ([0], [1]), [2], frequency32
+        _three_process(torch.float32), ([0], [1]), [2], _grid(torch.float32, 257)
     )
-    for field in ("subset_mir", "redundancy", "atoms", "unique", "redundant", "synergistic", "delta"):
+    fields = ("subset_mir", "redundancy", "atoms", "unique", "redundant", "synergistic", "delta")
+    for field in fields:
         value32 = getattr(result32, field)
         value64 = getattr(result64, field)
         assert value32.dtype == torch.float32
-        torch.testing.assert_close(
-            value32.to(torch.float64), value64, rtol=8e-4, atol=6e-5
-        )
+        torch.testing.assert_close(value32.to(torch.float64), value64, rtol=8e-4, atol=6e-5)
 
 
 def test_log_base_scales_all_information_atoms():
     system = _three_process()
     frequency = _grid(n=257)
-    nats = partial_information_rate_decomposition(
-        system, ([0], [1]), [2], frequency, base=math.e
-    )
-    bits = partial_information_rate_decomposition(
-        system, ([0], [1]), [2], frequency, base=2.0
-    )
-    torch.testing.assert_close(
-        bits.atoms, nats.atoms / math.log(2.0), rtol=2e-9, atol=2e-10
-    )
+    nats = partial_information_rate_decomposition(system, ([0], [1]), [2], frequency, base=math.e)
+    bits = partial_information_rate_decomposition(system, ([0], [1]), [2], frequency, base=2.0)
+    torch.testing.assert_close(bits.atoms, nats.atoms / math.log(2.0), rtol=2e-9, atol=2e-10)
 
 
 def test_pird_validates_source_target_contracts():
     system = _four_process()
     frequency = _grid(n=65)
     with pytest.raises(ValueError, match="two or three"):
-        spectral_partial_information_rate_decomposition(
-            system, sources=([0],), target=[3], frequencies=frequency
-        )
+        spectral_partial_information_rate_decomposition(system, ([0],), [3], frequency)
     with pytest.raises(ValueError, match="two or three"):
-        spectral_partial_information_rate_decomposition(
-            system, sources=([0], [1], [2], [3]), target=[3], frequencies=frequency
-        )
+        spectral_partial_information_rate_decomposition(system, ([0], [1], [2], [3]), [3], frequency)
     with pytest.raises(ValueError, match="disjoint"):
-        spectral_partial_information_rate_decomposition(
-            system, sources=([0], [1]), target=[1], frequencies=frequency
-        )
+        spectral_partial_information_rate_decomposition(system, ([0], [1]), [1], frequency)
     with pytest.raises(ValueError, match="pairwise disjoint"):
-        spectral_partial_information_rate_decomposition(
-            system, sources=([0, 1], [1, 2]), target=[3], frequencies=frequency
-        )
+        spectral_partial_information_rate_decomposition(system, ([0, 1], [1, 2]), [3], frequency)
     with pytest.raises(ValueError, match="base"):
-        partial_information_rate_decomposition(
-            system, ([0], [1]), [3], frequency, base=1.0
-        )
+        partial_information_rate_decomposition(system, ([0], [1]), [3], frequency, base=1.0)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available")
 def test_pird_cuda_matches_cpu_and_stays_on_device():
     cpu = _three_process(torch.float64)
     cuda = InnovationsStateSpace(
-        cpu.transition.cuda(),
-        cpu.observation.cuda(),
-        cpu.gain.cuda(),
-        cpu.innovation_covariance.cuda(),
+        cpu.transition.cuda(), cpu.observation.cuda(), cpu.gain.cuda(), cpu.innovation_covariance.cuda()
     )
-    frequency_cpu = _grid(torch.float64, 257)
-    frequency_cuda = frequency_cpu.cuda()
     result_cpu = partial_information_rate_decomposition(
-        cpu, ([0], [1]), [2], frequency_cpu
+        cpu, ([0], [1]), [2], _grid(torch.float64, 257)
     )
     result_cuda = partial_information_rate_decomposition(
-        cuda, ([0], [1]), [2], frequency_cuda
+        cuda, ([0], [1]), [2], _grid(torch.float64, 257).cuda()
     )
-    for field in ("subset_mir", "redundancy", "atoms", "unique", "redundant", "synergistic", "delta"):
+    fields = ("subset_mir", "redundancy", "atoms", "unique", "redundant", "synergistic", "delta")
+    for field in fields:
         value_cuda = getattr(result_cuda, field)
         assert value_cuda.device.type == "cuda"
         torch.testing.assert_close(value_cuda.cpu(), getattr(result_cpu, field), rtol=2e-9, atol=2e-10)
