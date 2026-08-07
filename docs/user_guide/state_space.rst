@@ -4,7 +4,7 @@ State-space models and estimation
 General linear Gaussian state-space model
 -----------------------------------------
 
-``StateSpaceModel`` represents
+:class:`~complextorch.StateSpaceModel` represents
 
 .. math::
 
@@ -29,7 +29,8 @@ When available, the stationary latent covariance :math:`P_z` satisfies
 Innovations representation
 --------------------------
 
-``InnovationsStateSpace`` represents the predictor/innovations form
+:class:`~complextorch.InnovationsStateSpace` represents the
+predictor/innovations form
 
 .. math::
 
@@ -41,15 +42,17 @@ Innovations representation
    \qquad \varepsilon_t\sim\mathcal N(0,V).
 
 Here :math:`K` is the innovations gain and :math:`V` the innovations covariance.
-Many analytical reductions, including exact marginalization, state-space MVGC,
-O-information rate, PIRD, and dynamical dependence, operate on this canonical
-innovations representation.
+A general model is converted with :func:`~complextorch.innovations_form`; a
+:class:`~complextorch.VARSystem` is converted with
+:func:`~complextorch.var_to_innovations_state_space`. Exact marginalization uses
+:func:`~complextorch.reduce_innovations_state_space`.
 
 Kalman filtering
 ----------------
 
-Let :math:`m_t^-` and :math:`P_t^-` denote the one-step predicted state moments.
-The prediction equations are
+:func:`~complextorch.kalman_filter` implements the linear-Gaussian filter. Let
+:math:`m_t^-` and :math:`P_t^-` denote the one-step predicted state moments. The
+prediction equations are
 
 .. math::
 
@@ -102,7 +105,8 @@ The exact Gaussian log likelihood accumulated by the filter is
 Rauch--Tung--Striebel smoothing
 -------------------------------
 
-The RTS backward gain is
+:func:`~complextorch.kalman_smoother` applies the RTS backward pass. The RTS
+backward gain is
 
 .. math::
 
@@ -125,9 +129,10 @@ and the smoothed covariance is
 Block-Hankel convention
 -----------------------
 
-For subspace identification, ComplexTorch builds past and future block-Hankel
-matrices inside each trajectory. For a time origin :math:`t`, the past block is
-ordered recent-to-distant,
+For subspace identification, :class:`~complextorch.N4SID`,
+:class:`~complextorch.LarimoreStateSpace`, and the state-space selectors build
+past and future block-Hankel matrices inside each trajectory. For a time origin
+:math:`t`, the past block is ordered recent-to-distant,
 
 .. math::
 
@@ -148,8 +153,8 @@ No column may span a trajectory boundary.
 N4SID
 -----
 
-The compact ``N4SID`` implementation forms a regularized future-on-past
-projection
+The compact :class:`~complextorch.N4SID` implementation forms a regularized
+future-on-past projection
 
 .. math::
 
@@ -190,7 +195,7 @@ within-trajectory states have been constructed.
 Larimore canonical variate analysis
 -----------------------------------
 
-``LarimoreStateSpace`` estimates the innovations model
+:class:`~complextorch.LarimoreStateSpace` estimates the innovations model
 
 .. math::
 
@@ -246,11 +251,17 @@ The innovations covariance is the covariance of
 
    \varepsilon_t=y_t-Cz_t.
 
+Use :class:`~complextorch.StateSpaceOrderSelection` for Bauer/Larimore latent
+dimension selection, or :class:`~complextorch.StateSpaceOrderSearchCV` for
+temporal cross-validation of state dimension. Selection remains separate from
+the fixed-order :class:`~complextorch.LarimoreStateSpace` estimator.
+
 EM refinement
 -------------
 
-``LinearGaussianEM`` performs expectation--maximization for a general
-:math:`(A,C,Q,R)` model. The E-step uses the Kalman smoother to obtain
+:class:`~complextorch.LinearGaussianEM` performs expectation--maximization for a
+general :math:`(A,C,Q,R)` model. Its E-step calls
+:func:`~complextorch.kalman_smoother` to obtain
 
 .. math::
 
