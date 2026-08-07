@@ -82,10 +82,12 @@ _LOG = logging.getLogger(__name__)
 
 
 def _index(indices, covariance: torch.Tensor) -> torch.Tensor:
+    """Build a device-local integer index tensor for covariance blocks."""
     return torch.as_tensor(tuple(indices), dtype=torch.long, device=covariance.device)
 
 
 def _subcov(covariance: torch.Tensor, indices) -> torch.Tensor:
+    """Extract a square covariance submatrix while preserving batch dimensions."""
     index = _index(indices, covariance)
     return covariance.index_select(-2, index).index_select(-1, index)
 
@@ -97,6 +99,7 @@ def _mi(
     *,
     base: float,
 ) -> torch.Tensor:
+    """Evaluate Gaussian mutual information between selected covariance blocks."""
     left = tuple(left)
     right = tuple(right)
     block = _subcov(covariance, left + right)
@@ -104,6 +107,7 @@ def _mi(
 
 
 def _validate_covariance(joint_covariance: torch.Tensor, block_size: int) -> torch.Tensor:
+    """Validate and normalize a batched four-block Gaussian covariance tensor."""
     covariance = torch.as_tensor(joint_covariance)
     if not covariance.is_floating_point():
         covariance = covariance.to(torch.get_default_dtype())
@@ -119,6 +123,7 @@ def _validate_covariance(joint_covariance: torch.Tensor, block_size: int) -> tor
 
 
 def _validate_redundancy(redundancy: str) -> PhiIDRedundancy:
+    """Normalize and validate the requested Gaussian PhiID redundancy backend."""
     name = redundancy.lower()
     allowed = ("mmi", "ccs", "idep_a", "idep_b")
     if name not in allowed:
@@ -148,6 +153,7 @@ def _sobol_gaussian_samples(covariance: torch.Tensor, n_samples: int) -> torch.T
 
 
 def _quadratic_form(samples: torch.Tensor, covariance: torch.Tensor) -> torch.Tensor:
+    """Evaluate batched Gaussian quadratic forms using Cholesky solves."""
     factor = torch.linalg.cholesky(covariance)
     rhs = samples.transpose(-1, -2)
     solved = torch.cholesky_solve(rhs, factor).transpose(-1, -2)
@@ -219,6 +225,7 @@ def _ccs(
     *,
     base: float,
 ) -> torch.Tensor:
+    """Average local CCS redundancy over deterministic model-integration nodes."""
     return _ccs_local(
         samples, covariance, source0, source1, target, base=base
     ).mean(-1)
@@ -240,11 +247,13 @@ def _whitened_cross(covariance: torch.Tensor, left, right) -> torch.Tensor:
 
 
 def _identity(covariance: torch.Tensor, dimension: int) -> torch.Tensor:
+    """Create a batch-expanded identity matrix matching covariance dtype/device."""
     eye = torch.eye(dimension, dtype=covariance.dtype, device=covariance.device)
     return eye.expand(*covariance.shape[:-2], dimension, dimension)
 
 
 def _half_logdet(matrix: torch.Tensor, *, base: float) -> torch.Tensor:
+    """Evaluate one-half of an SPD log-determinant in the requested log base."""
     return 0.5 * spd_logdet(matrix) / math.log(base)
 
 
@@ -313,6 +322,7 @@ def _single_target_redundancy(
     base: float,
     ccs_samples: torch.Tensor | None,
 ) -> torch.Tensor:
+    """Dispatch one forward/backward PID redundancy to the selected backend."""
     if redundancy == "mmi":
         return torch.minimum(
             _mi(covariance, source0, target, base=base),
@@ -425,6 +435,7 @@ def _known_quantities(
     base: float,
     ccs_samples: torch.Tensor | None,
 ) -> torch.Tensor:
+    """Assemble the sixteen cumulative PhiID quantities before lattice inversion."""
     x, y = sources
     a, b = targets
 
@@ -492,6 +503,7 @@ def _known_quantities(
 
 
 def _atoms_from_knowns(knowns: torch.Tensor) -> torch.Tensor:
+    """Solve the fixed 16-by-16 linear system mapping cumulative terms to atoms."""
     matrix = torch.as_tensor(
         _KNOWNS_TO_ATOMS, dtype=knowns.dtype, device=knowns.device
     )
