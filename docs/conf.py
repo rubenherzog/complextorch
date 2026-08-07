@@ -27,6 +27,7 @@ sphinx_gallery_conf = {
     "examples_dirs": "../examples",
     "gallery_dirs": "auto_examples",
     "filename_pattern": r"/plot_",
+    "ignore_pattern": r"state_space_order_selection\.py",
     "abort_on_example_error": True,
     "download_all_examples": False,
     "remove_config_comments": True,
