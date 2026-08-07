@@ -6,10 +6,10 @@ from complextorch import (
     build_var_system,
     partial_granger_causality_decomposition,
     spectral_partial_granger_causality_decomposition,
-    state_space_temporal_mvgc,
     var_to_innovations_state_space,
 )
 from complextorch.measures._pid_lattice import pid_lattice, pid_redundancy_from_atoms
+from complextorch.measures.mvgc import state_space_temporal_mvgc
 
 
 def _iss(coefficients, covariance, *, dtype=torch.float64):
@@ -63,15 +63,6 @@ def _subset_position(result, subset):
     return result.source_subsets.index(frozenset(subset))
 
 
-def _antichain_position(result, antichain):
-    target = frozenset(frozenset(subset) for subset in antichain)
-    return next(
-        index
-        for index, node in enumerate(result.antichains)
-        if frozenset(node) == target
-    )
-
-
 def test_public_pdgc_api_is_exported_and_documented():
     names = (
         "PDGCResult",
@@ -121,6 +112,8 @@ def test_integrated_subset_gc_matches_exact_temporal_state_space_gc():
     result = partial_granger_causality_decomposition(
         system, sources, (3,), _grid(n=2049)
     )
+    lattice = pid_lattice(3, device=result.atoms.device)
+    reconstructed = pid_redundancy_from_atoms(result.atoms, lattice)
     for subset_index, subset in enumerate(result.source_subsets):
         source_indices = tuple(
             observation
@@ -128,16 +121,11 @@ def test_integrated_subset_gc_matches_exact_temporal_state_space_gc():
             for observation in sources[source_position]
         )
         direct = state_space_temporal_mvgc(
-            system,
-            source=source_indices,
-            target=(3,),
-            conditional=(),
+            system, source=source_indices, target=(3,), conditional=()
         )
         torch.testing.assert_close(
             result.subset_gc[..., subset_index], direct, rtol=8e-7, atol=8e-9
         )
-        lattice = pid_lattice(3, device=result.atoms.device)
-        reconstructed = pid_redundancy_from_atoms(result.atoms, lattice)
         node = lattice.index((tuple(sorted(subset)),))
         torch.testing.assert_close(
             reconstructed[..., node], direct, rtol=8e-7, atol=8e-9
@@ -164,12 +152,15 @@ def test_uncoupled_sources_have_zero_pdgc():
         [[[0.35, 0.0, 0.0], [0.0, 0.30, 0.0], [0.0, 0.0, 0.25]]],
         dtype=torch.float64,
     )
-    covariance = torch.eye(3, dtype=torch.float64)
     result = partial_granger_causality_decomposition(
-        _iss(coefficients, covariance), ((0,), (1,)), (2,), _grid(n=257)
+        _iss(coefficients, torch.eye(3)), ((0,), (1,)), (2,), _grid(n=257)
     )
-    torch.testing.assert_close(result.subset_gc, torch.zeros_like(result.subset_gc), atol=2e-12, rtol=0.0)
-    torch.testing.assert_close(result.atoms, torch.zeros_like(result.atoms), atol=2e-12, rtol=0.0)
+    torch.testing.assert_close(
+        result.subset_gc, torch.zeros_like(result.subset_gc), atol=2e-12, rtol=0.0
+    )
+    torch.testing.assert_close(
+        result.atoms, torch.zeros_like(result.atoms), atol=2e-12, rtol=0.0
+    )
 
 
 def test_source_permutation_preserves_invariant_terms_and_permutes_uniques():
@@ -195,9 +186,8 @@ def test_grouped_multichannel_sources_are_supported():
     coefficients[0, 4, 0] = 0.20
     coefficients[0, 4, 1] = -0.12
     coefficients[0, 4, 2] = 0.16
-    covariance = torch.eye(5, dtype=torch.float64)
     result = spectral_partial_granger_causality_decomposition(
-        _iss(coefficients, covariance), ((0, 1), (2, 3)), (4,), _grid(n=65)
+        _iss(coefficients, torch.eye(5)), ((0, 1), (2, 3)), (4,), _grid(n=65)
     )
     assert result.subset_gc.shape == (3, 65)
     assert result.unique.shape == (2, 65)
@@ -205,13 +195,11 @@ def test_grouped_multichannel_sources_are_supported():
 
 def test_faes_half_open_subset_gc_converges_to_temporal_gc():
     system = _three_process()
-    sources = ((0,), (1,))
-    target = (2,)
     direct = torch.stack(
         [
-            state_space_temporal_mvgc(system, source=(0,), target=target, conditional=()),
-            state_space_temporal_mvgc(system, source=(1,), target=target, conditional=()),
-            state_space_temporal_mvgc(system, source=(0, 1), target=target, conditional=()),
+            state_space_temporal_mvgc(system, source=(0,), target=(2,), conditional=()),
+            state_space_temporal_mvgc(system, source=(1,), target=(2,), conditional=()),
+            state_space_temporal_mvgc(system, source=(0, 1), target=(2,), conditional=()),
         ],
         dim=-1,
     )
@@ -219,7 +207,7 @@ def test_faes_half_open_subset_gc_converges_to_temporal_gc():
     for n in (256, 2048):
         frequency = torch.arange(n, dtype=torch.float64) / (2.0 * n)
         result = partial_granger_causality_decomposition(
-            system, sources, target, frequency, half_open=True
+            system, ((0,), (1,)), (2,), frequency, half_open=True
         )
         errors.append((result.subset_gc - direct).abs().max())
     assert float(errors[1]) < float(errors[0])
@@ -258,23 +246,35 @@ def test_batched_pdgc_matches_explicit_loop_for_all_outputs():
         single_temporal = partial_granger_causality_decomposition(
             single_system, ((0,), (1,)), (2,), frequency
         )
-        for name in ("subset_gc", "redundancy", "atoms", "unique", "redundant", "synergistic", "delta"):
-            torch.testing.assert_close(getattr(batched_spectral, name)[batch], getattr(single_spectral, name))
-            torch.testing.assert_close(getattr(batched_temporal, name)[batch], getattr(single_temporal, name))
+        for name in (
+            "subset_gc", "redundancy", "atoms", "unique",
+            "redundant", "synergistic", "delta",
+        ):
+            torch.testing.assert_close(
+                getattr(batched_spectral, name)[batch], getattr(single_spectral, name)
+            )
+            torch.testing.assert_close(
+                getattr(batched_temporal, name)[batch], getattr(single_temporal, name)
+            )
 
 
 def test_pdgc_float32_agrees_with_float64():
-    frequency64 = _grid(n=129)
     result64 = partial_granger_causality_decomposition(
-        _three_process(torch.float64), ((0,), (1,)), (2,), frequency64
+        _three_process(torch.float64), ((0,), (1,)), (2,), _grid(n=129)
     )
     result32 = partial_granger_causality_decomposition(
-        _three_process(torch.float32), ((0,), (1,)), (2,), frequency64.to(torch.float32)
+        _three_process(torch.float32),
+        ((0,), (1,)),
+        (2,),
+        _grid(torch.float32, n=129),
     )
     assert result32.atoms.dtype == torch.float32
     for name in ("subset_gc", "atoms", "unique", "redundant", "synergistic", "delta"):
         torch.testing.assert_close(
-            getattr(result32, name).to(torch.float64), getattr(result64, name), rtol=3e-4, atol=3e-5
+            getattr(result32, name).to(torch.float64),
+            getattr(result64, name),
+            rtol=3e-4,
+            atol=3e-5,
         )
 
 
@@ -285,7 +285,9 @@ def test_invalid_pdgc_groups_and_frequency_are_rejected():
     with pytest.raises(ValueError):
         spectral_partial_granger_causality_decomposition(system, ((0,), (1,)), (1,), _grid(n=9))
     with pytest.raises(ValueError):
-        spectral_partial_granger_causality_decomposition(system, ((0,), (1,)), (2,), torch.tensor([0.0, 0.6]))
+        spectral_partial_granger_causality_decomposition(
+            system, ((0,), (1,)), (2,), torch.tensor([0.0, 0.6])
+        )
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available")
@@ -305,4 +307,6 @@ def test_pdgc_cuda_matches_cpu():
         gpu_system, ((0,), (1,)), (2,), frequency.cuda()
     )
     for name in ("subset_gc", "redundancy", "atoms", "unique", "redundant", "synergistic", "delta"):
-        torch.testing.assert_close(getattr(gpu, name).cpu(), getattr(cpu, name), rtol=2e-9, atol=2e-10)
+        torch.testing.assert_close(
+            getattr(gpu, name).cpu(), getattr(cpu, name), rtol=2e-9, atol=2e-10
+        )
