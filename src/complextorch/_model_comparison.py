@@ -157,15 +157,22 @@ class NestedVARModels:
     target_positions_reduced: tuple[int, ...]
 
 
-def fit_nested_var_models(observations: torch.Tensor, order: int, target, source, conditional=(), **var_kwargs) -> NestedVARModels:
+def fit_nested_var_models(observations: torch.Tensor, order: int, target, source, conditional=None, **var_kwargs) -> NestedVARModels:
     """Fit consistent full/reduced VARs once for all predictive measures."""
     x = torch.as_tensor(observations)
     n = x.shape[-1]
     target = normalise_indices(target, n)
     source = normalise_indices(source, n)
-    conditional = tuple(i for i in normalise_indices(conditional, n) if i not in target and i not in source) if conditional else ()
     if set(target) & set(source):
         raise ValueError("source and target must be disjoint")
+    if conditional is None:
+        conditional = tuple(i for i in range(n) if i not in target and i not in source)
+    elif len(tuple(conditional)) == 0:
+        conditional = ()
+    else:
+        conditional = tuple(
+            i for i in normalise_indices(conditional, n) if i not in target and i not in source
+        )
     reduced_vars = target + conditional
     full_vars = reduced_vars + source
     defaults = dict(mode="pooled", fit_intercept=True, stability="ignore")
