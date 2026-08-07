@@ -1,10 +1,9 @@
 import torch
 
-from complextorch import (
-    InnovationsStateSpace,
+from complextorch import InnovationsStateSpace, orthonormalise_projection
+from complextorch.dd_riemannian import (
     optimise_dynamical_dependence_proxy_riemannian,
     optimise_dynamical_dependence_spectral_riemannian,
-    orthonormalise_projection,
 )
 
 
@@ -54,7 +53,9 @@ def _projector(matrix):
 
 
 def _stack_independent(results):
-    order = torch.argsort(torch.cat([result.objective for result in results]), stable=True)
+    order = torch.argsort(
+        torch.cat([result.objective for result in results]), stable=True
+    )
     return {
         "objective": torch.cat([result.objective for result in results])[order],
         "projection": torch.cat([result.projection for result in results])[order],
