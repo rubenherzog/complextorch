@@ -191,6 +191,20 @@ def test_larimore_preserves_requested_dtype_and_validates_inputs():
     with pytest.raises(ValueError):
         _larimore_state_space_order(observations, past_horizon=3, mode="bad")
     with pytest.raises(ValueError):
-        _bauer_svc(torch.tensor([0.8, 0.2]), 2, 100, min_order=1)
-    with pytest.raises(ValueError):
-        _bauer_svc(torch.tensor([0.8, 0.2]), 3, 100)
+        _bauer_svc(torch.tensor([0.8, 0.2]), 2, 100, min_order=0)
+    best, criterion = _bauer_svc(torch.tensor([0.8, 0.2]), 3, 100)
+    assert criterion.shape[-1] == 2
+    assert int(best) in {1, 2}
+
+
+def test_bauer_allows_state_order_below_observation_dimension():
+    """Larimore/Bauer order is not lower-bounded by output dimension."""
+
+    correlations = torch.tensor(
+        [0.44, 0.09, 0.08, 0.07], dtype=torch.float64
+    )
+    best, criterion = _bauer_svc(
+        correlations, n_observations=3, n_effective=6000
+    )
+    assert criterion.shape[-1] == 4
+    assert int(best) == 1
