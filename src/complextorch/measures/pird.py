@@ -40,7 +40,6 @@ from .oir import Group, _flatten, _normalise_groups
 from .rates import (
     _normalise_group,
     _validate_log_base,
-    gaussian_mutual_information_rate,
     spectral_gaussian_mutual_information_rate,
 )
 
@@ -368,33 +367,3 @@ def partial_information_rate_decomposition(
         synergistic=integrate(spectral.synergistic),
         delta=integrate(spectral.delta),
     )
-
-
-def direct_subset_mutual_information_rates(
-    system: InnovationsStateSpace,
-    sources: Sequence[int | Sequence[int]],
-    target: int | Sequence[int],
-    *,
-    base: float = math.e,
-) -> tuple[tuple[Subset, ...], torch.Tensor]:
-    """Return exact temporal source-subset MIRs for validation and diagnostics.
-
-    This helper does not define PIRD atoms. It provides the exact temporal MIR
-    values against which integrated spectral subset MIRs and reconstructed PID
-    lattice nodes can be checked.
-    """
-    source_groups, target_group = _normalise_pird_groups(system, sources, target)
-    subsets = _source_subsets(len(source_groups))
-    values = torch.stack(
-        [
-            gaussian_mutual_information_rate(
-                system,
-                _indices_for_subset(source_groups, subset),
-                target_group,
-                base=base,
-            )
-            for subset in subsets
-        ],
-        dim=-1,
-    )
-    return subsets, values
