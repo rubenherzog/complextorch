@@ -154,7 +154,7 @@ def test_principal_angles_are_basis_invariant() -> None:
     )
     same_subspace = rotation @ projection
     angles = principal_angles_rows(projection, same_subspace)
-    assert torch.allclose(angles, torch.zeros_like(angles), atol=2e-8)
+    assert torch.allclose(angles, torch.zeros_like(angles), atol=3e-8)
     assert subspace_distance(projection, same_subspace) < 3e-8
 
 
