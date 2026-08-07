@@ -21,6 +21,14 @@ from ..spectra import hermitian_logdet, hermitian_part, innovations_spectral_den
 from ._nested_var import normalise_indices
 
 
+def _validate_log_base(base: float) -> float:
+    """Return a finite positive logarithm base different from one."""
+    value = float(base)
+    if not math.isfinite(value) or value <= 0.0 or value == 1.0:
+        raise ValueError("base must be finite, positive, and different from one")
+    return value
+
+
 def _normalise_group(indices, n_observations: int, *, name: str) -> tuple[int, ...]:
     """Return a validated non-empty group while rejecting duplicate indices."""
     raw = (indices,) if isinstance(indices, int) else tuple(indices)
@@ -81,8 +89,7 @@ def gaussian_mutual_information_rate(
     torch.Tensor
         Scalar for an unbatched system or one value per batch element.
     """
-    if base <= 0 or base == 1:
-        raise ValueError("base must be positive and different from one")
+    base_value = _validate_log_base(base)
     left_group, right_group = _normalise_pair(system, left, right)
     left_model = reduce_innovations_state_space(system, left_group)
     right_model = reduce_innovations_state_space(system, right_group)
@@ -91,7 +98,7 @@ def gaussian_mutual_information_rate(
         spd_logdet(left_model.innovation_covariance)
         + spd_logdet(right_model.innovation_covariance)
         - spd_logdet(joint_model.innovation_covariance)
-    ) / math.log(base)
+    ) / math.log(base_value)
 
 
 def gaussian_transfer_entropy_rate(
@@ -126,8 +133,7 @@ def gaussian_transfer_entropy_rate(
     torch.Tensor
         Scalar for an unbatched system or one value per batch element.
     """
-    if base <= 0 or base == 1:
-        raise ValueError("base must be positive and different from one")
+    base_value = _validate_log_base(base)
     source_group, target_group = _normalise_pair(system, source, target)
     joint = reduce_innovations_state_space(system, target_group + source_group)
     target_only = reduce_innovations_state_space(system, target_group)
@@ -136,7 +142,7 @@ def gaussian_transfer_entropy_rate(
     return 0.5 * (
         spd_logdet(target_only.innovation_covariance)
         - spd_logdet(joint_target_covariance)
-    ) / math.log(base)
+    ) / math.log(base_value)
 
 
 def gaussian_instantaneous_information_rate(
@@ -169,8 +175,7 @@ def gaussian_instantaneous_information_rate(
     torch.Tensor
         Scalar for an unbatched system or one value per batch element.
     """
-    if base <= 0 or base == 1:
-        raise ValueError("base must be positive and different from one")
+    base_value = _validate_log_base(base)
     left_group, right_group = _normalise_pair(system, left, right)
     joint = reduce_innovations_state_space(system, left_group + right_group)
     n_left = len(left_group)
@@ -181,7 +186,7 @@ def gaussian_instantaneous_information_rate(
         spd_logdet(left_covariance)
         + spd_logdet(right_covariance)
         - spd_logdet(covariance)
-    ) / math.log(base)
+    ) / math.log(base_value)
 
 
 def spectral_gaussian_mutual_information_rate(
@@ -221,8 +226,7 @@ def spectral_gaussian_mutual_information_rate(
     torch.Tensor
         Spectral rate density on the final frequency axis.
     """
-    if base <= 0 or base == 1:
-        raise ValueError("base must be positive and different from one")
+    base_value = _validate_log_base(base)
     left_group, right_group = _normalise_pair(system, left, right)
     joint = reduce_innovations_state_space(system, left_group + right_group)
     spectrum = innovations_spectral_density(
@@ -235,7 +239,7 @@ def spectral_gaussian_mutual_information_rate(
         hermitian_logdet(left_spectrum)
         + hermitian_logdet(right_spectrum)
         - hermitian_logdet(spectrum)
-    ) / math.log(base)
+    ) / math.log(base_value)
 
 
 def spectral_gaussian_transfer_entropy_rate(
@@ -278,8 +282,9 @@ def spectral_gaussian_transfer_entropy_rate(
     torch.Tensor
         Spectral transfer-entropy density on the final frequency axis.
     """
-    if base <= 0 or base == 1:
-        raise ValueError("base must be positive and different from one")
+    base_value = _validate_log_base(base)
+    if not math.isfinite(float(sampling_frequency)) or sampling_frequency <= 0:
+        raise ValueError("sampling_frequency must be finite and positive")
     source_group, target_group = _normalise_pair(system, source, target)
     joint = reduce_innovations_state_space(system, target_group + source_group)
     frequency = torch.as_tensor(
@@ -314,4 +319,4 @@ def spectral_gaussian_transfer_entropy_rate(
     intrinsic = hermitian_part(intrinsic)
     return 0.5 * (
         hermitian_logdet(target_spectrum) - hermitian_logdet(intrinsic)
-    ) / math.log(base)
+    ) / math.log(base_value)
