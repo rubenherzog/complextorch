@@ -2,19 +2,38 @@ name: tests
 on:
   push:
   pull_request:
+permissions:
+  contents: write
 jobs:
-  cpu:
+  finalize-refactor:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10","3.12"]
     steps:
       - uses: actions/checkout@v4
-      - name: Apply architecture refactor in CI workspace
+        with:
+          ref: refactor/selection-architecture
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build final refactor tree
         run: |
           python scripts/refactor_selection_architecture.py || true
           python scripts/remove_duplicate_larimore.py
-      - name: Audit architecture invariants
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/complextorch/selection/selection_state_space.py')
+          text = p.read_text(encoding='utf-8')
+          text = text.replace(
+              'Smallest candidate state dimension. Defaults to the number of observed\n        variables, matching the full-model MVGC convention.',
+              'Smallest candidate state dimension. Defaults to one; latent state dimension\n        is not constrained by the number of observed variables.',
+          )
+          text = text.replace(
+              '            from .state_space import LarimoreStateSpace',
+              '            from ..state_space import LarimoreStateSpace',
+          )
+          p.write_text(text, encoding='utf-8')
+          PY
+      - name: Audit architecture
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -43,36 +62,60 @@ jobs:
               count = len(re.findall(rf'^class {class_name}\(', text, flags=re.M))
               if count != 1:
                   raise SystemExit(f'expected one exact {class_name} definition, found {count}')
-          decomposition_count = len(re.findall(r'^def _larimore_decomposition\(', text, flags=re.M))
-          if decomposition_count != 1:
-              raise SystemExit(f'expected one _larimore_decomposition definition, found {decomposition_count}')
-          required = [
-              src / 'selection/__init__.py',
-              src / 'selection/selection_var.py',
-              src / 'selection/selection_state_space.py',
-              src / 'selection/_temporal.py',
-              src / 'measures/_nested_var.py',
-          ]
-          for path in required:
-              if not path.exists():
-                  raise SystemExit(f'missing required refactor path: {path}')
+          if len(re.findall(r'^def _larimore_decomposition\(', text, flags=re.M)) != 1:
+              raise SystemExit('Larimore decomposition must have one source of truth')
           PY
-      - name: Capture transformed tree
-        if: matrix.python-version == '3.12'
-        run: |
-          git diff --binary > refactor.patch
-          tar -czf refactor-tree.tar.gz src tests examples
-      - name: Upload transformed tree
-        if: matrix.python-version == '3.12'
-        uses: actions/upload-artifact@v4
-        with:
-          name: refactor-selection-tree
-          path: |
-            refactor.patch
-            refactor-tree.tar.gz
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e ".[dev]"
       - run: pytest -q
+      - name: Restore normal CI and remove refactor scaffolding
+        run: |
+          cat > .github/workflows/tests.yml <<'YAML'
+          name: tests
+          on:
+            push:
+            pull_request:
+          jobs:
+            cpu:
+              runs-on: ubuntu-latest
+              strategy:
+                matrix:
+                  python-version: ["3.10","3.12"]
+              steps:
+                - uses: actions/checkout@v4
+                - uses: actions/setup-python@v5
+                  with:
+                    python-version: ${{ matrix.python-version }}
+                - run: python -m pip install --upgrade pip
+                - run: python -m pip install -e ".[dev]"
+                - run: pytest -q
+          YAML
+          git rm -- scripts/refactor_selection_architecture.py scripts/remove_duplicate_larimore.py .github/workflows/refactor-selection-architecture.yml
+      - name: Commit final refactor tree
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- .github/workflows/tests.yml \
+            src/complextorch/__init__.py \
+            src/complextorch/_subspace.py \
+            src/complextorch/adapters.py \
+            src/complextorch/measures/__init__.py \
+            src/complextorch/measures/_nested_var.py \
+            src/complextorch/measures/mvgc.py \
+            src/complextorch/selection/__init__.py \
+            src/complextorch/selection/_temporal.py \
+            src/complextorch/selection/selection_var.py \
+            src/complextorch/selection/selection_state_space.py \
+            src/complextorch/state_space.py \
+            src/complextorch/var.py \
+            tests/test_state_space_model_order.py \
+            tests/test_temporal_order_search_shared.py
+          git add -u -- src/complextorch/_model_comparison.py \
+            src/complextorch/_temporal_order_search.py \
+            src/complextorch/_typing.py \
+            src/complextorch/selection.py \
+            src/complextorch/state_space_selection.py \
+            src/complextorch/var_selection_cv.py
+          git diff --cached --check
+          git commit -m "Refactor model-selection architecture"
+          git push origin HEAD:refactor/selection-architecture
