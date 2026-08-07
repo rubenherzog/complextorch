@@ -100,7 +100,7 @@ The exact Gaussian log likelihood accumulated by the filter is
    \right].
 
 Rauch--Tung--Striebel smoothing
-------------------------------
+-------------------------------
 
 The RTS backward gain is
 
