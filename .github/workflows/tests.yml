@@ -1,6 +1,7 @@
 name: finalize-selection-review
 on:
   push:
+  pull_request:
 permissions:
   contents: write
 jobs:
