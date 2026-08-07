@@ -90,6 +90,10 @@ Measures
    ~complextorch.spectral_partial_granger_causality_decomposition
    ~complextorch.PDGCResult
    ~complextorch.SpectralPDGCResult
+   ~complextorch.hop_analysis
+   ~complextorch.spectral_hop_analysis
+   ~complextorch.HOPResult
+   ~complextorch.SpectralHOPResult
    ~complextorch.phiid_from_model
    ~complextorch.compute_all_model_measures
    ~complextorch.residual_whiteness
