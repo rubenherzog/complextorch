@@ -1,9 +1,9 @@
 r"""Public confidence-interval API for model-derived ComplexTorch measures.
 
-The API delegates all resampling and VAR-refit mechanics to
-:mod:`complextorch.inference`, then evaluates the configured analytical measure
-registry once on the original fitted model and once on the shared batched
-resampling ensemble. No measure triggers a second bootstrap.
+The API delegates all resampling and VAR-refit mechanics to the private
+:mod:`complextorch._resampling` engine, then evaluates the configured analytical
+measure registry once on the original fitted model and once on the shared
+batched resampling ensemble. No measure triggers a second bootstrap.
 
 References
 ----------
@@ -20,7 +20,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from .inference import (
+from ._resampling import (
     ConfidenceIntervalResult,
     MeasureInterval,
     ResamplingMethod,
