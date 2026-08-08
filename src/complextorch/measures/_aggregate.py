@@ -1,12 +1,11 @@
 """Private composition helpers for the complete model-measure aggregate API.
 
 This module contains no estimators and introduces no alternative numerical
-kernels.  It composes already validated primary measures from the canonical
+kernels. It composes already validated primary measures from the canonical
 model primitives supplied by :class:`ModelMeasureContext`.
 """
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import Any
 
 import torch
@@ -176,18 +175,18 @@ def extend_model_measure_result(
             config.phiid_variables,
             config.phiid_lag,
         )
-        redundancies = {
-            redundancy: gaussian_phiid_atoms(
-                covariance,
-                redundancy=redundancy,
-                base=config.base,
-                ccs_qmc_samples=config.phiid_ccs_qmc_samples,
-            )
-            for redundancy in config.phiid_redundancies
-        }
+        redundancies: dict[str, dict[str, torch.Tensor]] = {}
+        for redundancy in config.phiid_redundancies:
+            if redundancy == "mmi" and "phiid" in result:
+                redundancies[redundancy] = result["phiid"]
+            else:
+                redundancies[redundancy] = gaussian_phiid_atoms(
+                    covariance,
+                    redundancy=redundancy,
+                    base=config.base,
+                    ccs_qmc_samples=config.phiid_ccs_qmc_samples,
+                )
         result["phiid_redundancy"] = redundancies
-        # Preserve the historical ``result["phiid"]`` MMI surface when MMI is
-        # requested while exposing every configured redundancy backend.
         if "mmi" in redundancies:
             result["phiid"] = redundancies["mmi"]
         _append_available(result, "phiid_redundancy")
@@ -216,8 +215,6 @@ def extend_model_measure_result(
             )
             result["hop"] = integrated
             result["spectral_hop"] = spectral
-            # PIRD and PDGC are the two primary HOP components.  Reuse the same
-            # objects instead of calling their public functions a second time.
             result["pird"] = integrated.pird
             result["spectral_pird"] = spectral.pird
             result["pdgc"] = integrated.pdgc
