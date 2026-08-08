@@ -134,11 +134,11 @@ def evaluate_resampling_measures(
 
     rates: dict[str, torch.Tensor] = {}
     if system.n_variables >= 2:
-        rates["o_information"] = o_information_rate(
+        rates["o_information_rate"] = o_information_rate(
             innovations, groups=config.oir_groups, base=base
         )
         if frequencies is not None:
-            rates["spectral_o_information"] = spectral_o_information_rate(
+            rates["spectral_o_information_rate"] = spectral_o_information_rate(
                 innovations,
                 frequencies,
                 groups=config.oir_groups,
@@ -149,14 +149,14 @@ def evaluate_resampling_measures(
         raise ValueError("O-information-rate inference requires at least two variables")
 
     if config.delta_oir_target_group is not None:
-        rates["delta_o_information"] = delta_o_information_rate(
+        rates["delta_o_information_rate"] = delta_o_information_rate(
             innovations,
             config.delta_oir_target_group,
             groups=config.oir_groups,
             base=base,
         )
         if frequencies is not None:
-            rates["spectral_delta_o_information"] = spectral_delta_o_information_rate(
+            rates["spectral_delta_o_information_rate"] = spectral_delta_o_information_rate(
                 innovations,
                 frequencies,
                 config.delta_oir_target_group,
@@ -170,13 +170,13 @@ def evaluate_resampling_measures(
         target = config.primary.target
         rates.update(
             {
-                "mutual_information": gaussian_mutual_information_rate(
+                "mutual_information_rate": gaussian_mutual_information_rate(
                     innovations, source, target, base=base
                 ),
-                "transfer_entropy": gaussian_transfer_entropy_rate(
+                "transfer_entropy_rate": gaussian_transfer_entropy_rate(
                     innovations, source, target, base=base
                 ),
-                "instantaneous_information": gaussian_instantaneous_information_rate(
+                "instantaneous_information_rate": gaussian_instantaneous_information_rate(
                     innovations, source, target, base=base
                 ),
             }
@@ -184,7 +184,7 @@ def evaluate_resampling_measures(
         if frequencies is not None:
             rates.update(
                 {
-                    "spectral_mutual_information": spectral_gaussian_mutual_information_rate(
+                    "spectral_mutual_information_rate": spectral_gaussian_mutual_information_rate(
                         innovations,
                         source,
                         target,
@@ -192,7 +192,7 @@ def evaluate_resampling_measures(
                         sampling_frequency=sampling_frequency,
                         base=base,
                     ),
-                    "spectral_transfer_entropy": spectral_gaussian_transfer_entropy_rate(
+                    "spectral_transfer_entropy_rate": spectral_gaussian_transfer_entropy_rate(
                         innovations,
                         source,
                         target,
