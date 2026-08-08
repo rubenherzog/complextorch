@@ -6,6 +6,7 @@ from .adapters import (
     to_complexbox_timeseries,
     to_complexbox_var,
 )
+from .confidence import measure_confidence_intervals
 from .control import (
     InnovationsStateSpace,
     ProjectionSearchResult,
@@ -39,6 +40,8 @@ from .dd_optimization import (
     spectral_dynamical_dependence,
     spectral_dynamical_dependence_gradient,
 )
+from .inference import ConfidenceIntervalResult, MeasureInterval, ResamplingMethod
+from .inference_registry import InferenceMeasureConfig
 from .measures.hop import HOPResult, SpectralHOPResult, hop_analysis, spectral_hop_analysis
 from .measures.oir import (
     delta_o_information_rate,
@@ -135,15 +138,19 @@ from .synthetic import (
 from .var import VAR, VARParameters
 
 __all__ = [
+    "ConfidenceIntervalResult",
     "DDGradientSearchResult",
     "DDObjective",
     "DDOptimizationResult",
     "DDSSDIOptimizationResult",
     "DDOptimizer",
     "HOPResult",
+    "InferenceMeasureConfig",
+    "MeasureInterval",
     "N4SID",
     "PDGCResult",
     "PIRDResult",
+    "ResamplingMethod",
     "SYNTHETIC_SYSTEMS",
     "SYNTHETIC_SYSTEM_PARAMETERS",
     "SpectralHOPResult",
@@ -196,6 +203,7 @@ __all__ = [
     "integrate_spectral_rate",
     "kalman_filter",
     "kalman_smoother",
+    "measure_confidence_intervals",
     "model_autocovariances",
     "mvgc_pvalue",
     "o_information_rate",
