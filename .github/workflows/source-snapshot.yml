@@ -4,30 +4,24 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
 
 permissions:
-  contents: write
+  contents: read
+  actions: write
   statuses: write
 
 concurrency:
-  group: source-snapshot-${{ github.ref }}
+  group: source-snapshot-main
   cancel-in-progress: true
 
 jobs:
   snapshot:
-    name: Publish current source snapshot
+    name: Publish current main snapshot
     runs-on: ubuntu-latest
-    env:
-      SNAPSHOT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ env.SNAPSHOT_SHA }}
 
       - name: Stage source snapshot
         shell: bash
@@ -42,9 +36,9 @@ jobs:
           printf '%s\n' \
             '{' \
             '  "repository": "${{ github.repository }}",' \
-            '  "branch": "${{ github.event_name == 'pull_request' && github.head_ref || 'main' }}",' \
-            '  "commit": "${{ env.SNAPSHOT_SHA }}",' \
-            '  "created_at": "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.updated_at || github.event.head_commit.timestamp }}"' \
+            '  "branch": "main",' \
+            '  "commit": "${{ github.sha }}",' \
+            '  "created_at": "${{ github.event.head_commit.timestamp }}"' \
             '}' \
             > "$snapshot_dir/.snapshot.json"
 
@@ -59,6 +53,29 @@ jobs:
           compression-level: 6
           retention-days: 1
 
+      - name: Remove previous snapshots
+        uses: actions/github-script@v7
+        env:
+          CURRENT_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        with:
+          script: |
+            const currentId = Number(process.env.CURRENT_ARTIFACT_ID);
+            const { data } = await github.rest.actions.listArtifactsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'complextorch-source',
+              per_page: 100,
+            });
+            for (const artifact of data.artifacts) {
+              if (artifact.id !== currentId) {
+                await github.rest.actions.deleteArtifact({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  artifact_id: artifact.id,
+                });
+              }
+            }
+
       - name: Publish artifact pointer
         shell: bash
         env:
@@ -67,15 +84,8 @@ jobs:
         run: |
           gh api \
             --method POST \
-            "repos/${GITHUB_REPOSITORY}/statuses/${SNAPSHOT_SHA}" \
+            "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
             -f state=success \
             -f context=source-snapshot \
             -f description="Current source snapshot" \
             -f target_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts/${ARTIFACT_ID}"
-
-      - name: Remove legacy release snapshot
-        if: github.event_name == 'pull_request'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release delete current-source --cleanup-tag --yes || true
