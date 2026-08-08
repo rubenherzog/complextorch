@@ -2,12 +2,16 @@
 
 Primary functions do not refit observations. A shared context computes the
 maximum required autocovariance lag and caches reusable model-derived
-primitives.
+primitives. :func:`compute_all_model_measures` is the canonical aggregate
+entry point and returns every primary measure that is applicable without
+additional observations; measures requiring structural choices are controlled
+by :class:`ModelMeasureConfig`.
 
 References
 ----------
 - Cover, T. M. and Thomas, J. A. (2006).
 - Barnett, L. and Seth, A. K. (2014, 2015).
+- Faes, L. et al. (2022).
 """
 from __future__ import annotations
 
@@ -41,12 +45,44 @@ from .gaussian import (
     total_correlation,
 )
 from .mvgc import state_space_spectral_mvgc, state_space_temporal_mvgc
+from .oir import o_information_rate, spectral_o_information_rate
 from .phid import gaussian_phiid_atoms
+from .rates import (
+    gaussian_instantaneous_information_rate,
+    gaussian_mutual_information_rate,
+    spectral_gaussian_mutual_information_rate,
+    spectral_gaussian_transfer_entropy_rate,
+)
 
 
 @dataclass(frozen=True)
 class ModelMeasureConfig:
-    """Structural choices for model-derived analytical measures."""
+    """Structural choices for model-derived analytical measures.
+
+    Parameters
+    ----------
+    frequencies
+        Optional frequency grid. Supplying it enables all frequency-resolved
+        primary families that are otherwise applicable.
+    sampling_frequency
+        Sampling frequency associated with ``frequencies``.
+    autocovariance_max_lag, ais_lag, cmem_max_lag, cmem_decomposition_max_lag
+        Finite-lag requirements resolved into one shared autocovariance cache.
+    source, target, conditional
+        Optional source/target grouping for a specifically requested MVGC in
+        addition to the always-computed singleton pairwise MVGC matrix.
+    phiid_variables, phiid_lag
+        Optional bivariate PhiID selection.
+    macro_projection
+        Optional coarse-graining used by emergence and dynamical dependence.
+    partition
+        Optional partition for stochastic interaction.
+    rate_groups
+        Optional grouping for O-information rate. ``None`` uses every observed
+        channel as a singleton group.
+    base
+        Logarithm base used by information quantities.
+    """
 
     frequencies: torch.Tensor | None = None
     sampling_frequency: float = 1.0
@@ -61,22 +97,11 @@ class ModelMeasureConfig:
     phiid_lag: int = 1
     macro_projection: torch.Tensor | None = None
     partition: tuple[tuple[int, ...], ...] | None = None
+    rate_groups: tuple[tuple[int, ...], ...] | None = None
     base: float = 2.0
 
     def __post_init__(self) -> None:
-        """Post init.
-        
-        Returns
-        -------
-        object
-            Computed result; see the annotated return type and shape notes.
-        
-        Notes
-        -----
-        Batch dimensions are preserved unless explicitly documented otherwise.
-        The implementation validates dimensional and positive-definiteness
-        requirements before executing the numerical core.
-        """
+        """Validate finite-lag and sampling-frequency settings."""
         for name in (
             "autocovariance_max_lag",
             "ais_lag",
@@ -103,19 +128,7 @@ class ModelMeasureContext:
 
     @property
     def max_lag(self) -> int:
-        """Max lag.
-        
-        Returns
-        -------
-        object
-            Computed result; see the annotated return type and shape notes.
-        
-        Notes
-        -----
-        Batch dimensions are preserved unless explicitly documented otherwise.
-        The implementation validates dimensional and positive-definiteness
-        requirements before executing the numerical core.
-        """
+        """Return the largest cached non-negative autocovariance lag."""
         return 0 if self.autocovariances is None else int(self.autocovariances.shape[-3] - 1)
 
 
@@ -164,74 +177,19 @@ def build_measure_context(
 
 
 def stationary_observation_covariance(model: CovarianceModel) -> torch.Tensor:
-    """Stationary observation covariance.
-    
-    Parameters
-    ----------
-    model
-        VAR or linear state-space model.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    """Return the stationary observation covariance implied by ``model``."""
     return observation_autocovariances(model, 0)[..., 0, :, :]
 
 
 def model_autocovariances(model: CovarianceModel, max_lag: int = 1) -> torch.Tensor:
-    """Model autocovariances.
-    
-    Parameters
-    ----------
-    model
-        VAR or linear state-space model.
-    max_lag
-        Largest non-negative lag to evaluate.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    """Return model-implied autocovariances through ``max_lag``."""
     return observation_autocovariances(model, max_lag)
 
 
 def pairwise_gaussian_mutual_information(
     covariance: torch.Tensor, *, base: float = 2.0
 ) -> torch.Tensor:
-    """Pairwise gaussian mutual information.
-    
-    Parameters
-    ----------
-    covariance
-        Symmetric covariance matrix or batch of covariance matrices.
-    base
-        Logarithm base used for information quantities.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    """Return the symmetric singleton-pair Gaussian MI matrix."""
     covariance = torch.as_tensor(covariance)
     n_variables = covariance.shape[-1]
     result = torch.zeros(
@@ -258,28 +216,7 @@ def gaussian_measures_from_model(
     base: float = 2.0,
     covariance: torch.Tensor | None = None,
 ) -> dict[str, torch.Tensor]:
-    """Gaussian measures from model.
-    
-    Parameters
-    ----------
-    model
-        VAR or linear state-space model.
-    base
-        Logarithm base used for information quantities.
-    covariance
-        Symmetric covariance matrix or batch of covariance matrices.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    """Return static Gaussian measures from the model covariance."""
     covariance = stationary_observation_covariance(model) if covariance is None else covariance
     return {
         "covariance": covariance,
@@ -299,30 +236,7 @@ def past_future_covariance(
     lag: int = 1,
     autocovariance_sequence: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    """Past future covariance.
-    
-    Parameters
-    ----------
-    model
-        VAR or linear state-space model.
-    variables
-        Input required by this calculation.
-    lag
-        Positive temporal lag in samples.
-    autocovariance_sequence
-        Input required by this calculation.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    """Build the bivariate past/future covariance used by Gaussian PhiID."""
     if lag < 1:
         raise ValueError("lag must be at least one")
     if len(variables) != 2 or variables[0] == variables[1]:
@@ -352,30 +266,7 @@ def phiid_from_model(
     lag: int = 1,
     autocovariance_sequence: torch.Tensor | None = None,
 ) -> dict[str, torch.Tensor]:
-    """Phiid from model.
-    
-    Parameters
-    ----------
-    model
-        VAR or linear state-space model.
-    variables
-        Input required by this calculation.
-    lag
-        Positive temporal lag in samples.
-    autocovariance_sequence
-        Input required by this calculation.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    """Return Gaussian PhiID atoms from model-implied lagged covariance."""
     return gaussian_phiid_atoms(
         past_future_covariance(
             model,
@@ -394,18 +285,7 @@ def temporal_mvgc(
     conditional=None,
     base: float = math.e,
 ) -> torch.Tensor:
-    """Compute conditional time-domain multivariate Granger causality.
-    
-    .. math::
-    
-       F_{Y\\to X\\mid Z}
-       =\\log\\frac{\\det\\Sigma^{R}_{XX}}{\\det\\Sigma_{XX}}.
-    
-    References
-    ----------
-    - Geweke (1982); Barnett and Seth (2014, 2015).
-    """
-    # Compare full and reduced innovation covariance volumes to obtain Geweke time-domain Granger causality.
+    """Compute conditional time-domain multivariate Granger causality."""
     return state_space_temporal_mvgc(
         as_innovations(model),
         source=source,
@@ -424,16 +304,7 @@ def spectral_mvgc(
     conditional=None,
     base: float = math.e,
 ) -> torch.Tensor:
-    """Compute conditional spectral multivariate Granger causality.
-    
-    The frequency-resolved decomposition is obtained from innovations-form transfer
-    functions and integrates to temporal GC.
-    
-    References
-    ----------
-    - Geweke (1982); Barnett and Seth (2014, 2015).
-    """
-    # Decompose the predictive covariance ratio over frequency using the model transfer function and spectrum.
+    """Compute conditional spectral multivariate Granger causality."""
     return state_space_spectral_mvgc(
         as_innovations(model),
         source=source,
@@ -445,51 +316,13 @@ def spectral_mvgc(
 
 
 def _transition_radius(model: Model) -> torch.Tensor:
-    """Transition radius.
-    
-    Parameters
-    ----------
-    model
-        VAR or linear state-space model.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    """Return the spectral radius of the canonical transition matrix."""
     transition = as_innovations(model).transition
-    # Companion eigenvalues determine stationarity through their spectral radius.
-    # Obtain dynamical modes whose moduli determine stability and characteristic decay.
     return torch.linalg.eigvals(transition).abs().amax(-1)
 
 
 def _criticality(model: Model, context: ModelMeasureContext) -> dict[str, torch.Tensor]:
-    """Criticality.
-    
-    Parameters
-    ----------
-    model
-        VAR or linear state-space model.
-    context
-        Optional precomputed model-measure context.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    """Compute model-derived criticality measures."""
     radius = _transition_radius(model)
     tiny = torch.finfo(radius.dtype).tiny
     safe = radius.clamp(min=tiny, max=1.0 - torch.finfo(radius.dtype).eps)
@@ -508,13 +341,155 @@ def _criticality(model: Model, context: ModelMeasureContext) -> dict[str, torch.
     return result
 
 
+def _pairwise_scalar_matrix(
+    system: InnovationsStateSpace,
+    measure,
+    *,
+    directed: bool,
+    base: float,
+) -> torch.Tensor:
+    """Evaluate one singleton-pair scalar measure while batching model axes."""
+    n_variables = system.observation.shape[-2]
+    covariance = system.innovation_covariance
+    result = torch.zeros(
+        (*covariance.shape[:-2], n_variables, n_variables),
+        dtype=covariance.dtype,
+        device=covariance.device,
+    )
+    for left in range(n_variables):
+        right_range = range(n_variables) if directed else range(left + 1, n_variables)
+        for right in right_range:
+            if left == right:
+                continue
+            value = measure(system, (left,), (right,), base=base)
+            result[..., left, right] = value
+            if not directed:
+                result[..., right, left] = value
+    return result
+
+
+def _pairwise_spectral_matrix(
+    system: InnovationsStateSpace,
+    frequencies: torch.Tensor,
+    measure,
+    *,
+    directed: bool,
+    sampling_frequency: float,
+    base: float,
+) -> torch.Tensor:
+    """Evaluate one singleton-pair spectral measure over a model batch."""
+    n_variables = system.observation.shape[-2]
+    frequency = torch.as_tensor(
+        frequencies, dtype=system.transition.dtype, device=system.transition.device
+    )
+    covariance = system.innovation_covariance
+    result = torch.zeros(
+        (*covariance.shape[:-2], n_variables, n_variables, frequency.numel()),
+        dtype=covariance.dtype,
+        device=covariance.device,
+    )
+    for left in range(n_variables):
+        right_range = range(n_variables) if directed else range(left + 1, n_variables)
+        for right in right_range:
+            if left == right:
+                continue
+            value = measure(
+                system,
+                (left,),
+                (right,),
+                frequency,
+                sampling_frequency=sampling_frequency,
+                base=base,
+            )
+            result[..., left, right, :] = value
+            if not directed:
+                result[..., right, left, :] = value
+    return result
+
+
+def _pairwise_temporal_mvgc(
+    model: Model,
+    *,
+    base: float,
+) -> torch.Tensor:
+    """Return all ordered singleton-to-singleton temporal MVGC values."""
+    innovations = as_innovations(model)
+    n_variables = innovations.observation.shape[-2]
+    covariance = innovations.innovation_covariance
+    result = torch.zeros(
+        (*covariance.shape[:-2], n_variables, n_variables),
+        dtype=covariance.dtype,
+        device=covariance.device,
+    )
+    for source in range(n_variables):
+        for target in range(n_variables):
+            if source == target:
+                continue
+            result[..., source, target] = state_space_temporal_mvgc(
+                innovations,
+                source=(source,),
+                target=(target,),
+                base=base,
+            )
+    return result
+
+
+def _pairwise_spectral_mvgc(
+    model: Model,
+    frequencies: torch.Tensor,
+    *,
+    base: float,
+) -> torch.Tensor:
+    """Return all ordered singleton-to-singleton spectral MVGC curves."""
+    innovations = as_innovations(model)
+    n_variables = innovations.observation.shape[-2]
+    frequency = torch.as_tensor(
+        frequencies, dtype=innovations.transition.dtype, device=innovations.transition.device
+    )
+    covariance = innovations.innovation_covariance
+    result = torch.zeros(
+        (*covariance.shape[:-2], n_variables, n_variables, frequency.numel()),
+        dtype=covariance.dtype,
+        device=covariance.device,
+    )
+    for source in range(n_variables):
+        for target in range(n_variables):
+            if source == target:
+                continue
+            result[..., source, target, :] = state_space_spectral_mvgc(
+                innovations,
+                source=(source,),
+                target=(target,),
+                frequencies=frequency,
+                base=base,
+            )
+    return result
+
+
+def _mean_unique_pairs(matrix: torch.Tensor) -> torch.Tensor:
+    """Average the strict upper triangle of a symmetric pairwise matrix."""
+    n_variables = matrix.shape[-1]
+    indices = torch.triu_indices(
+        n_variables, n_variables, offset=1, device=matrix.device
+    )
+    return matrix[..., indices[0], indices[1]].mean(dim=-1)
+
+
 def compute_all_model_measures(
     model: Model,
     config: ModelMeasureConfig | None = None,
     *,
     context: ModelMeasureContext | None = None,
 ) -> dict[str, Any]:
-    """Compute primary measures using the most appropriate canonical form."""
+    """Compute every applicable primary measure from one canonical model.
+
+    Shared canonical primitives are built once in ``context`` and exposed in
+    ``result["primitives"]``. Singleton pairwise information-rate and MVGC
+    matrices are computed for every model because they require no additional
+    structural choices. Optional PhiID, emergence, stochastic interaction, and
+    specifically grouped MVGC families are evaluated when their configuration
+    is supplied. No quantity is estimated from observations.
+    """
     config = ModelMeasureConfig() if config is None else config
     context = build_measure_context(model, config) if context is None else context
     if context.model is not model:
@@ -523,7 +498,13 @@ def compute_all_model_measures(
     result: dict[str, Any] = {
         "model_type": type(model).__name__,
         "context": context,
-        "available": [],
+        "primitives": {
+            "innovations_state_space": context.innovations,
+            "observation_covariance": context.observation_covariance,
+            "autocovariances": context.autocovariances,
+            "cross_spectral_density": context.cross_spectral_density,
+        },
+        "available": ["primitives"],
         "not_available": {},
     }
 
@@ -534,6 +515,36 @@ def compute_all_model_measures(
     result["criticality"] = _criticality(model, context)
     result["available"].append("criticality")
 
+    pairwise_temporal = _pairwise_temporal_mvgc(model, base=config.base)
+    result["mvgc"] = {"pairwise_temporal": pairwise_temporal}
+    result["available"].append("mvgc")
+
+    innovations = context.innovations
+    pairwise_mir = _pairwise_scalar_matrix(
+        innovations,
+        gaussian_mutual_information_rate,
+        directed=False,
+        base=config.base,
+    )
+    pairwise_instantaneous = _pairwise_scalar_matrix(
+        innovations,
+        gaussian_instantaneous_information_rate,
+        directed=False,
+        base=config.base,
+    )
+    result["rates"] = {
+        "pairwise_mutual_information": pairwise_mir,
+        "mean_pairwise_mutual_information": _mean_unique_pairs(pairwise_mir),
+        "pairwise_transfer_entropy": 0.5 * pairwise_temporal,
+        "pairwise_instantaneous_information": pairwise_instantaneous,
+        "o_information": o_information_rate(
+            innovations,
+            groups=config.rate_groups,
+            base=config.base,
+        ),
+    }
+    result["available"].append("rates")
+
     if context.cross_spectral_density is not None:
         result["frequency"] = {
             "cross_spectral_density": context.cross_spectral_density,
@@ -541,6 +552,38 @@ def compute_all_model_measures(
                 context.cross_spectral_density
             ),
         }
+        result["mvgc"]["pairwise_spectral"] = _pairwise_spectral_mvgc(
+            model,
+            config.frequencies,
+            base=config.base,
+        )
+        result["rates"].update(
+            {
+                "pairwise_spectral_mutual_information": _pairwise_spectral_matrix(
+                    innovations,
+                    config.frequencies,
+                    spectral_gaussian_mutual_information_rate,
+                    directed=False,
+                    sampling_frequency=config.sampling_frequency,
+                    base=config.base,
+                ),
+                "pairwise_spectral_transfer_entropy": _pairwise_spectral_matrix(
+                    innovations,
+                    config.frequencies,
+                    spectral_gaussian_transfer_entropy_rate,
+                    directed=True,
+                    sampling_frequency=config.sampling_frequency,
+                    base=config.base,
+                ),
+                "spectral_o_information": spectral_o_information_rate(
+                    innovations,
+                    config.frequencies,
+                    groups=config.rate_groups,
+                    sampling_frequency=config.sampling_frequency,
+                    base=config.base,
+                ),
+            }
+        )
         result["available"].extend(["cross_spectral_density", "spectral_entropy"])
 
     if isinstance(model, (VARSystem, StateSpaceModel)):
@@ -573,7 +616,13 @@ def compute_all_model_measures(
             decomposition_max_lag=config.cmem_decomposition_max_lag,
         )
         result["available"].extend(
-            ["gaussian", "autocovariances", "predictive_information", "active_information_storage", "cmem"]
+            [
+                "gaussian",
+                "autocovariances",
+                "predictive_information",
+                "active_information_storage",
+                "cmem",
+            ]
         )
         if config.phiid_variables is not None:
             result["phiid"] = phiid_from_model(
@@ -593,18 +642,25 @@ def compute_all_model_measures(
             result["available"].append("emergence")
     else:
         reason = "stationary observation covariance is not stored by InnovationsStateSpace"
-        for name in ("gaussian", "autocovariances", "predictive_information", "active_information_storage", "cmem", "phiid", "emergence"):
+        for name in (
+            "gaussian",
+            "autocovariances",
+            "predictive_information",
+            "active_information_storage",
+            "cmem",
+            "phiid",
+            "emergence",
+        ):
             result["not_available"][name] = reason
+
     if config.source is not None and config.target is not None:
-        result["mvgc"] = {
-            "temporal": temporal_mvgc(
-                model,
-                source=config.source,
-                target=config.target,
-                conditional=config.conditional,
-                base=config.base,
-            )
-        }
+        result["mvgc"]["temporal"] = temporal_mvgc(
+            model,
+            source=config.source,
+            target=config.target,
+            conditional=config.conditional,
+            base=config.base,
+        )
         if config.frequencies is not None:
             result["mvgc"]["spectral"] = spectral_mvgc(
                 model,
@@ -614,12 +670,9 @@ def compute_all_model_measures(
                 conditional=config.conditional,
                 base=config.base,
             )
-        result["available"].append("mvgc")
 
     control: dict[str, torch.Tensor] = {}
     if config.macro_projection is not None:
-        # DD is a property of a specified coarse-graining, so route the same
-        # macro projection used by emergence through the innovations-form path.
         control["dynamical_dependence"] = dynamical_dependence(
             model,
             config.macro_projection,
@@ -646,10 +699,19 @@ def compute_all_model_measures(
 
 
 __all__ = [
-    "Model", "CovarianceModel", "ModelMeasureConfig", "ModelMeasureContext",
-    "model_autocovariances", "required_autocovariance_max_lag",
-    "build_measure_context", "stationary_observation_covariance",
-    "pairwise_gaussian_mutual_information", "gaussian_measures_from_model",
-    "past_future_covariance", "phiid_from_model", "temporal_mvgc",
-    "spectral_mvgc", "compute_all_model_measures",
+    "Model",
+    "CovarianceModel",
+    "ModelMeasureConfig",
+    "ModelMeasureContext",
+    "model_autocovariances",
+    "required_autocovariance_max_lag",
+    "build_measure_context",
+    "stationary_observation_covariance",
+    "pairwise_gaussian_mutual_information",
+    "gaussian_measures_from_model",
+    "past_future_covariance",
+    "phiid_from_model",
+    "temporal_mvgc",
+    "spectral_mvgc",
+    "compute_all_model_measures",
 ]
