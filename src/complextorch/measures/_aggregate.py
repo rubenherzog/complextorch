@@ -58,6 +58,7 @@ def _integrate_spectral_hop(
 ) -> HOPResult:
     """Integrate one already-computed spectral HOP result without recomputation."""
     def integrate(value: torch.Tensor) -> torch.Tensor:
+        """Integrate a HOP component over its final frequency axis."""
         return integrate_spectral_rate(
             value,
             spectral.frequencies,
