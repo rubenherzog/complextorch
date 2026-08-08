@@ -1,11 +1,9 @@
 import pytest
 import torch
 
-from complextorch import ModelMeasureConfig, VAR, simulate_var
-from complextorch.inference import (
-    _batched_ols_refit,
-    measure_confidence_intervals,
-)
+from complextorch import InferenceMeasureConfig, ModelMeasureConfig, VAR, simulate_var
+from complextorch._resampling import _batched_ols_refit
+from complextorch.inference import measure_confidence_intervals
 
 
 def _stable_data(*, batch=2, n_times=180, seed=7, dtype=torch.float64):
@@ -84,7 +82,9 @@ def test_dynamical_dependence_uses_fixed_projection_batch_without_optimization()
         data,
         measures="dynamical_dependence",
         var=VAR(order=1, mode="independent", dtype="float64"),
-        config=ModelMeasureConfig(macro_projection=projections),
+        config=InferenceMeasureConfig(
+            primary=ModelMeasureConfig(macro_projection=projections)
+        ),
         n_resamples=16,
         seed=4,
         return_samples=True,
