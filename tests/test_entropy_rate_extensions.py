@@ -1,0 +1,120 @@
+import torch
+
+from complextorch import (
+    ModelMeasureConfig,
+    compute_all_model_measures,
+    integrate_spectral_rate,
+    marginal_entropy_rate,
+    reduce_innovations_state_space,
+    spectral_entropy_rate,
+    spectral_entropy_rate_from_spectrum,
+    synthetic_var,
+    var_to_innovations_state_space,
+)
+from complextorch.measures.gaussian import gaussian_entropy
+from complextorch.spectra import innovations_spectral_density
+
+
+def test_marginal_entropy_rate_returns_exact_per_variable_vector_for_batch():
+    model = synthetic_var(
+        "directed_ring",
+        3,
+        spectral_radius_target=torch.tensor([0.45, 0.7], dtype=torch.float64),
+        noise_correlation=torch.tensor([0.0, 0.2], dtype=torch.float64),
+    )
+    innovations = var_to_innovations_state_space(model)
+
+    values = marginal_entropy_rate(model, base=2.0)
+
+    assert values.shape == (2, 3)
+    assert bool(torch.isfinite(values).all())
+    expected = torch.stack(
+        [
+            gaussian_entropy(
+                reduce_innovations_state_space(
+                    innovations, (index,)
+                ).innovation_covariance,
+                base=2.0,
+            )
+            for index in range(3)
+        ],
+        dim=-1,
+    )
+    torch.testing.assert_close(values, expected)
+
+
+def test_spectral_entropy_rate_matches_spectrum_formula_and_integrates_to_broadband():
+    sampling_frequency = 200.0
+    model = synthetic_var(
+        "frustrated_ring",
+        3,
+        spectral_radius_target=0.6,
+        noise_correlation=0.15,
+        dtype=torch.float64,
+    )
+    innovations = var_to_innovations_state_space(model)
+    frequencies = torch.linspace(
+        0.0,
+        sampling_frequency / 2.0,
+        4097,
+        dtype=torch.float64,
+    )
+
+    spectral = spectral_entropy_rate(
+        innovations,
+        frequencies,
+        sampling_frequency=sampling_frequency,
+        base=2.0,
+    )
+    spectrum = innovations_spectral_density(
+        innovations,
+        frequencies,
+        sampling_frequency=sampling_frequency,
+    )
+    direct = spectral_entropy_rate_from_spectrum(
+        spectrum,
+        sampling_frequency=sampling_frequency,
+        base=2.0,
+    )
+
+    assert spectral.shape == (4097,)
+    torch.testing.assert_close(spectral, direct)
+
+    integrated = integrate_spectral_rate(
+        spectral,
+        frequencies,
+        sampling_frequency=sampling_frequency,
+    )
+    expected = gaussian_entropy(innovations.innovation_covariance, base=2.0)
+    torch.testing.assert_close(integrated, expected, rtol=2e-6, atol=2e-6)
+
+
+def test_compute_all_model_measures_exposes_entropy_rate_extensions_without_band_outputs():
+    model = synthetic_var(
+        "directed_ring",
+        4,
+        spectral_radius_target=0.55,
+        noise_correlation=0.1,
+        dtype=torch.float64,
+    )
+    frequencies = torch.linspace(0.0, 0.5, 17, dtype=torch.float64)
+
+    result = compute_all_model_measures(
+        model,
+        ModelMeasureConfig(frequencies=frequencies, base=2.0),
+    )
+
+    assert result["dynamics"]["marginal_entropy_rate"].shape == (4,)
+    assert result["frequency"]["spectral_entropy_rate"].shape == (17,)
+    assert "marginal_entropy_rate" in result["available"]
+    assert "spectral_entropy_rate" in result["available"]
+    assert not any("band" in key for key in result["frequency"])
+
+    torch.testing.assert_close(
+        result["dynamics"]["marginal_entropy_rate"],
+        marginal_entropy_rate(model, base=2.0),
+    )
+    torch.testing.assert_close(
+        result["frequency"]["spectral_entropy_rate"],
+        spectral_entropy_rate(model, frequencies, base=2.0),
+    )
