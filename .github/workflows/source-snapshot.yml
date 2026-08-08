@@ -9,7 +9,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
   statuses: write
 
 concurrency:
@@ -72,3 +72,10 @@ jobs:
             -f context=source-snapshot \
             -f description="Current source snapshot" \
             -f target_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts/${ARTIFACT_ID}"
+
+      - name: Remove legacy release snapshot
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete current-source --cleanup-tag --yes || true
