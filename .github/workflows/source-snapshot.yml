@@ -1,0 +1,67 @@
+name: Source snapshot
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: source-snapshot-main
+  cancel-in-progress: true
+
+jobs:
+  snapshot:
+    name: Publish current main snapshot
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Stage source snapshot
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/complextorch-source"
+          rsync -a \
+            --exclude='.git/' \
+            --exclude='docs/_build/' \
+            ./ "$RUNNER_TEMP/complextorch-source/"
+          printf '%s\n' \
+            '{' \
+            '  "repository": "${{ github.repository }}",' \
+            '  "branch": "main",' \
+            '  "commit": "${{ github.sha }}",' \
+            '  "created_at": "${{ github.event.head_commit.timestamp }}"' \
+            '}' \
+            > "$RUNNER_TEMP/complextorch-source/.snapshot.json"
+
+      - name: Remove previous snapshot artifact
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data } = await github.rest.actions.listArtifactsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'complextorch-source',
+              per_page: 100,
+            });
+            for (const artifact of data.artifacts) {
+              await github.rest.actions.deleteArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifact.id,
+              });
+            }
+
+      - name: Upload current snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: complextorch-source
+          path: ${{ runner.temp }}/complextorch-source/
+          include-hidden-files: true
+          if-no-files-found: error
+          compression-level: 6
