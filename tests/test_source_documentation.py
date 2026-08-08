@@ -11,7 +11,10 @@ PLACEHOLDERS = (
     "The class follows the scikit-learn fitted-attribute convention",
 )
 SCIENTIFIC_MODULES = {
+    "confidence.py",
     "control.py",
+    "inference.py",
+    "inference_registry.py",
     "linalg.py",
     "representations.py",
     "selection.py",
