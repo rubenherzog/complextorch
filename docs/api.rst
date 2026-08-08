@@ -132,6 +132,23 @@ Model-derived measures
    complextorch.mvgc_pvalue
    complextorch.significance
 
+Resampling inference and confidence intervals
+---------------------------------------------
+
+The confidence-interval API fits a fixed-order VAR, generates one shared
+resampling ensemble, and evaluates all requested compatible analytical measures
+on that ensemble. Residual bootstrap and Gaussian parametric Monte Carlo are
+available. Dynamical-dependence intervals always use the supplied fixed
+projection or fixed batch of projections; projection optimization is never
+repeated inside resampling.
+
+.. api-table::
+
+   complextorch.measure_confidence_intervals
+   complextorch.InferenceMeasureConfig
+   complextorch.ConfidenceIntervalResult
+   complextorch.MeasureInterval
+
 Gaussian covariance primitives
 ------------------------------
 
