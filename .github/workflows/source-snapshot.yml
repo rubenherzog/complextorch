@@ -70,4 +70,5 @@ jobs:
             "repos/${GITHUB_REPOSITORY}/statuses/${SNAPSHOT_SHA}" \
             -f state=success \
             -f context=source-snapshot \
-            -f description="artifact_id=${ARTIFACT_ID}"
+            -f description="Current source snapshot" \
+            -f target_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts/${ARTIFACT_ID}"
