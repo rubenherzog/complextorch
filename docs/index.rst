@@ -18,6 +18,7 @@ the public API pages remain linked to package docstrings.
    user_guide/index
    auto_examples/index
    api
+   citation_authors
 
 Indices and tables
 ------------------
