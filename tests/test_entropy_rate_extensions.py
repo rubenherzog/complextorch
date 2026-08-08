@@ -2,6 +2,7 @@ import torch
 
 from complextorch import (
     ModelMeasureConfig,
+    build_measure_context,
     compute_all_model_measures,
     integrate_spectral_rate,
     marginal_entropy_rate,
@@ -87,6 +88,30 @@ def test_spectral_entropy_rate_matches_spectrum_formula_and_integrates_to_broadb
     )
     expected = gaussian_entropy(innovations.innovation_covariance, base=2.0)
     torch.testing.assert_close(integrated, expected, rtol=2e-6, atol=2e-6)
+
+
+def test_measure_context_uses_physical_frequency_spectral_convention():
+    sampling_frequency = 200.0
+    model = synthetic_var(
+        "directed_ring",
+        3,
+        spectral_radius_target=0.5,
+        dtype=torch.float64,
+    )
+    frequencies = torch.linspace(0.0, 100.0, 21, dtype=torch.float64)
+    context = build_measure_context(
+        model,
+        ModelMeasureConfig(
+            frequencies=frequencies,
+            sampling_frequency=sampling_frequency,
+        ),
+    )
+    expected = innovations_spectral_density(
+        var_to_innovations_state_space(model),
+        frequencies,
+        sampling_frequency=sampling_frequency,
+    )
+    torch.testing.assert_close(context.cross_spectral_density, expected)
 
 
 def test_compute_all_model_measures_exposes_entropy_rate_extensions_without_band_outputs():
