@@ -12,7 +12,7 @@ import torch
 
 from ..control import innovations_transfer_function, stochastic_interaction
 from ..spectra import integrate_spectral_rate
-from .entropy_rate import marginal_entropy_rate, spectral_entropy_rate
+from .entropy_rate import marginal_entropy_rate, spectral_entropy_rate_from_spectrum
 from .hop import HOPResult, SpectralHOPResult
 from .oir import delta_o_information_rate, spectral_delta_o_information_rate
 from .pdgc import PDGCResult
@@ -138,11 +138,12 @@ def extend_model_measure_result(
         inverse_transfer = torch.linalg.solve(transfer, identity)
         result["primitives"]["transfer_function"] = transfer
         result["primitives"]["inverse_transfer_function"] = inverse_transfer
-        result["frequency"]["spectral_entropy_rate"] = spectral_entropy_rate(
-            innovations,
-            frequency,
-            sampling_frequency=config.sampling_frequency,
-            base=config.base,
+        result["frequency"]["spectral_entropy_rate"] = (
+            spectral_entropy_rate_from_spectrum(
+                context.cross_spectral_density,
+                sampling_frequency=config.sampling_frequency,
+                base=config.base,
+            )
         )
         _append_available(result, "spectral_entropy_rate")
 
