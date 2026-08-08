@@ -485,10 +485,10 @@ def compute_all_model_measures(
 
     Shared canonical primitives are built once in ``context`` and exposed in
     ``result["primitives"]``. Singleton pairwise information-rate and MVGC
-    matrices are computed for every model because they require no additional
-    structural choices. Optional PhiID, emergence, stochastic interaction, and
-    specifically grouped MVGC families are evaluated when their configuration
-    is supplied. No quantity is estimated from observations.
+    matrices are computed whenever at least two observation variables exist.
+    Optional PhiID, emergence, stochastic interaction, and specifically grouped
+    MVGC families are evaluated when their configuration is supplied. No
+    quantity is estimated from observations.
     """
     config = ModelMeasureConfig() if config is None else config
     context = build_measure_context(model, config) if context is None else context
@@ -520,6 +520,7 @@ def compute_all_model_measures(
     result["available"].append("mvgc")
 
     innovations = context.innovations
+    n_observations = innovations.observation.shape[-2]
     pairwise_mir = _pairwise_scalar_matrix(
         innovations,
         gaussian_mutual_information_rate,
@@ -532,17 +533,23 @@ def compute_all_model_measures(
         directed=False,
         base=config.base,
     )
-    result["rates"] = {
+    rates: dict[str, torch.Tensor] = {
         "pairwise_mutual_information": pairwise_mir,
-        "mean_pairwise_mutual_information": _mean_unique_pairs(pairwise_mir),
         "pairwise_transfer_entropy": 0.5 * pairwise_temporal,
         "pairwise_instantaneous_information": pairwise_instantaneous,
-        "o_information": o_information_rate(
+    }
+    if n_observations >= 2:
+        rates["mean_pairwise_mutual_information"] = _mean_unique_pairs(pairwise_mir)
+        rates["o_information"] = o_information_rate(
             innovations,
             groups=config.rate_groups,
             base=config.base,
-        ),
-    }
+        )
+    else:
+        reason = "requires at least two observation variables"
+        result["not_available"]["mean_pairwise_mutual_information_rate"] = reason
+        result["not_available"]["o_information_rate"] = reason
+    result["rates"] = rates
     result["available"].append("rates")
 
     if context.cross_spectral_density is not None:
@@ -575,15 +582,20 @@ def compute_all_model_measures(
                     sampling_frequency=config.sampling_frequency,
                     base=config.base,
                 ),
-                "spectral_o_information": spectral_o_information_rate(
-                    innovations,
-                    config.frequencies,
-                    groups=config.rate_groups,
-                    sampling_frequency=config.sampling_frequency,
-                    base=config.base,
-                ),
             }
         )
+        if n_observations >= 2:
+            result["rates"]["spectral_o_information"] = spectral_o_information_rate(
+                innovations,
+                config.frequencies,
+                groups=config.rate_groups,
+                sampling_frequency=config.sampling_frequency,
+                base=config.base,
+            )
+        else:
+            result["not_available"]["spectral_o_information_rate"] = (
+                "requires at least two observation variables"
+            )
         result["available"].extend(["cross_spectral_density", "spectral_entropy"])
 
     if isinstance(model, (VARSystem, StateSpaceModel)):
