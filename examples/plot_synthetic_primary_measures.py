@@ -1,6 +1,6 @@
 """
 Synthetic topology grids and primary measures
-============================================
+==============================================
 
 This example compares five three-variable synthetic VAR(1) families on a
 20 x 20 parameter grid. The two axes span the admissible range of target
