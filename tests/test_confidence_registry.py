@@ -25,7 +25,12 @@ def _system(dtype=torch.float64):
 
 
 def _config(dtype=torch.float64, *, half_open=False):
-    frequencies = torch.linspace(0.0, 0.5, 65, dtype=dtype)
+    n_frequency = 65
+    frequencies = (
+        torch.arange(n_frequency, dtype=dtype) / (2.0 * n_frequency)
+        if half_open
+        else torch.linspace(0.0, 0.5, n_frequency, dtype=dtype)
+    )
     primary = ModelMeasureConfig(
         frequencies=frequencies,
         source=(0,),
