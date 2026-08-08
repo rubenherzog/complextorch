@@ -73,6 +73,12 @@ class ModelMeasureConfig:
         addition to the always-computed singleton pairwise MVGC matrix.
     phiid_variables, phiid_lag
         Optional bivariate PhiID selection.
+    phiid_redundancies
+        PhiID redundancy backends evaluated for the selected bivariate process.
+        The default computes MMI, CCS, I_dep-a, and I_dep-b from the same cached
+        past/future covariance.
+    phiid_ccs_qmc_samples
+        Deterministic Sobol node count for the Gaussian CCS expectation.
     macro_projection
         Optional coarse-graining used by emergence and dynamical dependence.
     partition
@@ -80,6 +86,12 @@ class ModelMeasureConfig:
     rate_groups
         Optional grouping for O-information rate. ``None`` uses every observed
         channel as a singleton group.
+    hop_sources, hop_target
+        Optional two- or three-source grouping and target used jointly by PIRD,
+        PDGC, and HOP. Both must be supplied together.
+    hop_half_open
+        Use the exact Faes/HOP half-open integration convention for integrated
+        PIRD/PDGC/HOP quantities.
     base
         Logarithm base used by information quantities.
     """
@@ -95,13 +107,18 @@ class ModelMeasureConfig:
     conditional: tuple[int, ...] | None = None
     phiid_variables: tuple[int, int] | None = None
     phiid_lag: int = 1
+    phiid_redundancies: tuple[str, ...] = ("mmi", "ccs", "idep_a", "idep_b")
+    phiid_ccs_qmc_samples: int = 4096
     macro_projection: torch.Tensor | None = None
     partition: tuple[tuple[int, ...], ...] | None = None
     rate_groups: tuple[tuple[int, ...], ...] | None = None
+    hop_sources: tuple[tuple[int, ...], ...] | None = None
+    hop_target: tuple[int, ...] | None = None
+    hop_half_open: bool = False
     base: float = 2.0
 
     def __post_init__(self) -> None:
-        """Validate finite-lag and sampling-frequency settings."""
+        """Validate finite-lag, spectral, PhiID, and HOP settings."""
         for name in (
             "autocovariance_max_lag",
             "ais_lag",
@@ -113,6 +130,21 @@ class ModelMeasureConfig:
                 raise ValueError(f"{name} must be at least one")
         if self.sampling_frequency <= 0:
             raise ValueError("sampling_frequency must be positive")
+        allowed_redundancies = {"mmi", "ccs", "idep_a", "idep_b"}
+        if not self.phiid_redundancies:
+            raise ValueError("phiid_redundancies must contain at least one backend")
+        if any(name not in allowed_redundancies for name in self.phiid_redundancies):
+            raise ValueError(
+                "phiid_redundancies entries must be one of mmi, ccs, idep_a, idep_b"
+            )
+        if len(set(self.phiid_redundancies)) != len(self.phiid_redundancies):
+            raise ValueError("phiid_redundancies must not contain duplicates")
+        if self.phiid_ccs_qmc_samples < 32:
+            raise ValueError("phiid_ccs_qmc_samples must be at least 32")
+        if (self.hop_sources is None) != (self.hop_target is None):
+            raise ValueError("hop_sources and hop_target must be supplied together")
+        if self.hop_sources is not None and len(self.hop_sources) not in (2, 3):
+            raise ValueError("hop_sources must contain exactly two or three source groups")
 
 
 @dataclass(frozen=True)
@@ -486,9 +518,9 @@ def compute_all_model_measures(
     Shared canonical primitives are built once in ``context`` and exposed in
     ``result["primitives"]``. Singleton pairwise information-rate and MVGC
     matrices are computed whenever at least two observation variables exist.
-    Optional PhiID, emergence, stochastic interaction, and specifically grouped
-    MVGC families are evaluated when their configuration is supplied. No
-    quantity is estimated from observations.
+    Optional PhiID, emergence, stochastic interaction, HOP/PIRD/PDGC, and
+    specifically grouped MVGC families are evaluated when their structural
+    configuration is supplied. No quantity is estimated from observations.
     """
     config = ModelMeasureConfig() if config is None else config
     context = build_measure_context(model, config) if context is None else context
@@ -706,6 +738,9 @@ def compute_all_model_measures(
     elif "dynamical_dependence" not in result["not_available"]:
         result["not_available"]["control"] = "no requested control measures are available"
 
+    from ._aggregate import extend_model_measure_result
+
+    result = extend_model_measure_result(model, config, context, result)
     result["available"] = tuple(result["available"])
     return result
 
