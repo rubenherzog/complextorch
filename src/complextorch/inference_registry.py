@@ -4,7 +4,7 @@ The registry is deliberately separate from the resampling engine. It consumes a
 single canonical :class:`~complextorch.VARSystem` (possibly batched over bootstrap
 replicates) and evaluates every configured compatible analytical measure without
 refitting observations. High-order HOP outputs reuse the already-computed PIRD
-and PDGC result tensors rather than calling the HOP composition a second time.
+and PDGC tensors rather than invoking either decomposition twice.
 
 References
 ----------
@@ -30,14 +30,8 @@ from .measures.oir import (
     spectral_delta_o_information_rate,
     spectral_o_information_rate,
 )
-from .measures.pdgc import (
-    partial_granger_causality_decomposition,
-    spectral_partial_granger_causality_decomposition,
-)
-from .measures.pird import (
-    partial_information_rate_decomposition,
-    spectral_partial_information_rate_decomposition,
-)
+from .measures.pdgc import spectral_partial_granger_causality_decomposition
+from .measures.pird import spectral_partial_information_rate_decomposition
 from .measures.primary import ModelMeasureConfig, compute_all_model_measures
 from .measures.rates import (
     gaussian_instantaneous_information_rate,
@@ -47,6 +41,7 @@ from .measures.rates import (
     spectral_gaussian_transfer_entropy_rate,
 )
 from .representations import VARSystem
+from .spectra import integrate_spectral_rate
 
 GroupInput = int | Sequence[int]
 
@@ -69,11 +64,11 @@ class InferenceMeasureConfig:
         evaluated only when supplied.
     hop_sources, hop_target
         Exactly two or three source groups plus one target group for PIRD/PDGC/
-        HOP. When supplied, PIRD and PDGC are each computed once; HOP paths alias
-        those same result tensors and introduce no duplicate numerical work.
+        HOP. PIRD and PDGC spectra are each evaluated once. Integrated terms and
+        HOP aliases are derived from those same tensors.
     half_open
-        Use the Faes/HOP half-open spectral integration convention for temporal
-        PIRD/PDGC when true.
+        Use the Faes/HOP half-open spectral integration convention for
+        integrated PIRD/PDGC quantities when true.
     """
 
     primary: ModelMeasureConfig = field(default_factory=ModelMeasureConfig)
@@ -102,6 +97,25 @@ def _result_tensors(result: Any) -> dict[str, torch.Tensor]:
     return output
 
 
+def _integrate_result_tensors(
+    tensors: dict[str, torch.Tensor],
+    frequencies: torch.Tensor,
+    *,
+    sampling_frequency: float,
+    half_open: bool,
+) -> dict[str, torch.Tensor]:
+    """Integrate one spectral decomposition without recomputing its primitives."""
+    return {
+        name: integrate_spectral_rate(
+            value,
+            frequencies,
+            sampling_frequency=sampling_frequency,
+            half_open=half_open,
+        )
+        for name, value in tensors.items()
+    }
+
+
 def evaluate_resampling_measures(
     system: VARSystem,
     config: InferenceMeasureConfig,
@@ -112,9 +126,7 @@ def evaluate_resampling_measures(
     by every registered consumer and is therefore the bootstrap axis used by the
     confidence-interval engine.
     """
-    result: dict[str, Any] = {
-        "primary": compute_all_model_measures(system, config.primary),
-    }
+    result: dict[str, Any] = dict(compute_all_model_measures(system, config.primary))
     innovations = var_to_innovations_state_space(system)
     base = config.primary.base
     frequencies = config.primary.frequencies
@@ -197,24 +209,6 @@ def evaluate_resampling_measures(
     if config.hop_sources is not None and config.hop_target is not None:
         if frequencies is None:
             raise ValueError("PIRD/PDGC/HOP confidence intervals require frequencies")
-        pird = partial_information_rate_decomposition(
-            innovations,
-            config.hop_sources,
-            config.hop_target,
-            frequencies,
-            sampling_frequency=sampling_frequency,
-            base=base,
-            half_open=config.half_open,
-        )
-        pdgc = partial_granger_causality_decomposition(
-            innovations,
-            config.hop_sources,
-            config.hop_target,
-            frequencies,
-            sampling_frequency=sampling_frequency,
-            base=base,
-            half_open=config.half_open,
-        )
         spectral_pird = spectral_partial_information_rate_decomposition(
             innovations,
             config.hop_sources,
@@ -231,10 +225,20 @@ def evaluate_resampling_measures(
             sampling_frequency=sampling_frequency,
             base=base,
         )
-        pird_tensors = _result_tensors(pird)
-        pdgc_tensors = _result_tensors(pdgc)
         spectral_pird_tensors = _result_tensors(spectral_pird)
         spectral_pdgc_tensors = _result_tensors(spectral_pdgc)
+        pird_tensors = _integrate_result_tensors(
+            spectral_pird_tensors,
+            spectral_pird.frequencies,
+            sampling_frequency=sampling_frequency,
+            half_open=config.half_open,
+        )
+        pdgc_tensors = _integrate_result_tensors(
+            spectral_pdgc_tensors,
+            spectral_pdgc.frequencies,
+            sampling_frequency=sampling_frequency,
+            half_open=config.half_open,
+        )
         result["pird"] = pird_tensors
         result["pdgc"] = pdgc_tensors
         result["spectral_pird"] = spectral_pird_tensors
