@@ -22,6 +22,7 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx_gallery.gen_gallery",
+    "sphinx_wagtail_theme",
 ]
 
 autosummary_generate = True
@@ -42,5 +43,10 @@ sphinx_gallery_conf = {
 
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
-html_theme = "alabaster"
+html_theme = "sphinx_wagtail_theme"
+html_theme_options = {
+    "project_name": "ComplexTorch",
+    "github_url": "https://github.com/rubenherzog/complextorch/blob/main/docs/",
+    "footer_links": "Maintained by <a href=\"https://github.com/rubenherzog\">Rubén Herzog</a>",
+}
 html_static_path: list[str] = []
