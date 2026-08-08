@@ -4,29 +4,35 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
 
 permissions:
-  contents: write
+  contents: read
+  statuses: write
 
 concurrency:
-  group: source-snapshot-main
+  group: source-snapshot-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   snapshot:
-    name: Publish current main snapshot
+    name: Publish current source snapshot
     runs-on: ubuntu-latest
+    env:
+      SNAPSHOT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SNAPSHOT_SHA }}
 
-      - name: Build source snapshot
+      - name: Stage source snapshot
         shell: bash
         run: |
           snapshot_dir="$RUNNER_TEMP/complextorch-source"
-          archive="$RUNNER_TEMP/complextorch-source.zip"
-
           mkdir -p "$snapshot_dir"
           rsync -a \
             --exclude='.git/' \
@@ -36,30 +42,32 @@ jobs:
           printf '%s\n' \
             '{' \
             '  "repository": "${{ github.repository }}",' \
-            '  "branch": "main",' \
-            '  "commit": "${{ github.sha }}",' \
-            '  "created_at": "${{ github.event.head_commit.timestamp }}"' \
+            '  "branch": "${{ github.event_name == 'pull_request' && github.head_ref || 'main' }}",' \
+            '  "commit": "${{ env.SNAPSHOT_SHA }}",' \
+            '  "created_at": "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.updated_at || github.event.head_commit.timestamp }}"' \
             '}' \
             > "$snapshot_dir/.snapshot.json"
 
-          cd "$RUNNER_TEMP"
-          zip -qr "$archive" complextorch-source
+      - name: Upload source snapshot
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: complextorch-source
+          path: ${{ runner.temp }}/complextorch-source/
+          include-hidden-files: true
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 1
 
-      - name: Publish stable release asset
+      - name: Publish artifact pointer
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
         run: |
-          git tag -f current-source "$GITHUB_SHA"
-          git push origin refs/tags/current-source --force
-
-          if ! gh release view current-source >/dev/null 2>&1; then
-            gh release create current-source \
-              --title "Current source snapshot" \
-              --notes "Machine-readable snapshot of the current main branch for agent-side local execution." \
-              --prerelease
-          fi
-
-          gh release upload current-source \
-            "$RUNNER_TEMP/complextorch-source.zip" \
-            --clobber
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/statuses/${SNAPSHOT_SHA}" \
+            -f state=success \
+            -f context=source-snapshot \
+            -f description="artifact_id=${ARTIFACT_ID}"
