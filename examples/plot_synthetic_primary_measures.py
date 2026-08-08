@@ -13,6 +13,12 @@ and evaluated in one Torch batch. A one-dimensional macro variable is defined
 as the leading principal component (PC1) of each stationary covariance for the
 emergence and dynamical-dependence measures.
 
+All plotted primary measures are read from one
+:func:`complextorch.compute_all_model_measures` result. The example therefore
+also exercises the aggregate API contract: shared model primitives and all
+applicable primary families are computed by the aggregate entry point rather
+than recomputed ad hoc in example code.
+
 The final compact figure uses one column per topology and one row per primary
 measure. Color limits are shared across all five topologies within each row so
 that colors are directly comparable horizontally.
@@ -40,15 +46,7 @@ import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import torch
 
-from complextorch import (
-    ModelMeasureConfig,
-    compute_all_model_measures,
-    gaussian_mutual_information_rate,
-    o_information_rate,
-    synthetic_var,
-    temporal_mvgc,
-    var_to_innovations_state_space,
-)
+from complextorch import ModelMeasureConfig, compute_all_model_measures, synthetic_var
 
 plt.rcParams.update({"font.size": plt.rcParams["font.size"] + 2})
 
@@ -61,29 +59,6 @@ def principal_component_projection(covariance: torch.Tensor) -> torch.Tensor:
     signs = torch.where(pc1[..., 0] < 0.0, -1.0, 1.0)
     pc1 = pc1 * signs.unsqueeze(-1)
     return pc1.unsqueeze(-2)
-
-
-def mean_pairwise_mir(innovations) -> torch.Tensor:
-    """Return the mean MIR over all unique singleton pairs."""
-
-    values = [
-        gaussian_mutual_information_rate(innovations, left, right, base=2.0)
-        for left in range(N_VARIABLES)
-        for right in range(left + 1, N_VARIABLES)
-    ]
-    return torch.stack(values, dim=-1).mean(dim=-1)
-
-
-def maximum_temporal_mvgc(model) -> torch.Tensor:
-    """Return the maximum directed singleton-to-singleton temporal MVGC."""
-
-    values = [
-        temporal_mvgc(model, source=(source,), target=(target,), base=2.0)
-        for source in range(N_VARIABLES)
-        for target in range(N_VARIABLES)
-        if source != target
-    ]
-    return torch.stack(values, dim=-1).amax(dim=-1)
 
 
 def robust_limits(
@@ -155,7 +130,6 @@ for system_name, display_name, parameters in SYSTEMS:
         dtype=torch.float64,
         **parameters,
     )
-    innovations = var_to_innovations_state_space(model)
     macro_projection = principal_component_projection(model.present_covariance)
     config = ModelMeasureConfig(
         macro_projection=macro_projection,
@@ -167,13 +141,11 @@ for system_name, display_name, parameters in SYSTEMS:
         "total_correlation": measures["gaussian"]["total_correlation"],
         "o_information": measures["gaussian"]["o_information"],
         "entropy_rate": measures["dynamics"]["entropy_rate"],
-        "mean_mir": mean_pairwise_mir(innovations),
-        "max_temporal_mvgc": maximum_temporal_mvgc(model),
-        "o_information_rate": o_information_rate(
-            innovations,
-            groups=((0,), (1,), (2,)),
-            base=2.0,
+        "mean_mir": measures["rates"]["mean_pairwise_mutual_information"],
+        "max_temporal_mvgc": measures["mvgc"]["pairwise_temporal"].amax(
+            dim=(-2, -1)
         ),
+        "o_information_rate": measures["rates"]["o_information"],
         "predictive_information": measures["dynamics"]["predictive_information"],
         "emergence_psi": measures["emergence"]["psi"],
         "dynamical_dependence": measures["control"]["dynamical_dependence"],
