@@ -1,74 +1,49 @@
 # ComplexTorch
 
-Torch-first batched inference of vector autoregressive and latent linear state-space models, with model-derived analytical complexity and information measures.
+ComplexTorch is a **Torch-first scientific toolbox for the analysis of complex multivariate dynamical systems** using vector autoregressive (VAR) and linear state-space models.
 
-## Design
+It provides a unified model-based framework for studying **complexity, criticality, information processing, causal interactions, and emergence**, deriving these quantities from a common underlying dynamical model whenever possible. This makes otherwise heterogeneous measures easier to compare, combine, and apply consistently to the same system.
 
-ComplexTorch treats mathematical and numerical contracts as part of the public API. Shared primitives are reused across estimators and measures rather than reimplemented per analysis:
+Built on PyTorch, ComplexTorch is designed for **efficient, scalable scientific computation**, with batched numerical operations and CPU/GPU acceleration for analyzing large systems and parameter sweeps.
 
-- `representations.py` defines the canonical `VARSystem` and `StateSpaceModel` representations.
-- `control.py` owns DARE/Riccati solvers, innovations-form conversion, exact observational reduction, and linear projections used by state-space MVGC and dynamical dependence.
-- `selection/` separates VAR lag selection from state-space latent-dimension selection and uses temporal rather than shuffled cross-validation.
-- `measures/primary.py` provides the model-first analytical layer and shared model-measure context.
-- `measures/gaussian.py`, `rates.py`, `oir.py`, `pird.py`, `pdgc.py`, and `hop.py` provide Gaussian information, rate, high-order, and decomposition primitives.
-- `measures/phid.py` and `measures/phid_primary.py` provide bivariate Gaussian PhiID and model-derived redundancy backends.
-- `dd.py` exposes the public dynamical-dependence optimizer; `dd_ssdi.py` orchestrates the validated staged SSDI workflow without duplicating the proxy/spectral objective kernels.
+**[Documentation → Read the Docs](https://complexbox-torch.readthedocs.io/en/latest/)**
 
-## Implemented coverage
+## Highlights
 
-- Batched VAR fitting from NumPy or Torch, with independent or pooled trajectories.
-- VAR information-criterion selection and temporal cross-validation.
-- Canonical VAR, general state-space, and innovations-form representations.
-- Kalman filtering and smoothing, N4SID, Larimore/CVA state-space fitting, and linear-Gaussian EM.
-- Standard and generalized DARE/Riccati solvers, exact model reduction, innovations form, and projections.
-- Group temporal and spectral MVGC, Gaussian MIR/TE rates, O-information rate, PIRD, PDGC, and HOP analyses.
-- Gaussian TC, DTC, O-information, S-information, PhiID, predictive emergence, criticality, spectra, and related model-derived measures.
-- Dynamical dependence and SSDI with staged proxy multi-start optimization, Grassmann clustering, and spectral refinement by default.
-- ComplexBox-compatible and native Riemannian Armijo DD optimizer backends under one public contract.
-- Deterministic simulation helpers and executable validation/examples.
-
-## Documentation
-
-The Sphinx/ReadTheDocs source is under [`docs/`](docs/index.rst). The documentation includes a scientific user guide, executable Sphinx-Gallery examples, and generated per-object API pages with `[source]` links back to the implementation.
-
-The dedicated dynamical-dependence guide documents the current staged SSDI default, result contracts, Grassmann geometry, and reproducibility requirements.
+- **Unified model-based analysis** of complexity, information processing, causality, criticality, and emergence.
+- VAR and linear state-space modeling, simulation, model selection, and diagnostics.
+- Information-theoretic measures including **TC, DTC, O-information, S-information, MIR, TE, PhiID, O-information rate, PIRD, PDGC**, and higher-order measures.
+- Temporal and spectral **multivariate Granger causality**.
+- Measures of **dynamical dependence, stochastic interaction, predictive emergence, and criticality**.
+- Synthetic dynamical systems and reproducible examples for scientific validation and exploration.
 
 ## Installation
+
+```bash
+pip install complextorch
+```
+
+For development:
 
 ```bash
 python -m pip install -e ".[dev]"
 ```
 
-Documentation dependencies can be installed with:
-
-```bash
-python -m pip install -e ".[docs]"
-```
-
-## Example
+## Quick example
 
 ```python
-import torch
 from complextorch import VAR, demo_var, simulate_var
-from complextorch import spectral_mvgc, temporal_mvgc
 
 coefficients, noise = demo_var(n_variables=3, order=2)
 data = simulate_var(coefficients, noise, n_times=4000, seed=1)
-model = VAR(order=2).fit(data)
 
-gc_time = temporal_mvgc(data, 2, source=[1], target=[0], conditional=[2])
-gc_frequency = spectral_mvgc(
-    data,
-    2,
-    source=[1],
-    target=[0],
-    conditional=[2],
-    frequencies=torch.linspace(0, 0.5, 128, dtype=torch.float64),
-)
+model = VAR(order=2).fit(data)
 ```
 
-## Dynamical dependence / SSDI
+See the **[documentation](https://complexbox-torch.readthedocs.io/en/latest/)** for the scientific user guide, mathematical definitions, API reference, tutorials, and executable examples.
 
-`optimise_dynamical_dependence(...)` uses the staged SSDI workflow when `objective=None` (the default): proxy-DD optimization over many restart subspaces, SSDI/ComplexBox-compatible Grassmann clustering, and full spectral-DD refinement from one representative per cluster. Explicit `objective="proxy"` or `objective="spectral"` preserves the single-stage research API.
+## Authors
 
-Current package version: **0.8.0**.
+ComplexTorch is developed by [Rubén Herzog](https://github.com/rubenherzog) and [Boki Milinkovic](https://github.com/bmilinkovic).
+
+See the documentation for citation information.
