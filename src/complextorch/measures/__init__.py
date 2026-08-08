@@ -21,6 +21,11 @@ from .primary import (
     required_autocovariance_max_lag,
     stationary_observation_covariance,
 )
+from .entropy_rate import (
+    marginal_entropy_rate,
+    spectral_entropy_rate,
+    spectral_entropy_rate_from_spectrum,
+)
 from .phid_primary import phiid_redundancy_from_model
 from .mvgc_api import spectral_mvgc, temporal_mvgc
 from .secondary import (
