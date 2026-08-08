@@ -40,6 +40,9 @@ jobs:
       - name: Upgrade packaging tools
         run: python -m pip install --upgrade pip setuptools wheel
 
+      - name: Install CPU-only PyTorch
+        run: python -m pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.2"
+
       - name: Install ComplexTorch with development dependencies
         run: python -m pip install -e ".[dev]"
 
@@ -65,6 +68,9 @@ jobs:
 
       - name: Upgrade packaging tools
         run: python -m pip install --upgrade pip setuptools wheel
+
+      - name: Install CPU-only PyTorch
+        run: python -m pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.2"
 
       - name: Install ComplexTorch with documentation dependencies
         run: python -m pip install -e ".[docs]"
