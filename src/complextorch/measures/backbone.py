@@ -18,10 +18,10 @@ from ..control import (
     InnovationsStateSpace,
     _as_innovations_state_space,
     _project_innovations_state_space,
-    innovations_transfer_function,
 )
 from ..linalg import spd_logdet, symmetrise
 from ..representations import StateSpaceModel, VARSystem
+from ..spectra import innovations_spectral_density
 from .gaussian import gaussian_entropy, gaussian_mutual_information, total_correlation
 
 Model = VARSystem | StateSpaceModel | InnovationsStateSpace
@@ -110,20 +110,11 @@ def innovations_spectrum(
     sampling_frequency: float = 1.0,
 ) -> torch.Tensor:
     """Observation cross-spectrum from the canonical innovations form."""
-    innovations = as_innovations(model)
-    transfer = innovations_transfer_function(innovations, frequencies)
-    covariance = innovations.innovation_covariance
-    single = transfer.ndim == 3
-    if single:
-        transfer = transfer.unsqueeze(0)
-        covariance = covariance.unsqueeze(0) if covariance.ndim == 2 else covariance
-    spectrum = (
-        transfer
-        @ covariance[:, None].to(transfer.dtype)
-        @ transfer.conj().transpose(-1, -2)
-        / float(sampling_frequency)
+    return innovations_spectral_density(
+        as_innovations(model),
+        frequencies,
+        sampling_frequency=sampling_frequency,
     )
-    return spectrum[0] if single else spectrum
 
 
 def entropy_rate_from_model(model: Model, *, base: float = 2.0) -> torch.Tensor:
