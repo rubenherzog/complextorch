@@ -42,6 +42,11 @@ from .dd_optimization import (
 )
 from .inference import ConfidenceIntervalResult, MeasureInterval, ResamplingMethod
 from .inference_registry import InferenceMeasureConfig
+from .measures.entropy_rate import (
+    marginal_entropy_rate,
+    spectral_entropy_rate,
+    spectral_entropy_rate_from_spectrum,
+)
 from .measures.hop import HOPResult, SpectralHOPResult, hop_analysis, spectral_hop_analysis
 from .measures.oir import (
     delta_o_information_rate,
@@ -203,6 +208,7 @@ __all__ = [
     "integrate_spectral_rate",
     "kalman_filter",
     "kalman_smoother",
+    "marginal_entropy_rate",
     "measure_confidence_intervals",
     "model_autocovariances",
     "mvgc_pvalue",
@@ -233,6 +239,8 @@ __all__ = [
     "spectral_delta_o_information_rate",
     "spectral_dynamical_dependence",
     "spectral_dynamical_dependence_gradient",
+    "spectral_entropy_rate",
+    "spectral_entropy_rate_from_spectrum",
     "spectral_gaussian_mutual_information_rate",
     "spectral_gaussian_transfer_entropy_rate",
     "spectral_hop_analysis",
