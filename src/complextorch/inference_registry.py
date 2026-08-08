@@ -132,42 +132,43 @@ def evaluate_resampling_measures(
     frequencies = config.primary.frequencies
     sampling_frequency = config.primary.sampling_frequency
 
-    result["rates"] = {
-        "o_information": o_information_rate(
+    rates: dict[str, torch.Tensor] = {}
+    if system.n_variables >= 2:
+        rates["o_information"] = o_information_rate(
             innovations, groups=config.oir_groups, base=base
         )
-    }
-    if frequencies is not None:
-        result["rates"]["spectral_o_information"] = spectral_o_information_rate(
-            innovations,
-            frequencies,
-            groups=config.oir_groups,
-            sampling_frequency=sampling_frequency,
-            base=base,
-        )
+        if frequencies is not None:
+            rates["spectral_o_information"] = spectral_o_information_rate(
+                innovations,
+                frequencies,
+                groups=config.oir_groups,
+                sampling_frequency=sampling_frequency,
+                base=base,
+            )
+    elif config.oir_groups is not None or config.delta_oir_target_group is not None:
+        raise ValueError("O-information-rate inference requires at least two variables")
+
     if config.delta_oir_target_group is not None:
-        result["rates"]["delta_o_information"] = delta_o_information_rate(
+        rates["delta_o_information"] = delta_o_information_rate(
             innovations,
             config.delta_oir_target_group,
             groups=config.oir_groups,
             base=base,
         )
         if frequencies is not None:
-            result["rates"]["spectral_delta_o_information"] = (
-                spectral_delta_o_information_rate(
-                    innovations,
-                    frequencies,
-                    config.delta_oir_target_group,
-                    groups=config.oir_groups,
-                    sampling_frequency=sampling_frequency,
-                    base=base,
-                )
+            rates["spectral_delta_o_information"] = spectral_delta_o_information_rate(
+                innovations,
+                frequencies,
+                config.delta_oir_target_group,
+                groups=config.oir_groups,
+                sampling_frequency=sampling_frequency,
+                base=base,
             )
 
     if config.primary.source is not None and config.primary.target is not None:
         source = config.primary.source
         target = config.primary.target
-        result["rates"].update(
+        rates.update(
             {
                 "mutual_information": gaussian_mutual_information_rate(
                     innovations, source, target, base=base
@@ -181,30 +182,28 @@ def evaluate_resampling_measures(
             }
         )
         if frequencies is not None:
-            result["rates"].update(
+            rates.update(
                 {
-                    "spectral_mutual_information": (
-                        spectral_gaussian_mutual_information_rate(
-                            innovations,
-                            source,
-                            target,
-                            frequencies,
-                            sampling_frequency=sampling_frequency,
-                            base=base,
-                        )
+                    "spectral_mutual_information": spectral_gaussian_mutual_information_rate(
+                        innovations,
+                        source,
+                        target,
+                        frequencies,
+                        sampling_frequency=sampling_frequency,
+                        base=base,
                     ),
-                    "spectral_transfer_entropy": (
-                        spectral_gaussian_transfer_entropy_rate(
-                            innovations,
-                            source,
-                            target,
-                            frequencies,
-                            sampling_frequency=sampling_frequency,
-                            base=base,
-                        )
+                    "spectral_transfer_entropy": spectral_gaussian_transfer_entropy_rate(
+                        innovations,
+                        source,
+                        target,
+                        frequencies,
+                        sampling_frequency=sampling_frequency,
+                        base=base,
                     ),
                 }
             )
+    if rates:
+        result["rates"] = rates
 
     if config.hop_sources is not None and config.hop_target is not None:
         if frequencies is None:
