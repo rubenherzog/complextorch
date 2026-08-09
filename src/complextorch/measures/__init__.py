@@ -40,6 +40,12 @@ from .criticality import covariance_amplification, dominant_timescale, stability
 from .mvgc import state_space_temporal_mvgc, state_space_spectral_mvgc, integrate_spectral_mvgc, pairwise_spectral_gc
 from .discrete import discrete_entropy, discrete_mutual_information, discrete_total_correlation, lempel_ziv_complexity
 from .phid import PhiIDRedundancy, gaussian_phiid_mmi, gaussian_phiid_atoms
+from .pid import (
+    PIDRedundancy,
+    gaussian_pid,
+    gaussian_pid_from_var,
+    var_past_future_covariance,
+)
 from .planner import DynamicalMeasures
 from .registry import MEASURE_REGISTRY, PRIMARY_MEASURES, SECONDARY_MEASURES
 __all__ = [name for name in globals() if not name.startswith("_")]
