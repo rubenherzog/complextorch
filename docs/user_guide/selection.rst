@@ -128,7 +128,19 @@ The selected model is the smallest candidate satisfying
    \bar L_{q_{\min}}+\operatorname{SE}_{q_{\min}}.
 
 This intentionally favors a simpler candidate whose predictive loss is within
-one estimated standard error of the minimum. VAR fold-level diagnostics are
+one estimated standard error of the minimum.
+
+For VAR CV, batch semantics mirror the VAR estimator. With ``mode="pooled"``,
+all trajectories contribute to one predictive-loss curve and one common lag
+order. With batched ``mode="independent"``, each trajectory keeps its own
+fold scores, mean validation curve, training-fold AIC/BIC/HQC diagnostics, and
+selected lag order. The main arrays then have shapes
+``(batch, n_orders, n_folds)`` for fold-level quantities and
+``(batch, n_orders)`` for fold-aggregated quantities. If ``refit=True`` and
+selected orders are heterogeneous, ``best_estimator_`` (and the explicit alias
+``best_estimators_``) is a tuple containing one fixed-order VAR per trajectory.
+
+VAR fold-level diagnostics are
 represented by :class:`~complextorch.VAROrderScore` and
 :class:`~complextorch.VAROrderSearchResult`; the state-space counterparts are
 :class:`~complextorch.StateSpaceOrderScore` and
