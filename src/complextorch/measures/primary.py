@@ -172,6 +172,9 @@ def required_autocovariance_max_lag(model: Model, config: ModelMeasureConfig) ->
         config.cmem_max_lag,
         config.cmem_decomposition_max_lag,
     ]
+    if isinstance(model, VARSystem):
+        # CMem totals/decomposition use the complete VAR Markov history.
+        required.append(model.order)
     if config.phiid_variables is not None:
         required.append(config.phiid_lag)
     return max(required)
@@ -657,7 +660,10 @@ def compute_all_model_measures(
             context.innovations.innovation_covariance,
             context.autocovariances,
             curve_max_lag=config.cmem_max_lag,
-            decomposition_max_lag=config.cmem_decomposition_max_lag,
+            decomposition_max_lag=(
+                model.order if isinstance(model, VARSystem)
+                else config.cmem_decomposition_max_lag
+            ),
         )
         result["available"].extend(
             [
