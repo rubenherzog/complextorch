@@ -60,6 +60,12 @@ from .measures.pdgc import (
     partial_granger_causality_decomposition,
     spectral_partial_granger_causality_decomposition,
 )
+from .measures.pid import (
+    PIDRedundancy,
+    gaussian_pid,
+    gaussian_pid_from_var,
+    var_past_future_covariance,
+)
 from .measures.phid_primary import phiid_redundancy_from_model
 from .measures.pird import (
     PIRDResult,
@@ -91,6 +97,7 @@ from .measures.secondary import (
     residual_whiteness,
     significance,
 )
+from .numit import NuMITPIDResult, numit_pid_var, var_total_mutual_information
 from .multiscale import (
     downsample_innovations_state_space,
     varma_to_innovations_state_space,
@@ -257,5 +264,12 @@ __all__ = [
     "to_complexbox_var",
     "var_to_innovations_state_space",
     "varma_to_innovations_state_space",
+    "NuMITPIDResult",
+    "PIDRedundancy",
+    "gaussian_pid",
+    "gaussian_pid_from_var",
+    "numit_pid_var",
+    "var_past_future_covariance",
+    "var_total_mutual_information",
 ]
 __version__ = "0.8.0"
