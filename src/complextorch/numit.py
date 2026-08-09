@@ -105,28 +105,78 @@ def _random_var_shapes(
     )
 
 
+def _numerical_radius_bounds(
+    dtype: torch.dtype,
+    *,
+    device: torch.device,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return dtype-aware open bounds for stable spectral-radius matching.
+
+    NuMIT's MATLAB reference optimises an unconstrained variable transformed by
+    a sigmoid, so the theoretical radius range is the full open interval
+    ``(0, 1)``. A fixed ``1e-5`` margin truncates high-TMI systems unnecessarily
+    in float64. Here the margin is tied to floating-point resolution instead.
+
+    ``64 * eps`` leaves enough distance from the unit root for companion
+    eigenvalue and Lyapunov stability checks while reaching approximately
+    ``1 - 1.4e-14`` in float64 and ``1 - 7.6e-6`` in float32.
+    """
+    if not dtype.is_floating_point:
+        raise TypeError("NuMIT spectral-radius matching requires floating-point dtype")
+    margin = 64.0 * torch.finfo(dtype).eps
+    low = torch.tensor(margin, dtype=dtype, device=device)
+    high = torch.tensor(1.0 - margin, dtype=dtype, device=device)
+    return low, high
+
+
 def _match_tmi_by_spectral_radius(
     coefficients: torch.Tensor,
     covariance: torch.Tensor,
     target_tmi: torch.Tensor,
     *,
     base: float,
-    iterations: int = 48,
-    radius_epsilon: float = 1e-5,
+    iterations: int = 64,
 ) -> tuple[VARSystem, torch.Tensor]:
-    """Match each random VAR to one target TMI using batched bisection in rho."""
+    """Match each random VAR to one target TMI using batched bisection in rho.
+
+    The search covers the widest numerically safe subset of the reference
+    interval ``(0, 1)`` for the input dtype. Consequently, float64 nulls can
+    approach the unit-root boundary much more closely than float32 nulls.
+    """
     batch = coefficients.shape[0]
     target = torch.as_tensor(target_tmi, dtype=coefficients.dtype, device=coefficients.device)
     if target.ndim == 0:
         target = target.expand(batch)
     if target.shape != (batch,):
         raise ValueError("target_tmi must be scalar or have shape (batch,)")
-    low = torch.full_like(target, radius_epsilon)
-    high = torch.full_like(target, 1.0 - radius_epsilon)
+    if bool((target < 0).any()):
+        raise ValueError("target_tmi must be nonnegative")
+
+    lower_bound, upper_bound = _numerical_radius_bounds(
+        coefficients.dtype,
+        device=coefficients.device,
+    )
+    low = torch.full_like(target, lower_bound.item())
+    high = torch.full_like(target, upper_bound.item())
+
+    low_model = build_var_system(_var_decay_to_radius(coefficients, low), covariance)
+    low_tmi = var_total_mutual_information(low_model, base=base)
     high_model = build_var_system(_var_decay_to_radius(coefficients, high), covariance)
     high_tmi = var_total_mutual_information(high_model, base=base)
-    if bool((high_tmi < target).any()):
-        raise RuntimeError("target TMI is unreachable for at least one sampled null VAR")
+
+    below_range = target < low_tmi
+    above_range = target > high_tmi
+    if bool((below_range | above_range).any()):
+        bad = below_range | above_range
+        raise RuntimeError(
+            "target TMI lies outside the numerically reachable range for "
+            f"{int(bad.sum().item())} sampled null VAR(s); "
+            f"dtype={coefficients.dtype}, radius range="
+            f"({float(lower_bound):.3e}, {float(upper_bound):.17g}), "
+            f"requested TMI range=({float(target[bad].min()):.6g}, "
+            f"{float(target[bad].max()):.6g})"
+        )
+
     for _ in range(iterations):
         mid = 0.5 * (low + high)
         model = build_var_system(_var_decay_to_radius(coefficients, mid), covariance)
