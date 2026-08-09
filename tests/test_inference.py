@@ -3,7 +3,16 @@ import torch
 
 from complextorch import InferenceMeasureConfig, ModelMeasureConfig, VAR, simulate_var
 from complextorch._resampling import _batched_ols_refit
-from complextorch.inference import measure_confidence_intervals
+from complextorch.inference import NuMITPIDResult, measure_confidence_intervals, numit_pid_var
+
+
+def test_inference_namespace_exposes_numit_separately_from_resampling():
+    """NuMIT is public inference API without becoming a ResamplingMethod."""
+    from complextorch import NuMITPIDResult as TopLevelNuMITPIDResult
+    from complextorch import numit_pid_var as top_level_numit_pid_var
+
+    assert NuMITPIDResult is TopLevelNuMITPIDResult
+    assert numit_pid_var is top_level_numit_pid_var
 
 
 def _stable_data(*, batch=2, n_times=180, seed=7, dtype=torch.float64):
