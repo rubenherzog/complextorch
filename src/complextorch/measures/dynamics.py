@@ -134,17 +134,16 @@ def predictive_information(system:VARSystem,*,base:float=2.0)->torch.Tensor:
 
 
 def active_information_storage(system:VARSystem,*,base:float=2.0)->torch.Tensor:
-    """Per-variable I(X_t^i; own p-lag history)."""
-    n,p=system.n_variables,system.order; s=system.state_covariance
-    vals=[]
-    for i in range(n):
-        idx=torch.tensor([i+k*n for k in range(p)],device=s.device)
-        hist=s.index_select(-2,idx).index_select(-1,idx)
-        cross=s[...,i,idx]
-        joint=torch.cat([torch.cat([s[...,i,i].unsqueeze(-1).unsqueeze(-1),cross.unsqueeze(-2)],-1),torch.cat([cross.unsqueeze(-1),hist],-1)],-2)
-        vals.append(gaussian_mutual_information(joint,1,base=base))
-    return torch.stack(vals,-1)
+    r"""Per-variable :math:`I(X_t^i; X_{t-1:t-p}^i)` for a VAR(p).
 
+    The companion state stores the present block first, so direct indexing of
+    its first ``p`` blocks is easy to get off by one.  Reuse the canonical
+    observation autocovariance path instead.
+    """
+    from .backbone import finite_lag_ais, observation_autocovariances
+
+    gamma = observation_autocovariances(system, system.order)
+    return finite_lag_ais(gamma, system.order, base=base)
 
 def inverse_transfer_function(system:VARSystem,frequencies:torch.Tensor,*,sampling_frequency:float=1.0)->torch.Tensor:
     """Inverse transfer function.
