@@ -52,11 +52,17 @@ def _information_criteria(
 
 @dataclass(frozen=True)
 class VARInformationCriteriaResult:
-    """AIC, BIC, and HQC curves and their minimizing VAR orders."""
+    """AIC, BIC, and HQC curves and their minimizing VAR orders.
 
-    p_aic: int
-    p_bic: int
-    p_hqc: int
+    In ``mode="independent"`` with batched input, minimizing orders have shape
+    ``(batch,)`` and criterion arrays have shape ``(batch, n_orders)``.
+    Pooled and single-trajectory results retain scalar orders and one-dimensional
+    criterion curves.
+    """
+
+    p_aic: int | np.ndarray
+    p_bic: int | np.ndarray
+    p_hqc: int | np.ndarray
     aic: np.ndarray
     bic: np.ndarray
     hqc: np.ndarray
@@ -83,6 +89,7 @@ class VAROrderSelectionIC(BaseEstimator):
         device: str = "auto",
         dtype: str = "float64",
         refit: str | None = "hqc",
+        mode: Literal["independent", "pooled"] = "pooled",
     ):
         """Initialize VAR information-criterion selection.
 
@@ -101,6 +108,13 @@ class VAROrderSelectionIC(BaseEstimator):
         refit
             Criterion used to choose and expose ``best_estimator_``. One of
             ``"aic"``, ``"bic"``, ``"hqc"``, or ``None`` to skip refitting.
+            Batched ``mode="independent"`` requires ``None`` because different
+            trajectories may select different lag orders.
+        mode
+            ``"pooled"`` estimates one model per candidate order across all
+            trajectories while preserving boundaries. ``"independent"`` fits
+            every trajectory independently in the same batch and returns one
+            information-criterion curve and selected order per trajectory.
         """
         # Preserve constructor arguments exactly for sklearn BaseEstimator.
         self.orders = orders
@@ -109,6 +123,7 @@ class VAROrderSelectionIC(BaseEstimator):
         self.device = device
         self.dtype = dtype
         self.refit = refit
+        self.mode = mode
 
     def fit(self, X: np.ndarray | torch.Tensor, y=None):
         """Fit every candidate order and compute AIC, BIC, and HQC curves.
@@ -117,8 +132,12 @@ class VAROrderSelectionIC(BaseEstimator):
         ----------
         X
             Observations with shape ``(time, variables)`` or
-            ``(batch, time, variables)``. Batched trajectories are fitted
-            without constructing transitions across trajectory boundaries.
+            ``(batch, time, variables)``. ``mode="pooled"`` aggregates
+            independent trajectories without crossing boundaries.
+            ``mode="independent"`` fits all trajectories independently and,
+            for batched input, returns criterion arrays of shape
+            ``(batch, n_orders)`` and selected-order arrays of shape
+            ``(batch,)``.
         y
             Unused scikit-learn compatibility target.
 
@@ -131,12 +150,29 @@ class VAROrderSelectionIC(BaseEstimator):
         orders = tuple(int(value) for value in self.orders)
         if not orders or min(orders) < 1:
             raise ValueError("orders must be positive")
-        data = torch.as_tensor(X)
-        if data.ndim == 2:
-            data = data.unsqueeze(0)
-        if data.ndim != 3:
-            raise ValueError("X must have shape (time,n) or (trials,time,n)")
+        if self.mode not in {"independent", "pooled"}:
+            raise ValueError("mode must be 'independent' or 'pooled'")
+
+        raw = torch.as_tensor(X)
+        input_was_batched = raw.ndim == 3
+        if raw.ndim == 2:
+            data = raw.unsqueeze(0)
+        elif raw.ndim == 3:
+            data = raw
+        else:
+            raise ValueError("X must have shape (time,n) or (batch,time,n)")
         n_trials, n_times, n_variables = data.shape
+        if (
+            self.mode == "independent"
+            and input_was_batched
+            and n_trials > 1
+            and self.refit is not None
+        ):
+            raise ValueError(
+                "refit must be None for batched mode='independent'; trajectories "
+                "may select different VAR orders"
+            )
+
         loglik = []
         n_parameters = []
         n_observations = []
@@ -146,37 +182,52 @@ class VAROrderSelectionIC(BaseEstimator):
                 order=order,
                 solver=self.solver,
                 covariance="unbiased",
-                mode="pooled" if n_trials > 1 else "independent",
+                mode=self.mode,
                 device=self.device,
                 dtype=self.dtype,
                 stability="ignore",
             ).fit(data)
             fitted[order] = estimator
-            covariance = estimator.noise_covariance_[0]
-            # For a Gaussian innovation model, E[e' Sigma^-1 e] = n_variables;
-            # this gives the maximized per-observation log-likelihood used by
-            # the MVGC information-criterion convention.
-            loglik.append(
-                -0.5
-                * (
-                    n_variables * np.log(2.0 * np.pi)
-                    + float(spd_logdet(covariance))
-                    + n_variables
-                )
+            covariance = estimator.noise_covariance_
+            # One maximized Gaussian innovation log-likelihood per fitted
+            # model. In pooled mode VAR returns one covariance; independent
+            # mode preserves the batch axis and logdet is evaluated batched.
+            order_loglik = -0.5 * (
+                n_variables * np.log(2.0 * np.pi)
+                + spd_logdet(covariance)
+                + n_variables
             )
+            loglik.append(order_loglik.detach().cpu().numpy())
             n_parameters.append(order * n_variables * n_variables)
-            n_observations.append(n_trials * (n_times - order))
-        likelihood = np.asarray(loglik)
+            n_observations.append(
+                (n_trials if self.mode == "pooled" else 1) * (n_times - order)
+            )
+
+        likelihood = np.stack(loglik, axis=-1)
+        if self.mode == "pooled":
+            likelihood = likelihood.reshape(-1)
+        elif not input_was_batched:
+            likelihood = likelihood.reshape(-1)
+
         aic, bic, hqc = _information_criteria(
             likelihood,
             np.asarray(n_parameters),
             np.asarray(n_observations),
             hurvich_tsai=self.hurvich_tsai,
         )
+        order_values = np.asarray(orders, dtype=int)
+
+        def minimizing_orders(values: np.ndarray):
+            indices = np.nanargmin(values, axis=-1)
+            selected = order_values[indices]
+            if np.ndim(selected) == 0:
+                return int(selected)
+            return selected.astype(int, copy=False)
+
         result = VARInformationCriteriaResult(
-            orders[int(np.nanargmin(aic))],
-            orders[int(np.nanargmin(bic))],
-            orders[int(np.nanargmin(hqc))],
+            minimizing_orders(aic),
+            minimizing_orders(bic),
+            minimizing_orders(hqc),
             aic,
             bic,
             hqc,
@@ -196,7 +247,7 @@ class VAROrderSelectionIC(BaseEstimator):
             if key not in {"aic", "bic", "hqc"}:
                 raise ValueError("refit must be None, 'aic', 'bic' or 'hqc'")
             self.best_order_ = getattr(result, f"p_{key}")
-            self.best_estimator_ = fitted[self.best_order_]
+            self.best_estimator_ = fitted[int(self.best_order_)]
         return self
 
 
