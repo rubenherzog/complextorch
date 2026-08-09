@@ -93,10 +93,6 @@ def _random_var_shapes(
     device: torch.device,
 ) -> torch.Tensor:
     """Draw otherwise-random VAR coefficient shapes before spectral matching."""
-    # MVGC2 ``var_rand`` starts from iid standard-normal lag matrices. Its
-    # intermediate random target radius cancels algebraically when ``specnorm``
-    # is applied again to the NuMIT-optimised radius, so keeping the raw shapes
-    # is exactly equivalent and avoids an unnecessary eigendecomposition.
     return torch.randn(
         (batch, order, n_variables, n_variables),
         generator=generator,
@@ -127,12 +123,7 @@ def _safe_tmi_at_radius(
     *,
     base: float,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Evaluate TMI without allowing one ill-conditioned null to kill its peers.
-
-    Near a unit root, eigenspectrum and Lyapunov roundoff can make an otherwise
-    valid requested radius numerically unsafe for an individual random VAR.
-    Failed batches are recursively split so valid peer systems remain usable.
-    """
+    """Evaluate TMI without allowing one ill-conditioned null to kill its peers."""
     batch = coefficients.shape[0]
     values = torch.full(
         (batch,), float("nan"), dtype=coefficients.dtype, device=coefficients.device
@@ -147,6 +138,7 @@ def _safe_tmi_at_radius(
         raise ValueError("radius must be scalar or have shape (batch,)")
 
     def evaluate(indices: torch.Tensor) -> None:
+        """Evaluate one subset, splitting recursively after numerical failure."""
         if indices.numel() == 0:
             return
         try:
@@ -181,14 +173,7 @@ def _tmi_brackets(
     *,
     base: float,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Find a numerically safe spectral-radius bracket for every null VAR.
-
-    The reference uses an unconstrained variable followed by a sigmoid, hence
-    the mathematical search interval is ``(0, 1)``. Instead of evaluating all
-    systems immediately at a machine-epsilon distance from one, this routine
-    approaches the unit-root boundary only for nulls whose target TMI requires
-    it. This is substantially more robust for large batched ensembles.
-    """
+    """Find a numerically safe spectral-radius bracket for every null VAR."""
     batch = coefficients.shape[0]
     target = torch.as_tensor(
         target_tmi, dtype=coefficients.dtype, device=coefficients.device
