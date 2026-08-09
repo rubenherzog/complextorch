@@ -1,9 +1,11 @@
 import torch
 
+from complextorch import build_var_system
 from complextorch.numit import (
     _match_tmi_by_spectral_radius,
     _numerical_radius_bounds,
     _random_var_shapes,
+    _var_decay_to_radius,
     _wishart_identity,
     var_total_mutual_information,
 )
@@ -89,3 +91,44 @@ def test_high_float64_radius_supports_tmi_well_above_old_ceiling():
     achieved = var_total_mutual_information(model)
     torch.testing.assert_close(achieved, target, rtol=1e-8, atol=1e-9)
     assert bool((radius > 0.999).any())
+
+
+def test_tmi_remains_monotone_across_extreme_float64_radius_grid():
+    coefficients, covariance = _random_null_inputs(torch.float64, batch=16)
+    radii = torch.tensor(
+        [
+            1e-12,
+            1e-9,
+            1e-6,
+            1e-4,
+            1e-2,
+            0.1,
+            0.5,
+            0.9,
+            0.99,
+            0.999,
+            0.9999,
+            0.99999,
+            0.999999,
+            0.99999999,
+            1.0 - 1e-10,
+            1.0 - 1e-12,
+            1.0 - 2e-14,
+        ],
+        dtype=torch.float64,
+    )
+    curve = []
+    for radius in radii:
+        model = build_var_system(
+            _var_decay_to_radius(
+                coefficients,
+                radius.expand(coefficients.shape[0]),
+            ),
+            covariance,
+        )
+        curve.append(var_total_mutual_information(model))
+    curve = torch.stack(curve)
+    increments = curve[1:] - curve[:-1]
+    assert bool(torch.isfinite(curve).all())
+    assert bool((increments >= -1e-10).all())
+    assert float(curve[-1].min()) > 20.0
