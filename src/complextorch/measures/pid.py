@@ -20,7 +20,7 @@ from typing import Literal
 import torch
 
 from ..representations import VARSystem
-from .phid import _mi, _single_target_redundancy, _sobol_gaussian_samples
+from ._gaussian_redundancy import _mi, _single_target_redundancy, _sobol_gaussian_samples
 
 PIDRedundancy = Literal["mmi", "ccs", "dep"]
 
