@@ -94,10 +94,12 @@ def test_var_gap_modes_have_distinct_semantics():
     assert not np.isclose(warmup.fold_scores_[0, 0], embargo.fold_scores_[0, 0])
 
 
-def test_both_searches_select_one_global_order_across_folds():
+def test_both_pooled_searches_select_one_global_order_across_folds():
     data = _series()
     cv = EpochTimeSeriesSplit(n_splits=2, test_size=15, min_train_size=60)
-    var = VAROrderSearchCV([1, 2, 3], cv=cv, refit=True).fit(data)
+    var = VAROrderSearchCV(
+        [1, 2, 3], cv=cv, mode="pooled", refit=True
+    ).fit(data)
     state_space = StateSpaceOrderSearchCV(
         [1, 2, 3], 3, cv=cv, refit=True
     ).fit(data)
