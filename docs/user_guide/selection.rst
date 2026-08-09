@@ -37,27 +37,11 @@ For an :math:`n`-variable VAR,
    k_p=pn^2
 
 in the current criterion implementation. For :math:`B` equal-length independent
-trajectories of length :math:`T`, ``mode="pooled"`` estimates one common VAR
-and uses
+trajectories of length :math:`T`,
 
 .. math::
 
    N_p=B(T-p).
-
-With ``mode="independent"``, each trajectory is a separate estimation problem,
-so each criterion curve uses
-
-.. math::
-
-   N_p=T-p.
-
-For batched input ``(B, T, n)``, independent mode returns ``aic_``, ``bic_``,
-``hqc_`` and ``loglik_`` with shape ``(B, n_orders)`` and one selected order per
-trajectory with shape ``(B,)``. Candidate VAR fits preserve the batch axis and
-never create lagged transitions across trajectories. Because independently
-selected trajectories can have different lag orders, batched independent
-selection requires ``refit=None``; fitting the selected heterogeneous models is
-a separate step.
 
 The optional Hurvich--Tsai correction multiplies the AIC penalty by
 
@@ -69,6 +53,22 @@ Each candidate lag is fitted independently with :class:`~complextorch.VAR`.
 The selection procedure therefore does not infer all lower orders from a single
 maximal-order fit. The resulting curves are summarized by
 :class:`~complextorch.VARInformationCriteriaResult`.
+
+Batch semantics follow :class:`~complextorch.VAR`. With ``mode="pooled"``
+(the backward-compatible default), ``(batch, time, variables)`` is interpreted
+as multiple independent trajectories of one common VAR and contributes
+:math:`B(T-p)` effective observations without constructing cross-trajectory
+lags. With ``mode="independent"``, the batch dimension represents distinct
+MTS: every candidate order is fitted to all MTS simultaneously using batched
+Torch linear algebra, and AIC/BIC/HQC curves have shape
+``(batch, n_orders)`` with one selected order per MTS. All current VAR solvers
+(``auto``, ``lstsq``, ``pinv``, ``cholesky``, and ``lwr``) preserve this batched
+independent execution.
+
+A heterogeneous batch can select different lag orders for different MTS and
+therefore cannot be represented by one fixed-order :class:`~complextorch.VAR`
+estimator. For batched ``mode="independent"``, set ``refit=None``; the fitted
+candidate estimators remain available in ``candidate_estimators_``.
 
 Temporal cross-validation
 -------------------------
