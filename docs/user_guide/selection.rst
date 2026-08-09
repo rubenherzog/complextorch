@@ -37,11 +37,27 @@ For an :math:`n`-variable VAR,
    k_p=pn^2
 
 in the current criterion implementation. For :math:`B` equal-length independent
-trajectories of length :math:`T`,
+trajectories of length :math:`T`, ``mode="pooled"`` estimates one common VAR
+and uses
 
 .. math::
 
    N_p=B(T-p).
+
+With ``mode="independent"``, each trajectory is a separate estimation problem,
+so each criterion curve uses
+
+.. math::
+
+   N_p=T-p.
+
+For batched input ``(B, T, n)``, independent mode returns ``aic_``, ``bic_``,
+``hqc_`` and ``loglik_`` with shape ``(B, n_orders)`` and one selected order per
+trajectory with shape ``(B,)``. Candidate VAR fits preserve the batch axis and
+never create lagged transitions across trajectories. Because independently
+selected trajectories can have different lag orders, batched independent
+selection requires ``refit=None``; fitting the selected heterogeneous models is
+a separate step.
 
 The optional Hurvich--Tsai correction multiplies the AIC penalty by
 
