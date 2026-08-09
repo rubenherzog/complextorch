@@ -9,7 +9,7 @@ and final refitting.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import sqrt
+
 from typing import Literal
 
 import numpy as np
@@ -107,7 +107,7 @@ class _TemporalSearchSummary:
     mean_scores: np.ndarray
     standard_errors: np.ndarray
     failed_folds: np.ndarray
-    best_order: int
+    best_order: int | np.ndarray
     failure_messages: dict[tuple[int, int], str]
 
 
@@ -187,9 +187,19 @@ class _TemporalOrderSearchCV(BaseEstimator):
 
     def _evaluate_candidate(
         self, workspace, order: int, fold: TemporalFold
-    ) -> float:
+    ) -> float | np.ndarray:
         """Fit and score one candidate; implemented by subclasses."""
         raise NotImplementedError
+
+    def _score_batch_shape(self, data: torch.Tensor) -> tuple[int, ...]:
+        """Return leading score dimensions before ``(order, fold)``.
+
+        Model searches that select one hyperparameter globally return ``()``.
+        Searches with independent batched selection may return, for example,
+        ``(batch,)`` so each trajectory retains its own validation curve.
+        """
+        del data
+        return ()
 
     def _fold_diagnostics(
         self,
@@ -210,29 +220,44 @@ class _TemporalOrderSearchCV(BaseEstimator):
     def _aggregate_scores(
         fold_scores: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Aggregate finite fold scores and count failures per candidate."""
-        n_orders = fold_scores.shape[0]
-        means = np.full(n_orders, np.inf, dtype=float)
-        standard_errors = np.zeros(n_orders, dtype=float)
-        failed = np.zeros(n_orders, dtype=int)
-        for index in range(n_orders):
-            finite = fold_scores[index, np.isfinite(fold_scores[index])]
-            failed[index] = fold_scores.shape[1] - finite.size
-            if finite.size:
-                means[index] = float(finite.mean())
-            if finite.size > 1:
-                standard_errors[index] = float(
-                    finite.std(ddof=1) / sqrt(finite.size)
-                )
-        return means, standard_errors, failed
+        """Aggregate folds while preserving any leading batch dimensions."""
+        finite = np.isfinite(fold_scores)
+        counts = finite.sum(axis=-1)
+        failed = fold_scores.shape[-1] - counts
+        safe = np.where(finite, fold_scores, 0.0)
+        totals = safe.sum(axis=-1)
+        means = np.divide(
+            totals,
+            counts,
+            out=np.full(counts.shape, np.inf, dtype=float),
+            where=counts > 0,
+        )
+        finite_means = np.where(np.isfinite(means), means, 0.0)
+        centered = np.where(
+            finite, fold_scores - finite_means[..., None], 0.0
+        )
+        sum_squares = np.square(centered).sum(axis=-1)
+        variance = np.divide(
+            sum_squares,
+            counts - 1,
+            out=np.zeros(counts.shape, dtype=float),
+            where=counts > 1,
+        )
+        standard_errors = np.divide(
+            np.sqrt(variance),
+            np.sqrt(counts),
+            out=np.zeros(counts.shape, dtype=float),
+            where=counts > 0,
+        )
+        return means, standard_errors, failed.astype(int, copy=False)
 
-    def _select_order(
+    def _select_order_1d(
         self,
         orders: tuple[int, ...],
         means: np.ndarray,
         standard_errors: np.ndarray,
     ) -> int:
-        """Select the minimum-loss or one-standard-error candidate."""
+        """Select one order from one candidate-loss curve."""
         finite = np.flatnonzero(np.isfinite(means))
         if finite.size == 0:
             raise RuntimeError("all candidate orders failed")
@@ -245,6 +270,24 @@ class _TemporalOrderSearchCV(BaseEstimator):
             for index in finite
             if means[index] <= threshold
         )
+
+    def _select_order(
+        self,
+        orders: tuple[int, ...],
+        means: np.ndarray,
+        standard_errors: np.ndarray,
+    ) -> int | np.ndarray:
+        """Select one order per leading batch element, or one global order."""
+        if means.ndim == 1:
+            return self._select_order_1d(orders, means, standard_errors)
+        leading_shape = means.shape[:-1]
+        flat_means = means.reshape(-1, means.shape[-1])
+        flat_errors = standard_errors.reshape(-1, standard_errors.shape[-1])
+        selected = [
+            self._select_order_1d(orders, row, error)
+            for row, error in zip(flat_means, flat_errors, strict=True)
+        ]
+        return np.asarray(selected, dtype=int).reshape(leading_shape)
 
     def _run_temporal_search(
         self, X: np.ndarray | torch.Tensor
@@ -262,8 +305,13 @@ class _TemporalOrderSearchCV(BaseEstimator):
         if not folds:
             raise ValueError("cv produced no folds")
 
+        self._score_batch_shape_ = self._score_batch_shape(data)
         self._begin_diagnostics(len(orders), len(folds))
-        fold_scores = np.full((len(orders), len(folds)), np.inf, dtype=float)
+        fold_scores = np.full(
+            self._score_batch_shape_ + (len(orders), len(folds)),
+            np.inf,
+            dtype=float,
+        )
         failures: dict[tuple[int, int], str] = {}
 
         for fold_index, fold in enumerate(folds):
@@ -277,7 +325,7 @@ class _TemporalOrderSearchCV(BaseEstimator):
 
             for order_index, order in enumerate(orders):
                 try:
-                    fold_scores[order_index, fold_index] = (
+                    fold_scores[..., order_index, fold_index] = (
                         self._evaluate_candidate(workspace, order, fold)
                     )
                 except self._expected_errors as error:

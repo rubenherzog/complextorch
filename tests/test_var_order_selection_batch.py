@@ -2,7 +2,14 @@ import numpy as np
 import pytest
 import torch
 
-from complextorch import VAR, VAROrderSelectionIC, demo_var, simulate_var
+from complextorch import (
+    EpochTimeSeriesSplit,
+    VAR,
+    VAROrderSearchCV,
+    VAROrderSelectionIC,
+    demo_var,
+    simulate_var,
+)
 
 
 SOLVERS = ("auto", "lstsq", "pinv", "cholesky", "lwr")
@@ -171,3 +178,102 @@ def test_var_order_selection_independent_single_series_can_refit():
     ).fit(observations)
     assert isinstance(selector.best_order_, int)
     assert selector.best_estimator_.coef_.shape[0] == 1
+
+
+@pytest.mark.parametrize("scoring", ["nll", "rmse"])
+def test_var_cv_independent_batch_matches_separate_searches(scoring):
+    observations = _heterogeneous_var_batch()
+    orders = (1, 2, 3, 4)
+    cv = EpochTimeSeriesSplit(n_splits=3, test_size=60, min_train_size=280)
+    common = dict(
+        orders=orders,
+        cv=cv,
+        scoring=scoring,
+        selection_rule="best",
+        solver="lwr",
+        mode="independent",
+        refit=False,
+        device="cpu",
+        dtype="float64",
+    )
+    batched = VAROrderSearchCV(**common).fit(observations)
+    separate = [
+        VAROrderSearchCV(**common).fit(observations[index])
+        for index in range(observations.shape[0])
+    ]
+
+    expected_score_shape = (observations.shape[0], len(orders), cv.n_splits)
+    expected_curve_shape = (observations.shape[0], len(orders))
+    assert batched.fold_scores_.shape == expected_score_shape
+    assert batched.mean_test_scores_.shape == expected_curve_shape
+    assert batched.standard_error_.shape == expected_curve_shape
+    assert batched.failed_folds_.shape == expected_curve_shape
+    assert batched.train_aic_.shape == expected_score_shape
+    assert batched.train_bic_.shape == expected_score_shape
+    assert batched.train_hqc_.shape == expected_score_shape
+    assert batched.best_order_.shape == (observations.shape[0],)
+
+    np.testing.assert_allclose(
+        batched.fold_scores_,
+        np.stack([item.fold_scores_ for item in separate]),
+        rtol=2e-7,
+        atol=2e-9,
+    )
+    np.testing.assert_allclose(
+        batched.mean_test_scores_,
+        np.stack([item.mean_test_scores_ for item in separate]),
+        rtol=2e-7,
+        atol=2e-9,
+    )
+    np.testing.assert_allclose(
+        batched.train_aic_,
+        np.stack([item.train_aic_ for item in separate]),
+        rtol=2e-7,
+        atol=2e-9,
+    )
+    np.testing.assert_allclose(
+        batched.train_bic_,
+        np.stack([item.train_bic_ for item in separate]),
+        rtol=2e-7,
+        atol=2e-9,
+    )
+    np.testing.assert_allclose(
+        batched.train_hqc_,
+        np.stack([item.train_hqc_ for item in separate]),
+        rtol=2e-7,
+        atol=2e-9,
+    )
+    np.testing.assert_array_equal(
+        batched.best_order_, [item.best_order_ for item in separate]
+    )
+
+    for order_index, record in enumerate(batched.result_.scores):
+        np.testing.assert_allclose(
+            record.mean_score, batched.mean_test_scores_[:, order_index]
+        )
+        np.testing.assert_allclose(
+            record.fold_scores, batched.fold_scores_[:, order_index, :]
+        )
+
+
+def test_var_cv_independent_batch_refits_each_selected_order():
+    observations = _heterogeneous_var_batch()
+    search = VAROrderSearchCV(
+        orders=(1, 2, 3, 4),
+        cv=EpochTimeSeriesSplit(
+            n_splits=2, test_size=60, min_train_size=300
+        ),
+        selection_rule="best",
+        solver="lwr",
+        mode="independent",
+        refit=True,
+        device="cpu",
+        dtype="float64",
+    ).fit(observations)
+
+    assert isinstance(search.best_estimator_, tuple)
+    assert search.best_estimators_ is search.best_estimator_
+    assert len(search.best_estimator_) == observations.shape[0]
+    for index, estimator in enumerate(search.best_estimator_):
+        assert estimator.order == int(search.best_order_[index])
+        assert estimator.coef_.shape[0] == 1

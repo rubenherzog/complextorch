@@ -11,5 +11,5 @@ def test_epoch_split_is_temporal_and_disjoint():
 def test_order_search_prefers_true_second_lag():
     coef=torch.zeros((8,2,2,2),dtype=torch.float64); coef[:,0]=torch.tensor([[.05,0.],[0.,.05]],dtype=torch.float64); coef[:,1]=torch.tensor([[.72,.08],[-.05,.68]],dtype=torch.float64)
     q=.15*torch.eye(2,dtype=torch.float64).expand(8,-1,-1).clone(); x=simulate_var(coef,q,700,burnin=700,seed=33)
-    search=VAROrderSearchCV([1,2,3,4],cv=EpochTimeSeriesSplit(n_splits=4,test_size=60,min_train_size=380),scoring='rmse',selection_rule='best',fit_intercept=False,dtype='float64').fit(x)
-    assert search.best_order_==2 and search.best_estimator_.coef_.shape==(8,2,2,2)
+    search=VAROrderSearchCV([1,2,3,4],cv=EpochTimeSeriesSplit(n_splits=4,test_size=60,min_train_size=380),scoring='rmse',selection_rule='best',fit_intercept=False,dtype='float64').fit(x[0])
+    assert search.best_order_==2 and search.best_estimator_.coef_.shape==(1,2,2,2)
