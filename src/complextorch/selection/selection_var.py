@@ -108,7 +108,6 @@ class VAROrderSelectionIC(BaseEstimator):
             Criterion used to choose and expose ``best_estimator_``. One of
             ``"aic"``, ``"bic"``, ``"hqc"``, or ``None`` to skip refitting.
         """
-        # Preserve constructor arguments exactly for sklearn BaseEstimator.
         self.orders = orders
         self.solver = solver
         self.mode = mode
@@ -118,39 +117,13 @@ class VAROrderSelectionIC(BaseEstimator):
         self.refit = refit
 
     def fit(self, X: np.ndarray | torch.Tensor, y=None):
-        """Fit every candidate order and compute AIC, BIC, and HQC curves.
-
-        Parameters
-        ----------
-        X
-            Observations with shape ``(time, variables)`` or
-            ``(batch, time, variables)``. Batched trajectories never create
-            transitions across trajectory boundaries.
-        y
-            Unused scikit-learn compatibility target.
-
-        Returns
-        -------
-        VAROrderSelectionIC
-            Fitted selector. In ``mode="pooled"`` criterion arrays have shape
-            ``(n_orders,)`` and selected orders are integers. In
-            ``mode="independent"`` with batched input they have shape
-            ``(batch, n_orders)`` and selected orders have shape ``(batch,)``.
-
-        Notes
-        -----
-        A heterogeneous independently selected batch cannot be represented by a
-        single fixed-order :class:`VAR` estimator. Consequently ``refit`` must
-        be ``None`` for batched ``mode="independent"``. Candidate estimators
-        are nevertheless fitted with fully batched Torch kernels.
-        """
+        """Fit every candidate order and compute AIC, BIC, and HQC curves."""
         del y
         orders = tuple(int(value) for value in self.orders)
         if not orders or min(orders) < 1:
             raise ValueError("orders must be positive")
         if self.mode not in {"independent", "pooled"}:
             raise ValueError("mode must be 'independent' or 'pooled'")
-
         data = torch.as_tensor(X)
         input_was_batched = data.ndim == 3
         if data.ndim == 2:
@@ -164,7 +137,6 @@ class VAROrderSelectionIC(BaseEstimator):
                 "refit must be None for batched mode='independent' because "
                 "selected trajectories may have heterogeneous VAR orders"
             )
-
         loglik_by_order = []
         fitted = {}
         for order in orders:
@@ -189,7 +161,6 @@ class VAROrderSelectionIC(BaseEstimator):
                 )
             else:
                 loglik_by_order.append(float(per_model.reshape(-1)[0]))
-
         if independent_batch:
             likelihood = np.stack(loglik_by_order, axis=1)
             parameter_counts = np.asarray(
@@ -207,7 +178,6 @@ class VAROrderSelectionIC(BaseEstimator):
             observation_counts = np.asarray(
                 [multiplier * (n_times - order) for order in orders], dtype=float
             )
-
         aic, bic, hqc = _information_criteria(
             likelihood,
             parameter_counts,
@@ -222,7 +192,6 @@ class VAROrderSelectionIC(BaseEstimator):
             p_aic = orders[int(np.nanargmin(aic))]
             p_bic = orders[int(np.nanargmin(bic))]
             p_hqc = orders[int(np.nanargmin(hqc))]
-
         result = VARInformationCriteriaResult(
             p_aic, p_bic, p_hqc, aic, bic, hqc, likelihood, orders
         )
@@ -246,26 +215,31 @@ class VAROrderSelectionIC(BaseEstimator):
 
 @dataclass(frozen=True)
 class VAROrderScore:
-    """Held-out and information-criterion diagnostics for one VAR order."""
+    """Held-out and information-criterion diagnostics for one VAR order.
+
+    Scalar fields remain scalars for a single series or pooled search. For
+    batched ``mode="independent"`` they are arrays with one value per
+    trajectory; fold-level fields have shape ``(batch, n_folds)``.
+    """
 
     order: int
-    mean_score: float
-    standard_error: float
-    fold_scores: tuple[float, ...]
-    failed_folds: int
-    mean_train_aic: float
-    mean_train_bic: float
-    mean_train_hqc: float
-    fold_train_aic: tuple[float, ...]
-    fold_train_bic: tuple[float, ...]
-    fold_train_hqc: tuple[float, ...]
+    mean_score: float | np.ndarray
+    standard_error: float | np.ndarray
+    fold_scores: tuple[float, ...] | np.ndarray
+    failed_folds: int | np.ndarray
+    mean_train_aic: float | np.ndarray
+    mean_train_bic: float | np.ndarray
+    mean_train_hqc: float | np.ndarray
+    fold_train_aic: tuple[float, ...] | np.ndarray
+    fold_train_bic: tuple[float, ...] | np.ndarray
+    fold_train_hqc: tuple[float, ...] | np.ndarray
 
 
 @dataclass(frozen=True)
 class VAROrderSearchResult:
     """Immutable summary returned by temporal VAR order search."""
 
-    best_order: int
+    best_order: int | np.ndarray
     scores: tuple[VAROrderScore, ...]
     scoring: str
     selection_rule: str
@@ -276,7 +250,11 @@ class VAROrderSearchResult:
 
 
 class VAROrderSearchCV(_TemporalOrderSearchCV):
-    """Select one global VAR lag order by temporal cross-validation.
+    """Select VAR lag order by leakage-safe temporal cross-validation.
+
+    For batched ``mode="independent"`` input, every trajectory retains its
+    own validation-loss curve and selected order. ``mode="pooled"`` retains
+    the historical behavior of selecting one common order across trajectories.
 
     ``prediction_mode='rolling'`` updates predictions with each observed
     validation sample after it is scored. ``'recursive'`` never consumes held-
@@ -321,11 +299,18 @@ class VAROrderSearchCV(_TemporalOrderSearchCV):
         self.dtype = dtype
         self.hurvich_tsai = hurvich_tsai
 
+    def _score_batch_shape(self, data):
+        """Preserve one validation curve per independent batch trajectory."""
+        if self.mode == "independent" and data.shape[0] > 1:
+            return (data.shape[0],)
+        return ()
+
     def _begin_diagnostics(self, n_orders, n_folds):
         """Allocate training-fold AIC, BIC, and HQC arrays."""
-        self._aic = np.full((n_orders, n_folds), np.nan)
-        self._bic = np.full((n_orders, n_folds), np.nan)
-        self._hqc = np.full((n_orders, n_folds), np.nan)
+        shape = self._score_batch_shape_ + (n_orders, n_folds)
+        self._aic = np.full(shape, np.nan)
+        self._bic = np.full(shape, np.nan)
+        self._hqc = np.full(shape, np.nan)
 
     def _prepare_fold(self, data, fold, orders):
         """Return the raw series and training prefix for one fold."""
@@ -390,8 +375,12 @@ class VAROrderSearchCV(_TemporalOrderSearchCV):
         return torch.stack(predictions, dim=1)
 
     def _score(self, errors, covariance):
-        """Return held-out RMSE or Gaussian NLL."""
+        """Return held-out RMSE or Gaussian NLL without mixing trajectories."""
+        independent_batch = self.mode == "independent" and errors.shape[0] > 1
         if self.scoring == "rmse":
+            if independent_batch:
+                values = torch.sqrt(errors.square().mean(dim=(1, 2)))
+                return values.detach().cpu().numpy().astype(float, copy=False)
             return float(torch.sqrt(errors.square().mean()))
         covariance = self._expand(covariance, errors.shape[0])
         chol, _ = stable_cholesky(covariance, jitter=1e-10)
@@ -406,6 +395,10 @@ class VAROrderSearchCV(_TemporalOrderSearchCV):
             ]
             + errors.shape[-1] * np.log(2.0 * np.pi)
         )
+        if independent_batch:
+            return (
+                values.mean(dim=1).detach().cpu().numpy().astype(float, copy=False)
+            )
         return float(values.mean())
 
     def _fold_diagnostics(self, workspace, orders, fold_index):
@@ -415,8 +408,6 @@ class VAROrderSearchCV(_TemporalOrderSearchCV):
 
     def _evaluate_candidate(self, workspace, order, fold):
         """Fit and score one candidate and record its training IC values."""
-        # Every candidate is fitted only on the chronological training prefix;
-        # the held-out block contributes only to predictive loss.
         estimator = self._fit_var(workspace["training"], order)
         prediction = self._predict_block(estimator, workspace["data"], fold)
         target = workspace["data"][
@@ -436,21 +427,31 @@ class VAROrderSearchCV(_TemporalOrderSearchCV):
         """Compute and store training-only AIC, BIC, and HQC diagnostics."""
         n_trials, n_times, n_variables = training.shape
         logdet = spd_logdet(estimator.noise_covariance_)
-        loglik = -0.5 * (
-            n_variables * np.log(2.0 * np.pi)
-            + float(logdet.mean())
-            + n_variables
+        per_model = -0.5 * (
+            n_variables * np.log(2.0 * np.pi) + logdet + n_variables
         )
-        multiplier = n_trials if self.mode == "independent" else 1
+        independent_batch = self.mode == "independent" and n_trials > 1
+        if independent_batch:
+            loglik = per_model.detach().cpu().numpy().astype(float, copy=False)
+            n_parameters = order * n_variables * n_variables
+            n_observations = n_times - order
+        else:
+            loglik = float(per_model.mean())
+            n_parameters = order * n_variables * n_variables
+            n_observations = (
+                n_trials * (n_times - order)
+                if self.mode == "pooled"
+                else n_times - order
+            )
         aic, bic, hqc = _information_criteria(
             loglik,
-            multiplier * order * n_variables * n_variables,
-            n_trials * (n_times - order),
+            n_parameters,
+            n_observations,
             hurvich_tsai=self.hurvich_tsai,
         )
-        self._aic[order_index, fold_index] = float(aic)
-        self._bic[order_index, fold_index] = float(bic)
-        self._hqc[order_index, fold_index] = float(hqc)
+        self._aic[..., order_index, fold_index] = aic
+        self._bic[..., order_index, fold_index] = bic
+        self._hqc[..., order_index, fold_index] = hqc
 
     def _finalize_diagnostics(self, orders):
         """Expose fold-level and mean IC diagnostics as fitted attributes."""
@@ -458,31 +459,67 @@ class VAROrderSearchCV(_TemporalOrderSearchCV):
         self.train_aic_ = self._aic
         self.train_bic_ = self._bic
         self.train_hqc_ = self._hqc
-        self.mean_train_aic_ = np.nanmean(self._aic, axis=1)
-        self.mean_train_bic_ = np.nanmean(self._bic, axis=1)
-        self.mean_train_hqc_ = np.nanmean(self._hqc, axis=1)
+        self.mean_train_aic_ = np.nanmean(self._aic, axis=-1)
+        self.mean_train_bic_ = np.nanmean(self._bic, axis=-1)
+        self.mean_train_hqc_ = np.nanmean(self._hqc, axis=-1)
 
     def _refit_best(self, data, order):
-        """Refit the selected VAR order on all observations."""
-        return self._fit_var(data, order)
+        """Refit selected VAR order(s) on all observations.
+
+        A scalar order returns one estimator. Batched independent searches may
+        select heterogeneous orders, in which case one fixed-order estimator
+        is refitted per trajectory and returned as a tuple.
+        """
+        selected = np.asarray(order)
+        if selected.ndim == 0:
+            return self._fit_var(data, int(selected))
+        if selected.shape != (data.shape[0],):
+            raise ValueError("selected orders must match the batch dimension")
+        return tuple(
+            self._fit_var(data[index : index + 1], int(value))
+            for index, value in enumerate(selected)
+        )
+
+    @staticmethod
+    def _order_slice(values, index):
+        """Return one candidate's scalar or per-batch values."""
+        if values.ndim == 1:
+            return float(values[index])
+        return values[..., index].copy()
+
+    @staticmethod
+    def _fold_order_slice(values, index):
+        """Return one candidate's fold values without losing batch axes."""
+        if values.ndim == 2:
+            return tuple(values[index])
+        return values[..., index, :].copy()
 
     def fit(self, X, y=None):
-        """Evaluate every candidate VAR order on every temporal fold."""
+        """Evaluate every candidate VAR order on every temporal fold.
+
+        Batched ``mode="independent"`` searches return one order per
+        trajectory. If ``refit=True`` and selected orders differ,
+        ``best_estimator_`` is a tuple containing one fixed-order VAR per
+        trajectory; ``best_estimators_`` is provided as an explicit alias.
+        """
         del y
-        summary = self._run_temporal_search(X)
+        data = self._normalise_observations(X)
+        summary = self._run_temporal_search(data)
+        if self.refit and self.mode == "independent" and data.shape[0] > 1:
+            self.best_estimators_ = self.best_estimator_
         scores = tuple(
             VAROrderScore(
                 order=order,
-                mean_score=float(summary.mean_scores[index]),
-                standard_error=float(summary.standard_errors[index]),
-                fold_scores=tuple(summary.fold_scores[index]),
-                failed_folds=int(summary.failed_folds[index]),
-                mean_train_aic=float(self.mean_train_aic_[index]),
-                mean_train_bic=float(self.mean_train_bic_[index]),
-                mean_train_hqc=float(self.mean_train_hqc_[index]),
-                fold_train_aic=tuple(self.train_aic_[index]),
-                fold_train_bic=tuple(self.train_bic_[index]),
-                fold_train_hqc=tuple(self.train_hqc_[index]),
+                mean_score=self._order_slice(summary.mean_scores, index),
+                standard_error=self._order_slice(summary.standard_errors, index),
+                fold_scores=self._fold_order_slice(summary.fold_scores, index),
+                failed_folds=self._order_slice(summary.failed_folds, index),
+                mean_train_aic=self._order_slice(self.mean_train_aic_, index),
+                mean_train_bic=self._order_slice(self.mean_train_bic_, index),
+                mean_train_hqc=self._order_slice(self.mean_train_hqc_, index),
+                fold_train_aic=self._fold_order_slice(self.train_aic_, index),
+                fold_train_bic=self._fold_order_slice(self.train_bic_, index),
+                fold_train_hqc=self._fold_order_slice(self.train_hqc_, index),
             )
             for index, order in enumerate(summary.orders)
         )
