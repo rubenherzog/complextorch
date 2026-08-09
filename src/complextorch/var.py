@@ -49,89 +49,140 @@ class VARParameters:
     fit_time: float
 
 
-def _lwr_single(trials: torch.Tensor, order: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Morf lattice-whitening regression for trials shaped (N,T,n)."""
-    n_trials, n_times, n_variables = trials.shape
+def _lwr_batched(
+    systems: torch.Tensor, order: int
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Morf lattice-whitening regression for batched systems.
+
+    Parameters
+    ----------
+    systems
+        Observations shaped ``(systems, trajectories, time, variables)``.
+        The first dimension is vectorized: each system is fitted independently.
+        Trajectories in the second dimension are pooled within a system while
+        preserving their boundaries.
+    order
+        Positive autoregressive order smaller than the time dimension.
+
+    Returns
+    -------
+    coefficients
+        VAR coefficients shaped ``(systems, order, variables, variables)``.
+    intercepts
+        Intercepts shaped ``(systems, variables)``.
+    residuals
+        Residuals shaped
+        ``(systems, trajectories, time - order, variables)``.
+
+    Notes
+    -----
+    The system dimension is carried through all Torch linear-algebra kernels;
+    no Python loop is used over independent systems. The only recursion is the
+    lattice recursion over lag order.
+    """
+    if systems.ndim != 4:
+        raise ValueError(
+            "systems must have shape (systems,trajectories,time,variables)"
+        )
+    n_systems, n_trials, n_times, n_variables = systems.shape
     if order < 1 or order >= n_times:
         raise ValueError("LWR requires 1 <= order < n_times")
-    mean = trials.mean(dim=(0, 1), keepdim=True)
-    centered = trials - mean
-    x = centered.permute(2, 1, 0).contiguous()
-    n, m, n_trials = x.shape
+
+    mean = systems.mean(dim=(1, 2), keepdim=True)
+    centered = systems - mean
+    # (systems, variables, time, trajectories)
+    x = centered.permute(0, 3, 2, 1).contiguous()
+    n, m = n_variables, n_times
     p1 = order + 1
     p1n = p1 * n
-    identity = torch.eye(n, dtype=x.dtype, device=x.device)
+    identity = torch.eye(n, dtype=x.dtype, device=x.device).expand(n_systems, n, n)
 
-    xx = torch.zeros((p1, n, m + order, n_trials), dtype=x.dtype, device=x.device)
-    for lag in range(p1):
-        xx[lag, :, lag:lag + m, :] = x
-
-    errors_all = x.reshape(n, n_trials * m)
-    inverse_chol = torch.linalg.inv(
-        # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
-        # Factor the positive-definite covariance so whitening and solves use stable triangular algebra.
-        torch.linalg.cholesky(errors_all @ errors_all.transpose(-1, -2))
+    xx = torch.zeros(
+        (n_systems, p1, n, m + order, n_trials),
+        dtype=x.dtype,
+        device=x.device,
     )
-    k = 1
-    af = torch.zeros((n, p1n), dtype=x.dtype, device=x.device)
+    for lag in range(p1):
+        xx[:, lag, :, lag : lag + m, :] = x
+
+    errors_all = x.reshape(n_systems, n, n_trials * m)
+    initial_chol = torch.linalg.cholesky(
+        errors_all @ errors_all.transpose(-1, -2)
+    )
+    inverse_chol = torch.linalg.solve(initial_chol, identity)
+
+    af = torch.zeros((n_systems, n, p1n), dtype=x.dtype, device=x.device)
     ab = torch.zeros_like(af)
-    af[:, :n] = inverse_chol
-    ab[:, p1n - n:] = inverse_chol
+    af[:, :, :n] = inverse_chol
+    ab[:, :, p1n - n :] = inverse_chol
     forward = None
 
+    k = 1
     while k <= order:
         effective = n_trials * (m - k)
-        forward_block = xx[:k, :, k:m, :].reshape(k * n, effective)
-        backward_block = xx[:k, :, k - 1:m - 1, :].reshape(k * n, effective)
-        forward = af[:, :k * n] @ forward_block
-        backward = ab[:, p1n - k * n:] @ backward_block
-        # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
-        # Factor the positive-definite covariance so whitening and solves use stable triangular algebra.
-        forward_chol = torch.linalg.cholesky(forward @ forward.transpose(-1, -2))
-        # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
-        # Factor the positive-definite covariance so whitening and solves use stable triangular algebra.
-        backward_chol = torch.linalg.cholesky(backward @ backward.transpose(-1, -2))
-        # The normalised forward/backward cross-covariance is the lattice reflection coefficient.
+        forward_block = xx[:, :k, :, k:m, :].reshape(
+            n_systems, k * n, effective
+        )
+        backward_block = xx[:, :k, :, k - 1 : m - 1, :].reshape(
+            n_systems, k * n, effective
+        )
+        forward = af[:, :, : k * n] @ forward_block
+        backward = ab[:, :, p1n - k * n :] @ backward_block
+
+        forward_chol = torch.linalg.cholesky(
+            forward @ forward.transpose(-1, -2)
+        )
+        backward_chol = torch.linalg.cholesky(
+            backward @ backward.transpose(-1, -2)
+        )
         reflection = (
-            # Solve the linear system directly instead of multiplying by an explicit inverse.
             torch.linalg.solve(forward_chol, forward)
-            # Solve the linear system directly instead of multiplying by an explicit inverse.
             @ torch.linalg.solve(backward_chol, backward).transpose(-1, -2)
         )
+
         k += 1
         forward_end = k * n
         backward_start = p1n - k * n
-        af_previous = af[:, :forward_end].clone()
-        ab_previous = ab[:, backward_start:].clone()
-        # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
-        # Factor the positive-definite covariance so whitening and solves use stable triangular algebra.
-        forward_norm = torch.linalg.cholesky(identity - reflection @ reflection.transpose(-1, -2))
-        # Cholesky factorisation preserves the SPD structure and avoids explicit inversion.
-        # Factor the positive-definite covariance so whitening and solves use stable triangular algebra.
-        backward_norm = torch.linalg.cholesky(identity - reflection.transpose(-1, -2) @ reflection)
-        # Solve the linear system directly instead of multiplying by an explicit inverse.
-        af[:, :forward_end] = torch.linalg.solve(
+        af_previous = af[:, :, :forward_end].clone()
+        ab_previous = ab[:, :, backward_start:].clone()
+        forward_norm = torch.linalg.cholesky(
+            identity - reflection @ reflection.transpose(-1, -2)
+        )
+        backward_norm = torch.linalg.cholesky(
+            identity - reflection.transpose(-1, -2) @ reflection
+        )
+        af[:, :, :forward_end] = torch.linalg.solve(
             forward_norm, af_previous - reflection @ ab_previous
         )
-        # Solve the linear system directly instead of multiplying by an explicit inverse.
-        ab[:, backward_start:] = torch.linalg.solve(
-            backward_norm, ab_previous - reflection.transpose(-1, -2) @ af_previous
+        ab[:, :, backward_start:] = torch.linalg.solve(
+            backward_norm,
+            ab_previous - reflection.transpose(-1, -2) @ af_previous,
         )
 
     if forward is None:
         raise RuntimeError("LWR failed to produce forward residuals")
-    a0 = af[:, :n]
-    # Solve the linear system directly instead of multiplying by an explicit inverse.
-    flat = -torch.linalg.solve(a0, af[:, n:p1n])
-    coefficients = torch.stack(
-        [flat[:, lag * n:(lag + 1) * n] for lag in range(order)], dim=0
-    )
-    # Solve the linear system directly instead of multiplying by an explicit inverse.
+
+    a0 = af[:, :, :n]
+    flat = -torch.linalg.solve(a0, af[:, :, n:p1n])
+    coefficients = flat.reshape(n_systems, n, order, n).permute(0, 2, 1, 3)
     residuals = torch.linalg.solve(a0, forward)
-    residuals = residuals.reshape(n, m - order, n_trials).permute(2, 1, 0).contiguous()
-    mean_vector = mean.reshape(n)
-    intercept = mean_vector - coefficients.sum(dim=0) @ mean_vector
+    residuals = residuals.reshape(
+        n_systems, n, m - order, n_trials
+    ).permute(0, 3, 2, 1).contiguous()
+
+    mean_vector = mean[:, 0, 0, :]
+    intercept = mean_vector - torch.einsum(
+        "spij,sj->si", coefficients, mean_vector
+    )
     return coefficients, intercept, residuals
+
+
+def _lwr_single(
+    trials: torch.Tensor, order: int
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Compatibility wrapper for one pooled system shaped ``(N,T,n)``."""
+    coefficients, intercept, residuals = _lwr_batched(trials.unsqueeze(0), order)
+    return coefficients[0], intercept[0], residuals[0]
 
 
 class VAR(BaseEstimator):
@@ -371,17 +422,17 @@ class VAR(BaseEstimator):
         if not self.fit_intercept:
             raise ValueError("solver='lwr' requires fit_intercept=True")
         if self.mode == "pooled":
-            coefficient, intercept, residuals = _lwr_single(x, self.order)
-            coefficients = coefficient.unsqueeze(0)
-            intercepts = intercept.unsqueeze(0)
-            residual_output = residuals.reshape(1, -1, x.shape[-1])
+            systems = x.unsqueeze(0)
         elif self.mode == "independent":
-            fitted = [_lwr_single(x[index:index + 1], self.order) for index in range(x.shape[0])]
-            coefficients = torch.stack([item[0] for item in fitted])
-            intercepts = torch.stack([item[1] for item in fitted])
-            residual_output = torch.cat([item[2] for item in fitted], dim=0)
+            systems = x.unsqueeze(1)
         else:
             raise ValueError("mode must be 'independent' or 'pooled'")
+
+        coefficients, intercepts, residuals = _lwr_batched(systems, self.order)
+        if self.mode == "pooled":
+            residual_output = residuals.reshape(1, -1, x.shape[-1])
+        else:
+            residual_output = residuals[:, 0]
         nfit = residual_output.shape[1]
         denominator = nfit if self.covariance == "mle" else nfit - 1
         covariance = residual_output.transpose(-1, -2) @ residual_output / float(denominator)

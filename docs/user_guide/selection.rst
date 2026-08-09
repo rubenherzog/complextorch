@@ -54,6 +54,22 @@ The selection procedure therefore does not infer all lower orders from a single
 maximal-order fit. The resulting curves are summarized by
 :class:`~complextorch.VARInformationCriteriaResult`.
 
+Batch semantics follow :class:`~complextorch.VAR`. With ``mode="pooled"``
+(the backward-compatible default), ``(batch, time, variables)`` is interpreted
+as multiple independent trajectories of one common VAR and contributes
+:math:`B(T-p)` effective observations without constructing cross-trajectory
+lags. With ``mode="independent"``, the batch dimension represents distinct
+MTS: every candidate order is fitted to all MTS simultaneously using batched
+Torch linear algebra, and AIC/BIC/HQC curves have shape
+``(batch, n_orders)`` with one selected order per MTS. All current VAR solvers
+(``auto``, ``lstsq``, ``pinv``, ``cholesky``, and ``lwr``) preserve this batched
+independent execution.
+
+A heterogeneous batch can select different lag orders for different MTS and
+therefore cannot be represented by one fixed-order :class:`~complextorch.VAR`
+estimator. For batched ``mode="independent"``, set ``refit=None``; the fitted
+candidate estimators remain available in ``candidate_estimators_``.
+
 Temporal cross-validation
 -------------------------
 
