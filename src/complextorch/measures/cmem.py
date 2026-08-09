@@ -1,8 +1,9 @@
 """Covariance-memory measures for stationary Gaussian dynamics.
 
-The implementation combines present-time total correlation, innovation total
-correlation, and lagged Gaussian covariance blocks to quantify memory totals,
-curves and finite-lag decompositions.
+CMem1 contrasts full-system predictive information with the active information
+storage (AIS) of each component's own history. CMem3 instead contrasts the
+full-system past dependence with dependence of each present component on the
+full multivariate past. These quantities coincide only in special cases.
 
 References
 ----------
@@ -22,12 +23,8 @@ from .gaussian import gaussian_mutual_information, total_correlation
 
 @dataclass(frozen=True)
 class CMemResult:
-    """Container for covariance-memory totals, curves and decompositions.
-    
-    Notes
-    -----
-    Public fitted attributes use the trailing-underscore convention.
-    """
+    """Container for CMem totals, curves, lag decomposition, and TC terms."""
+
     cmem3_total: torch.Tensor
     cmem1_total: torch.Tensor
     cmem3_lag: torch.Tensor
@@ -38,56 +35,20 @@ class CMemResult:
 
 
 def _batched_gamma(values: torch.Tensor) -> tuple[torch.Tensor, bool]:
-    """Batched gamma.
-    
-    Parameters
-    ----------
-    values
-        Input numerical values.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    """Normalize autocovariances to ``(batch, lag, n, n)``."""
     gamma = torch.as_tensor(values)
     single = gamma.ndim == 3
     if single:
         gamma = gamma.unsqueeze(0)
     if gamma.ndim != 4 or gamma.shape[-1] != gamma.shape[-2]:
-        raise ValueError("autocovariances must have shape (lag,n,n) or (batch,lag,n,n)")
+        raise ValueError(
+            "autocovariances must have shape (lag,n,n) or (batch,lag,n,n)"
+        )
     return gamma, single
 
 
 def _batched_covariance(values: torch.Tensor, batch: int, n: int) -> torch.Tensor:
-    """Batched covariance.
-    
-    Parameters
-    ----------
-    values
-        Input numerical values.
-    batch
-        Input required by this calculation.
-    n
-        Input required by this calculation.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    """Normalize a covariance matrix to the requested batch shape."""
     covariance = torch.as_tensor(values)
     if covariance.ndim == 2:
         covariance = covariance.unsqueeze(0)
@@ -104,85 +65,95 @@ def cmem3_total_from_covariances(
     observation_covariance: torch.Tensor,
     innovation_covariance: torch.Tensor,
 ) -> torch.Tensor:
-    """Cmem3 total from covariances.
-    
-    Parameters
-    ----------
-    observation_covariance
-        Observation-noise covariance matrix.
-    innovation_covariance
-        Symmetric positive-definite covariance of model innovations.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
-    return total_correlation(innovation_covariance) - total_correlation(observation_covariance)
+    r"""Return CMem3 total, :math:`TC(\Sigma_\varepsilon)-TC(\Sigma_X)`."""
+    return total_correlation(innovation_covariance) - total_correlation(
+        observation_covariance
+    )
 
 
 def cmem1_total_from_covariances(
     observation_covariance: torch.Tensor,
     innovation_covariance: torch.Tensor,
 ) -> torch.Tensor:
-    """Cmem1 total from covariances.
-    
-    Parameters
-    ----------
-    observation_covariance
-        Observation-noise covariance matrix.
-    innovation_covariance
-        Symmetric positive-definite covariance of model innovations.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
+    """Reject covariance-only CMem1 evaluation.
+
+    CMem1 requires each component's own lagged history. Present and innovation
+    covariances alone only determine the full-system predictive information;
+    using them for the component terms incorrectly collapses CMem1 onto CMem3.
     """
-    full = 0.5 * (
-        # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
-        spd_logdet(observation_covariance) - spd_logdet(innovation_covariance)
-    ) / math.log(2.0)
-    parts = 0.5 * torch.log2(
-        torch.diagonal(observation_covariance, dim1=-2, dim2=-1)
-        / torch.diagonal(innovation_covariance, dim1=-2, dim2=-1)
-    ).sum(-1)
-    return full - parts
+    raise ValueError(
+        "CMem1 cannot be computed from present and innovation covariances alone; "
+        "self-history autocovariances are required"
+    )
+
+
+def _self_history_ais(
+    autocovariances: torch.Tensor,
+    history_lag: int,
+    *,
+    base: float = 2.0,
+) -> torch.Tensor:
+    r"""Return per-component :math:`I(X_t^i;X_{t-1:t-p}^i)`."""
+    gamma, single = _batched_gamma(autocovariances)
+    if history_lag < 1:
+        raise ValueError("history_lag must be at least one")
+    if gamma.shape[1] <= history_lag:
+        raise ValueError("autocovariances do not contain the requested history")
+    batch, _, n, _ = gamma.shape
+    values = []
+    for node in range(n):
+        history = torch.empty(
+            (batch, history_lag, history_lag),
+            dtype=gamma.dtype,
+            device=gamma.device,
+        )
+        for left in range(history_lag):
+            for right in range(history_lag):
+                history[:, left, right] = gamma[:, abs(right - left), node, node]
+        cross = torch.stack(
+            [gamma[:, lag, node, node] for lag in range(1, history_lag + 1)],
+            -1,
+        )
+        current = gamma[:, 0, node, node].reshape(batch, 1, 1)
+        joint = torch.cat(
+            [
+                torch.cat([current, cross.unsqueeze(-2)], -1),
+                torch.cat([cross.unsqueeze(-1), history], -1),
+            ],
+            -2,
+        )
+        values.append(gaussian_mutual_information(joint, 1, base=base))
+    result = torch.stack(values, -1)
+    return result[0] if single else result
+
+
+def cmem1_total_from_primitives(
+    observation_covariance: torch.Tensor,
+    innovation_covariance: torch.Tensor,
+    autocovariances: torch.Tensor,
+    history_lag: int,
+) -> torch.Tensor:
+    r"""Return CMem1 using full-system PI and component self-history AIS.
+
+    .. math::
+
+       CMem_1 = I(X_t;X_{t-1:t-p})
+                - \sum_i I(X_t^i;X_{t-1:t-p}^i).
+    """
+    gamma, single = _batched_gamma(autocovariances)
+    batch, _, n, _ = gamma.shape
+    present = _batched_covariance(observation_covariance, batch, n)
+    innovations = _batched_covariance(innovation_covariance, batch, n)
+    full = 0.5 * (spd_logdet(present) - spd_logdet(innovations)) / math.log(2.0)
+    parts = _self_history_ais(gamma, history_lag)
+    if parts.ndim == 1:
+        parts = parts.unsqueeze(0)
+    result = full - parts.sum(-1)
+    return result[0] if single else result
 
 
 def _joint_from_gamma(sigma: torch.Tensor, gamma: torch.Tensor) -> torch.Tensor:
-    """Joint from gamma.
-    
-    Parameters
-    ----------
-    sigma
-        Input required by this calculation.
-    gamma
-        Input required by this calculation.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    """Build covariance of ``(X_t, X_{t-tau})``."""
     return torch.cat(
         [
             torch.cat([sigma, gamma.transpose(-1, -2)], -1),
@@ -193,26 +164,7 @@ def _joint_from_gamma(sigma: torch.Tensor, gamma: torch.Tensor) -> torch.Tensor:
 
 
 def _self_mi(joint: torch.Tensor, n: int) -> torch.Tensor:
-    """Self mi.
-    
-    Parameters
-    ----------
-    joint
-        Input required by this calculation.
-    n
-        Input required by this calculation.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    """Return singleton self mutual informations from a two-time joint."""
     a = torch.diagonal(joint[..., :n, :n], dim1=-2, dim2=-1)
     b = torch.diagonal(joint[..., n:, n:], dim1=-2, dim2=-1)
     c = torch.diagonal(joint[..., :n, n:], dim1=-2, dim2=-1)
@@ -224,25 +176,10 @@ def cmem3_curve_from_autocovariances(
     autocovariances: torch.Tensor,
     tau_max: int,
 ) -> torch.Tensor:
-    """Cmem3 curve from autocovariances.
-    
-    Parameters
-    ----------
-    autocovariances
-        Input required by this calculation.
-    tau_max
-        Input required by this calculation.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
+    r"""Return marginal-lag CMem3 curve through ``tau_max``.
+
+    At lag :math:`\tau`, CMem3 is
+    :math:`TC(\Sigma_{X_t\mid X_{t-\tau}})-TC(\Sigma_X)`.
     """
     if tau_max < 1:
         raise ValueError("tau_max must be at least one")
@@ -267,26 +204,7 @@ def cmem1_curve_from_autocovariances(
     autocovariances: torch.Tensor,
     tau_max: int,
 ) -> torch.Tensor:
-    """Cmem1 curve from autocovariances.
-    
-    Parameters
-    ----------
-    autocovariances
-        Input required by this calculation.
-    tau_max
-        Input required by this calculation.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    r"""Return :math:`I(X_t;X_{t-\tau})-\sum_i I(X_t^i;X_{t-\tau}^i)`."""
     if tau_max < 1:
         raise ValueError("tau_max must be at least one")
     gamma, single = _batched_gamma(autocovariances)
@@ -305,26 +223,7 @@ def cmem1_curve_from_autocovariances(
 
 
 def _joint_cov_lags(gammas: torch.Tensor, tau: int) -> torch.Tensor:
-    """Joint cov lags.
-    
-    Parameters
-    ----------
-    gammas
-        Input required by this calculation.
-    tau
-        Input required by this calculation.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    """Build covariance of ``(X_t, X_{t-1}, ..., X_{t-tau})``."""
     blocks = []
     for left in range(tau + 1):
         row = []
@@ -337,28 +236,8 @@ def _joint_cov_lags(gammas: torch.Tensor, tau: int) -> torch.Tensor:
 
 
 def _node_vs_vector_mi(joint: torch.Tensor, n: int) -> torch.Tensor:
-    """Node vs vector mi.
-    
-    Parameters
-    ----------
-    joint
-        Input required by this calculation.
-    n
-        Input required by this calculation.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    """Return ``I(X_t^i; X_past)`` for each present component."""
     past = joint[..., n:, n:]
-    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
     past_logdet = spd_logdet(past)
     values = []
     for node in range(n):
@@ -366,7 +245,6 @@ def _node_vs_vector_mi(joint: torch.Tensor, n: int) -> torch.Tensor:
         sub = joint.index_select(-2, index).index_select(-1, index)
         values.append(
             0.5
-            # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
             * (torch.log(joint[..., node, node]) + past_logdet - spd_logdet(sub))
             / math.log(2.0)
         )
@@ -374,26 +252,7 @@ def _node_vs_vector_mi(joint: torch.Tensor, n: int) -> torch.Tensor:
 
 
 def _cmem3_lag_one(gammas: torch.Tensor, tau: int) -> torch.Tensor:
-    """Cmem3 lag one.
-    
-    Parameters
-    ----------
-    gammas
-        Input required by this calculation.
-    tau
-        Input required by this calculation.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    r"""Return the conditional CMem3 contribution of one VAR lag."""
     n = gammas.shape[-1]
     full = _joint_cov_lags(gammas, tau)
     present = torch.arange(0, n, device=full.device)
@@ -422,26 +281,7 @@ def cmem3_lag_decomposition_from_autocovariances(
     autocovariances: torch.Tensor,
     max_lag: int,
 ) -> torch.Tensor:
-    """Cmem3 lag decomposition from autocovariances.
-    
-    Parameters
-    ----------
-    autocovariances
-        Input required by this calculation.
-    max_lag
-        Largest non-negative lag to evaluate.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    """Return conditional CMem3 contributions for lags ``1..max_lag``."""
     if max_lag < 1:
         raise ValueError("max_lag must be at least one")
     gammas, single = _batched_gamma(autocovariances)
@@ -461,39 +301,16 @@ def compute_cmem_from_primitives(
     curve_max_lag: int = 1,
     decomposition_max_lag: int = 1,
 ) -> CMemResult:
-    """Compute cmem from primitives.
-    
-    Parameters
-    ----------
-    observation_covariance
-        Observation-noise covariance matrix.
-    innovation_covariance
-        Symmetric positive-definite covariance of model innovations.
-    autocovariances
-        Input required by this calculation.
-    curve_max_lag
-        Input required by this calculation.
-    decomposition_max_lag
-        Input required by this calculation.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    """Compute CMem totals, curves, and finite-lag decomposition."""
     gamma, single = _batched_gamma(autocovariances)
     batch, _, n, _ = gamma.shape
     present = _batched_covariance(observation_covariance, batch, n)
     innovations = _batched_covariance(innovation_covariance, batch, n)
     result = CMemResult(
         cmem3_total_from_covariances(present, innovations),
-        cmem1_total_from_covariances(present, innovations),
+        cmem1_total_from_primitives(
+            present, innovations, gamma, decomposition_max_lag
+        ),
         cmem3_lag_decomposition_from_autocovariances(gamma, decomposition_max_lag),
         cmem3_curve_from_autocovariances(gamma, curve_max_lag),
         cmem1_curve_from_autocovariances(gamma, curve_max_lag),
@@ -505,52 +322,23 @@ def compute_cmem_from_primitives(
     return CMemResult(*(value[0] for value in result.__dict__.values()))
 
 
-# Backward-compatible VAR wrappers.
 def cmem3_total(system: VARSystem) -> torch.Tensor:
-    """Cmem3 total.
-    
-    Parameters
-    ----------
-    system
-        Canonical VAR or state-space system.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    """Return CMem3 total for a canonical VAR system."""
     return cmem3_total_from_covariances(
         system.present_covariance, system.innovation_covariance
     )
 
 
 def cmem1_total(system: VARSystem) -> torch.Tensor:
-    """Cmem1 total.
-    
-    Parameters
-    ----------
-    system
-        Canonical VAR or state-space system.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
-    return cmem1_total_from_covariances(
-        system.present_covariance, system.innovation_covariance
+    """Return CMem1 total using each component's complete VAR self-history."""
+    from .backbone import observation_autocovariances
+
+    gamma = observation_autocovariances(system, system.order)
+    return cmem1_total_from_primitives(
+        system.present_covariance,
+        system.innovation_covariance,
+        gamma,
+        system.order,
     )
 
 
@@ -560,32 +348,13 @@ def cmem3_curve(
     *,
     autocovariance_sequence: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    """Cmem3 curve.
-    
-    Parameters
-    ----------
-    system
-        Canonical VAR or state-space system.
-    tau_max
-        Input required by this calculation.
-    autocovariance_sequence
-        Input required by this calculation.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    """Return the marginal-lag CMem3 curve for a VAR system."""
     from .backbone import observation_autocovariances
+
     gamma = (
         observation_autocovariances(system, tau_max)
-        if autocovariance_sequence is None else autocovariance_sequence
+        if autocovariance_sequence is None
+        else autocovariance_sequence
     )
     return cmem3_curve_from_autocovariances(gamma, tau_max)
 
@@ -596,32 +365,13 @@ def cmem1_curve(
     *,
     autocovariance_sequence: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    """Cmem1 curve.
-    
-    Parameters
-    ----------
-    system
-        Canonical VAR or state-space system.
-    tau_max
-        Input required by this calculation.
-    autocovariance_sequence
-        Input required by this calculation.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    """Return the marginal-lag CMem1 curve for a VAR system."""
     from .backbone import observation_autocovariances
+
     gamma = (
         observation_autocovariances(system, tau_max)
-        if autocovariance_sequence is None else autocovariance_sequence
+        if autocovariance_sequence is None
+        else autocovariance_sequence
     )
     return cmem1_curve_from_autocovariances(gamma, tau_max)
 
@@ -631,30 +381,13 @@ def cmem3_lag_decomposition(
     *,
     autocovariance_sequence: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    """Cmem3 lag decomposition.
-    
-    Parameters
-    ----------
-    system
-        Canonical VAR or state-space system.
-    autocovariance_sequence
-        Input required by this calculation.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
+    """Return the CMem3 chain-rule decomposition across VAR lags."""
     from .backbone import observation_autocovariances
+
     gamma = (
         observation_autocovariances(system, system.order)
-        if autocovariance_sequence is None else autocovariance_sequence
+        if autocovariance_sequence is None
+        else autocovariance_sequence
     )
     return cmem3_lag_decomposition_from_autocovariances(gamma, system.order)
 
@@ -665,34 +398,14 @@ def compute_cmem(
     *,
     autocovariance_sequence: torch.Tensor | None = None,
 ) -> CMemResult:
-    """Compute cmem.
-    
-    Parameters
-    ----------
-    system
-        Canonical VAR or state-space system.
-    tau_max
-        Input required by this calculation.
-    autocovariance_sequence
-        Input required by this calculation.
-    
-    Returns
-    -------
-    object
-        Computed result; see the annotated return type and shape notes.
-    
-    Notes
-    -----
-    Batch dimensions are preserved unless explicitly documented otherwise.
-    The implementation validates dimensional and positive-definiteness
-    requirements before executing the numerical core.
-    """
-    # Assemble covariance-memory terms from present covariance, innovations, and lagged Gaussian dependence.
+    """Compute all CMem outputs for a canonical VAR system."""
     from .backbone import observation_autocovariances
+
     required = max(tau_max, system.order)
     gamma = (
         observation_autocovariances(system, required)
-        if autocovariance_sequence is None else autocovariance_sequence
+        if autocovariance_sequence is None
+        else autocovariance_sequence
     )
     return compute_cmem_from_primitives(
         system.present_covariance,
@@ -704,9 +417,18 @@ def compute_cmem(
 
 
 __all__ = [
-    "CMemResult", "cmem3_total_from_covariances", "cmem1_total_from_covariances",
-    "cmem3_curve_from_autocovariances", "cmem1_curve_from_autocovariances",
-    "cmem3_lag_decomposition_from_autocovariances", "compute_cmem_from_primitives",
-    "cmem3_total", "cmem1_total", "cmem3_curve", "cmem1_curve",
-    "cmem3_lag_decomposition", "compute_cmem",
+    "CMemResult",
+    "cmem3_total_from_covariances",
+    "cmem1_total_from_covariances",
+    "cmem1_total_from_primitives",
+    "cmem3_curve_from_autocovariances",
+    "cmem1_curve_from_autocovariances",
+    "cmem3_lag_decomposition_from_autocovariances",
+    "compute_cmem_from_primitives",
+    "cmem3_total",
+    "cmem1_total",
+    "cmem3_curve",
+    "cmem1_curve",
+    "cmem3_lag_decomposition",
+    "compute_cmem",
 ]
