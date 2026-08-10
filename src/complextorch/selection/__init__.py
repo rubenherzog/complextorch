@@ -11,11 +11,11 @@ both. Model fitting remains in :mod:`complextorch.var` and
 from ._temporal import EpochTimeSeriesSplit, TemporalFold
 from .selection_state_space import (
     StateSpaceOrderScore,
-    StateSpaceOrderSearchCV,
     StateSpaceOrderSearchResult,
     StateSpaceOrderSelection,
     StateSpaceOrderSelectionResult,
 )
+from .selection_state_space_cv import StateSpaceOrderSearchCV
 from .selection_var import (
     VARInformationCriteriaResult,
     VAROrderScore,
