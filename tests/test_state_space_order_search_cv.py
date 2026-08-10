@@ -73,16 +73,77 @@ def test_real_larimore_search_exposes_expected_shapes_and_refit():
     assert np.isfinite(search.mean_test_scores_).any()
 
 
-def test_independent_mode_selects_one_global_order():
-    search = StateSpaceOrderSearchCV(
-        orders=(1, 2),
+def test_independent_mode_matches_separate_searches_per_trajectory():
+    observations = _data(batch=3)
+    cv = EpochTimeSeriesSplit(n_splits=2, test_size=15, min_train_size=60)
+    batched = StateSpaceOrderSearchCV(
+        orders=(1, 2, 3),
         past_horizon=3,
-        cv=EpochTimeSeriesSplit(n_splits=2, test_size=15, min_train_size=60),
+        cv=cv,
+        selection_rule="best",
         mode="independent",
         refit=False,
-    ).fit(_data(batch=3))
-    assert isinstance(search.best_order_, int)
-    assert search.fold_scores_.shape == (2, 2)
+    ).fit(observations)
+    separate = [
+        StateSpaceOrderSearchCV(
+            orders=(1, 2, 3),
+            past_horizon=3,
+            cv=cv,
+            selection_rule="best",
+            mode="independent",
+            refit=False,
+        ).fit(observations[index])
+        for index in range(observations.shape[0])
+    ]
+
+    assert batched.fold_scores_.shape == (3, 3, 2)
+    assert batched.bauer_scores_.shape == (3, 3, 2)
+    np.testing.assert_allclose(
+        batched.fold_scores_,
+        np.stack([item.fold_scores_ for item in separate]),
+        rtol=2e-7,
+        atol=2e-9,
+    )
+    np.testing.assert_allclose(
+        batched.mean_test_scores_,
+        np.stack([item.mean_test_scores_ for item in separate]),
+        rtol=2e-7,
+        atol=2e-9,
+    )
+    np.testing.assert_allclose(
+        batched.bauer_scores_,
+        np.stack([item.bauer_scores_ for item in separate]),
+        rtol=2e-7,
+        atol=2e-9,
+    )
+    np.testing.assert_array_equal(
+        batched.best_order_, [item.best_order_ for item in separate]
+    )
+    for order_index, record in enumerate(batched.result_.scores):
+        np.testing.assert_allclose(
+            record.mean_score, batched.mean_test_scores_[:, order_index]
+        )
+        np.testing.assert_allclose(
+            record.fold_scores, batched.fold_scores_[:, order_index, :]
+        )
+
+
+def test_independent_mode_refits_each_selected_dimension():
+    observations = _data(batch=3)
+    search = StateSpaceOrderSearchCV(
+        orders=(1, 2, 3),
+        past_horizon=3,
+        cv=EpochTimeSeriesSplit(n_splits=2, test_size=15, min_train_size=60),
+        selection_rule="best",
+        mode="independent",
+        refit=True,
+    ).fit(observations)
+
+    assert isinstance(search.best_estimator_, tuple)
+    assert search.best_estimators_ is search.best_estimator_
+    assert len(search.best_estimator_) == observations.shape[0]
+    for index, estimator in enumerate(search.best_estimator_):
+        assert estimator.n_states_ == int(search.best_order_[index])
 
 
 def test_bauer_diagnostics_allow_order_below_observation_dimension():
