@@ -17,6 +17,7 @@ the cited scientific literature remains the primary mathematical authority.
    var
    state_space
    selection
+   state_space_cv
    control
    dynamical_dependence
    measures
