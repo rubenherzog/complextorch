@@ -411,22 +411,27 @@ class StateSpaceOrderSelection(BaseEstimator):
 
 @dataclass(frozen=True)
 class StateSpaceOrderScore:
-    """Held-out and Bauer diagnostic results for one latent dimension."""
+    """Held-out and Bauer diagnostic results for one latent dimension.
+
+    Scalar fields remain scalars for a single series or pooled search. For
+    batched ``mode="independent"`` they are arrays with one value per
+    trajectory; fold-level fields have shape ``(batch, n_folds)``.
+    """
 
     order: int
-    mean_score: float
-    standard_error: float
-    fold_scores: tuple[float, ...]
-    failed_folds: int
-    mean_bauer_score: float
-    fold_bauer_scores: tuple[float, ...]
+    mean_score: float | np.ndarray
+    standard_error: float | np.ndarray
+    fold_scores: tuple[float, ...] | np.ndarray
+    failed_folds: int | np.ndarray
+    mean_bauer_score: float | np.ndarray
+    fold_bauer_scores: tuple[float, ...] | np.ndarray
 
 
 @dataclass(frozen=True)
 class StateSpaceOrderSearchResult:
     """Immutable summary of temporal state-space order search."""
 
-    best_order: int
+    best_order: int | np.ndarray
     scores: tuple[StateSpaceOrderScore, ...]
     scoring: str
     selection_rule: str
@@ -518,7 +523,11 @@ class _LarimoreFoldWorkspace:
 
 
 class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
-    r"""Select one global latent dimension by temporal cross-validation.
+    r"""Select latent dimension by temporal cross-validation.
+
+    For batched ``mode="independent"`` input, every trajectory retains its
+    own validation-loss curve and selected latent dimension. ``mode="pooled"``
+    selects one common dimension across trajectories.
 
     ``prediction_mode='rolling'`` updates the innovations state with each
     validation observation after scoring it. ``'recursive'`` propagates only
@@ -590,6 +599,12 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
             raise ValueError("mode must be 'pooled' or 'independent'")
         return orders
 
+    def _score_batch_shape(self, data):
+        """Preserve one validation curve per independent batch trajectory."""
+        if self.mode == "independent" and data.shape[0] > 1:
+            return (data.shape[0],)
+        return ()
+
     def _minimum_training_size(self, orders):
         """Return the minimum fold length required by horizons and rank."""
         future = (
@@ -601,7 +616,8 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
 
     def _begin_diagnostics(self, n_orders, n_folds):
         """Allocate fold-wise Bauer diagnostic arrays."""
-        self._bauer_scores = np.full((n_orders, n_folds), np.nan)
+        shape = getattr(self, "_score_batch_shape_", ()) + (n_orders, n_folds)
+        self._bauer_scores = np.full(shape, np.nan)
         self._bauer_orders = [None] * n_folds
 
     def _prepare_fold(self, data, fold, orders):
@@ -697,12 +713,15 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
         candidates = torch.arange(
             lower, decomposition.correlations.shape[-1] + 1
         )
+        independent_batch = self.mode == "independent" and decomposition.batch > 1
         for index, order in enumerate(orders):
             match = torch.nonzero(candidates == order, as_tuple=False)
             if match.numel():
-                self._bauer_scores[index, fold_index] = float(
-                    criterion[..., int(match[0])].mean()
-                )
+                values = criterion[..., int(match[0])].detach().cpu().numpy()
+                if independent_batch:
+                    self._bauer_scores[..., index, fold_index] = values.reshape(-1)
+                else:
+                    self._bauer_scores[index, fold_index] = float(values.mean())
         best_values = best.detach().cpu().reshape(-1)
         self._bauer_orders[fold_index] = (
             int(best_values[0])
@@ -758,8 +777,12 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
         return torch.stack(held_out, dim=1)
 
     def _score(self, errors, covariance):
-        """Return held-out innovation RMSE or Gaussian NLL."""
+        """Return held-out loss without mixing independent trajectories."""
+        independent_batch = self.mode == "independent" and errors.shape[0] > 1
         if self.scoring == "rmse":
+            if independent_batch:
+                values = torch.sqrt(errors.square().mean(dim=(1, 2)))
+                return values.detach().cpu().numpy().astype(float, copy=False)
             return float(torch.sqrt(errors.square().mean()))
         covariance = self._expand(covariance, errors.shape[0])
         chol, _ = stable_cholesky(covariance, jitter=1e-10)
@@ -775,6 +798,8 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
             + logdet[:, None]
             + errors.shape[-1] * np.log(2.0 * np.pi)
         )
+        if independent_batch:
+            return values.mean(dim=1).detach().cpu().numpy().astype(float, copy=False)
         return float(values.mean())
 
     def _fit_and_score_fold(self, data, order, fold):
@@ -809,44 +834,81 @@ class StateSpaceOrderSearchCV(_TemporalOrderSearchCV):
         return self._score(errors, estimator.innovation_covariance_)
 
     def _finalize_diagnostics(self, orders):
-        """Expose Bauer curves and finite fold means as fitted attributes."""
+        """Expose Bauer curves and fold means without losing batch axes."""
         del orders
         self.bauer_scores_ = self._bauer_scores
-        means = []
-        for row in self._bauer_scores:
-            finite = row[np.isfinite(row)]
-            means.append(float(finite.mean()) if finite.size else float("nan"))
-        self.mean_bauer_scores_ = np.asarray(means)
-        self.bauer_order_per_fold_ = np.asarray(
-            self._bauer_orders, dtype=object
+        finite = np.isfinite(self._bauer_scores)
+        counts = finite.sum(axis=-1)
+        totals = np.where(finite, self._bauer_scores, 0.0).sum(axis=-1)
+        self.mean_bauer_scores_ = np.divide(
+            totals,
+            counts,
+            out=np.full(counts.shape, np.nan, dtype=float),
+            where=counts > 0,
         )
+        self.bauer_order_per_fold_ = np.asarray(self._bauer_orders, dtype=object)
 
-    def _refit_best(self, data, order):
-        """Refit a Larimore model at the selected dimension on all data."""
+    def _fit_larimore(self, data, order, *, mode=None):
+        """Fit one fixed-order Larimore model with this search configuration."""
         return LarimoreStateSpace(
             n_states=order,
             past_horizon=self.past_horizon,
             future_horizon=self.future_horizon,
             ridge=self.ridge,
             covariance=self.covariance,
-            mode=self.mode,
+            mode=self.mode if mode is None else mode,
             device=self.device,
             dtype=self.dtype,
         ).fit(data)
 
+    def _refit_best(self, data, order):
+        """Refit selected latent dimension(s) on all observations."""
+        selected = np.asarray(order)
+        if selected.ndim == 0:
+            return self._fit_larimore(data, int(selected))
+        if selected.shape != (data.shape[0],):
+            raise ValueError("selected orders must match the batch dimension")
+        return tuple(
+            self._fit_larimore(data[index : index + 1], int(value), mode="independent")
+            for index, value in enumerate(selected)
+        )
+
+    @staticmethod
+    def _order_slice(values, index):
+        """Return one candidate's scalar or per-batch values."""
+        if values.ndim == 1:
+            return float(values[index])
+        return values[..., index].copy()
+
+    @staticmethod
+    def _fold_order_slice(values, index):
+        """Return one candidate's fold values without losing batch axes."""
+        if values.ndim == 2:
+            return tuple(values[index])
+        return values[..., index, :].copy()
+
     def fit(self, X, y=None):
-        """Evaluate every candidate dimension on every temporal fold."""
+        """Evaluate every candidate dimension on every temporal fold.
+
+        Batched ``mode="independent"`` searches return one latent dimension
+        per trajectory. If ``refit=True`` and selected dimensions differ,
+        ``best_estimator_`` is a tuple with one Larimore estimator per
+        trajectory; ``best_estimators_`` is provided as an explicit alias.
+        """
         del y
-        summary = self._run_temporal_search(X)
+        data = self._normalise_observations(X)
+        summary = self._run_temporal_search(data)
+        if self.refit and self.mode == "independent" and data.shape[0] > 1:
+            self.best_estimators_ = self.best_estimator_
         scores = tuple(
             StateSpaceOrderScore(
                 order=order,
-                mean_score=float(summary.mean_scores[index]),
-                standard_error=float(summary.standard_errors[index]),
-                fold_scores=tuple(summary.fold_scores[index]),
-                failed_folds=int(summary.failed_folds[index]),
-                mean_bauer_score=float(self.mean_bauer_scores_[index]),
-                fold_bauer_scores=tuple(self.bauer_scores_[index]),
+                mean_score=self._order_slice(summary.mean_scores, index),
+                standard_error=self._order_slice(summary.standard_errors, index),
+                fold_scores=self._fold_order_slice(summary.fold_scores, index),
+                failed_folds=self._order_slice(summary.failed_folds, index),
+                mean_bauer_score=self._order_slice(self.mean_bauer_scores_, index),
+                fold_bauer_scores=self._fold_order_slice(self.bauer_scores_, index),
             )
             for index, order in enumerate(summary.orders)
         )
