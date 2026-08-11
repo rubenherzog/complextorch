@@ -41,6 +41,7 @@ from .dd_optimization import (
     spectral_dynamical_dependence_gradient,
 )
 from .inference import ConfidenceIntervalResult, MeasureInterval, ResamplingMethod
+from .diagnostics import FitDiagnostics, fit_diagnostics, innovation_diagnostics
 from .inference_registry import InferenceMeasureConfig
 from .measures.entropy_rate import (
     marginal_entropy_rate,
@@ -271,5 +272,8 @@ __all__ = [
     "numit_pid_var",
     "var_past_future_covariance",
     "var_total_mutual_information",
+    "FitDiagnostics",
+    "fit_diagnostics",
+    "innovation_diagnostics",
 ]
 __version__ = "0.8.0"
