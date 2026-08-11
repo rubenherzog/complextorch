@@ -1,11 +1,14 @@
-Out-of-sample fit diagnostics
-=============================
+Fit diagnostics
+===============
 
 ComplexTorch separates predictive accuracy from innovations-model adequacy.
-:func:`~complextorch.fit_diagnostics` evaluates a fitted
-:class:`~complextorch.VAR`, :class:`~complextorch.LarimoreStateSpace`, or
-:class:`~complextorch.N4SID` on a chronologically later test block using rolling
-one-step-ahead prediction. The estimator is not refitted by the diagnostic.
+:func:`~complextorch.fit_diagnostics` supports two explicit evaluation regimes
+for a fitted :class:`~complextorch.VAR`, :class:`~complextorch.LarimoreStateSpace`,
+or :class:`~complextorch.N4SID`: ``evaluation="oos"`` evaluates a chronologically
+later test block using rolling one-step-ahead prediction, whereas
+``evaluation="in_sample"`` evaluates one-step residuals on the supplied fitted-data
+trajectory. The estimator is never refitted by the diagnostic. Both regimes share
+the same lower-level :func:`~complextorch.innovation_diagnostics` implementation.
 
 For observations :math:`y_t` and one-step predictions
 :math:`\hat y_{t\mid t-1}`, define
@@ -34,8 +37,9 @@ Innovation calibration
 ----------------------
 
 Let :math:`V` denote the innovation covariance estimated on the training data.
-The held-out innovation covariance :math:`\widehat V_{\mathrm{OOS}}` is reported
-directly. Errors are standardized by a Cholesky factor
+The covariance of the evaluated one-step innovations is reported directly
+(``innovation_covariance_oos`` retains its original public field name for backward
+compatibility). Errors are standardized by a Cholesky factor
 :math:`V=LL^\top`,
 
 .. math::
@@ -66,6 +70,8 @@ is
 
 ``whiteness_energy`` therefore has a direct interpretation: zero corresponds to
 no detected lagged linear dependence through ``max_lag`` and smaller is better.
+Its mathematical definition is identical for ``evaluation="oos"`` and
+``evaluation="in_sample"``; only the source of the one-step errors differs.
 The result also exposes the complete matrices ``autocorrelation_matrices``, the
 largest absolute lagged correlation, and a multivariate Ljung--Box-style
 ``portmanteau_statistic``. No p-value is required for comparing VAR and
