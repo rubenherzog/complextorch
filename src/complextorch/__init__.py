@@ -41,7 +41,8 @@ from .dd_optimization import (
     spectral_dynamical_dependence_gradient,
 )
 from .inference import ConfidenceIntervalResult, MeasureInterval, ResamplingMethod
-from .diagnostics import FitDiagnostics, fit_diagnostics, innovation_diagnostics
+from .diagnostics import FitDiagnostics, innovation_diagnostics
+from ._diagnostics_evaluation import fit_diagnostics
 from .inference_registry import InferenceMeasureConfig
 from .measures.entropy_rate import (
     marginal_entropy_rate,
