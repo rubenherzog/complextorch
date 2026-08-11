@@ -18,6 +18,7 @@ the cited scientific literature remains the primary mathematical authority.
    state_space
    selection
    state_space_cv
+   fit_diagnostics
    control
    dynamical_dependence
    measures
