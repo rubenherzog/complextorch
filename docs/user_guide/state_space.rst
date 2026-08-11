@@ -236,10 +236,19 @@ If
 
    M=U\operatorname{diag}(\rho_1,\ldots,\rho_q)V^{\mathsf T},
 
-then :math:`\rho_i` are the Larimore canonical correlations. The selected
-leading directions construct the state sequence. The fixed-order estimator then
-fits :math:`C` from every valid state/observation pair, :math:`A` from only
-within-trajectory state transitions, and :math:`K` from
+then :math:`\rho_i` are the Larimore canonical correlations. For a selected
+state dimension :math:`r`, the CVA state sequence is constructed from the
+whitened past canonical variates as
+
+.. math::
+
+   Z = \operatorname{diag}(\rho_1,\ldots,\rho_r)
+       V_r^{\mathsf T} L_P^{-1} P.
+
+This normalization gives the whitened past :math:`L_P^{-1}P`, whose covariance
+is the identity (up to the optional ridge regularization). The fixed-order
+estimator then fits :math:`C` from every valid state/observation pair, :math:`A`
+from only within-trajectory state transitions, and :math:`K` from
 
 .. math::
 
