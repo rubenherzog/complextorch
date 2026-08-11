@@ -176,3 +176,44 @@ def test_independent_batch_preserves_one_diagnostic_per_trajectory():
     assert result.whiteness_energy.shape == (2,)
     assert result.innovation_covariance_oos.shape == (2, 2, 2)
     assert result.autocorrelation_matrices.shape == (2, 6, 2, 2)
+
+
+def test_in_sample_and_oos_whiteness_converge_on_well_specified_models():
+    coefficients = torch.tensor(
+        [[[0.45, 0.08], [-0.03, 0.35]]], dtype=torch.float64
+    )
+    covariance = torch.tensor([[0.4, 0.05], [0.05, 0.3]], dtype=torch.float64)
+    observations = simulate_var(
+        coefficients, covariance, 6000, burnin=400, seed=81
+    )[0]
+    train, test = observations[:4000], observations[4000:]
+
+    for estimator in (
+        VAR(1, solver="lstsq", dtype="float64").fit(train),
+        N4SID(2, 5, dtype="float64").fit(train),
+    ):
+        in_sample = fit_diagnostics(
+            estimator, train, evaluation="in_sample", max_lag=8
+        )
+        oos = fit_diagnostics(
+            estimator, train, test, evaluation="oos", max_lag=8
+        )
+        assert in_sample.whiteness_energy < 0.08
+        assert oos.whiteness_energy < 0.08
+        assert abs(in_sample.whiteness_energy - oos.whiteness_energy) < 0.02
+        assert abs(in_sample.consistency - oos.consistency) < 0.01
+
+
+def test_in_sample_diagnostics_validate_evaluation_contract():
+    data = torch.randn((100, 2), dtype=torch.float64)
+    estimator = VAR(1, solver="lstsq", dtype="float64").fit(data)
+    result = fit_diagnostics(estimator, data, evaluation="in_sample", max_lag=5)
+    assert result.n_observations == 99
+    try:
+        fit_diagnostics(
+            estimator, data, data[-10:], evaluation="in_sample", max_lag=5
+        )
+    except ValueError as error:
+        assert "test must be omitted" in str(error)
+    else:
+        raise AssertionError("in-sample diagnostics must reject a test block")
