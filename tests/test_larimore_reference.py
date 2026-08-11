@@ -1,8 +1,14 @@
+import math
+
 import numpy as np
 import torch
 from scipy.linalg import cholesky
 
 from complextorch import LarimoreStateSpace
+from complextorch.linalg import solve_discrete_lyapunov, spd_logdet
+from complextorch.measures.backbone import predictive_information_from_model
+from complextorch.representations import build_var_system
+from complextorch.simulate import simulate_var
 
 
 def _reference_larimore(observations, past_horizon, future_horizon, n_states, ridge=1e-12):
@@ -48,8 +54,7 @@ def _reference_larimore(observations, past_horizon, future_horizon, n_states, ri
     flat_states = (
         np.diag(correlations[:n_states])
         @ right[:n_states]
-        @ np.linalg.inv(lp).T
-        @ past
+        @ np.linalg.solve(lp, past)
     )
     states = flat_states.T.reshape(n_batch, columns, n_states)
     observations_all = values[:, past_horizon : past_horizon + columns]
@@ -106,3 +111,42 @@ def test_larimore_mle_covariance_is_sample_moment_of_all_innovations():
     innovations = fitted.innovations_.reshape(-1, observations.shape[-1])
     expected = innovations.T @ innovations / innovations.shape[0]
     torch.testing.assert_close(fitted.innovation_covariance_, expected + 1e-12 * torch.eye(3, dtype=expected.dtype), atol=2e-12, rtol=2e-12)
+
+
+def test_larimore_recovers_var1_predictive_information_with_sufficient_data():
+    """Well-sampled CVA recovers the predictive information of a known VAR(1)."""
+    coefficients = torch.tensor(
+        [[[0.45, 0.08], [-0.03, 0.35]]], dtype=torch.float64
+    )
+    innovation_covariance = torch.tensor(
+        [[0.4, 0.05], [0.05, 0.3]], dtype=torch.float64
+    )
+    true_system = build_var_system(coefficients, innovation_covariance)
+    true_pi = predictive_information_from_model(true_system).squeeze()
+
+    observations = simulate_var(
+        coefficients, innovation_covariance, 1500, burnin=500, seed=81
+    )[0]
+    fitted = LarimoreStateSpace(2, 5, dtype="float64").fit(observations)
+    system = fitted.system_
+
+    process_covariance = (
+        system.gain
+        @ system.innovation_covariance
+        @ system.gain.transpose(-1, -2)
+    )
+    state_covariance, _ = solve_discrete_lyapunov(
+        system.transition, process_covariance
+    )
+    present_covariance = (
+        system.observation
+        @ state_covariance
+        @ system.observation.transpose(-1, -2)
+        + system.innovation_covariance
+    )
+    fitted_pi = 0.5 * (
+        spd_logdet(present_covariance)
+        - spd_logdet(system.innovation_covariance)
+    ) / math.log(2.0)
+
+    torch.testing.assert_close(fitted_pi, true_pi, atol=0.04, rtol=0.0)

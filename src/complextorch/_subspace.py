@@ -92,8 +92,10 @@ def _larimore_decomposition(past, future, *, ridge):
        M=L_F^{-1}\Sigma_{FP}L_P^{-\top}.
 
     ``ridge`` therefore regularizes only the two whitening covariances. The
-    triangular solves below avoid explicit inverses. The returned right
-    singular vectors and :math:`L_P` are reused by Larimore state construction.
+    triangular solves below avoid explicit inverses. The returned past state
+    directions are expressed so downstream state construction evaluates
+    :math:`\operatorname{diag}(\rho)V_r^\top L_P^{-1}P` without explicit
+    inverses.
 
     References
     ----------
@@ -137,4 +139,11 @@ def _larimore_decomposition(past, future, *, ridge):
     _, correlations, right_vectors = torch.linalg.svd(
         whitened, full_matrices=False
     )
-    return correlations, right_vectors, cholesky_past
+    # Express the past canonical directions in the coordinates consumed by
+    # the downstream triangular solve.  The resulting state sequence is
+    # diag(rho) V_r^T L_P^{-1} P, i.e. the standard CVA state construction.
+    past_coordinate_map = torch.linalg.solve_triangular(
+        cholesky_past, cholesky_past.transpose(-1, -2), upper=False
+    )
+    state_directions = right_vectors @ past_coordinate_map
+    return correlations, state_directions, cholesky_past
