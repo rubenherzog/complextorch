@@ -1,9 +1,10 @@
 """Shared information-criterion scoring and candidate ranking utilities.
 
 Selection in ComplexTorch follows one common pattern: generate fitted candidates,
-score them on a common criterion, then rank or select them.  This module contains
-model-family-agnostic information-criterion primitives plus small parameter-count
-helpers for VAR and minimal innovations-form state-space candidates.
+score them on a common criterion, then rank or select them. This module contains
+model-family-agnostic information-criterion primitives, one common batched
+Gaussian innovations likelihood, and small parameter-count helpers for VAR and
+minimal innovations-form state-space candidates.
 """
 from __future__ import annotations
 
@@ -11,10 +12,99 @@ from dataclasses import dataclass
 from typing import Iterable, Literal, Mapping
 
 import numpy as np
+import torch
+
+from ..linalg import stable_cholesky
 
 LikelihoodScale = Literal["total", "mean"]
 CriterionScale = Literal["total", "per_observation"]
 InformationCriterion = Literal["aic", "bic", "hqc"]
+LikelihoodReduction = Literal["none", "mean", "sum"]
+
+
+def gaussian_log_likelihood(
+    innovations: np.ndarray | torch.Tensor,
+    covariance: np.ndarray | torch.Tensor,
+    *,
+    reduction: LikelihoodReduction = "sum",
+) -> torch.Tensor:
+    r"""Return Gaussian innovations log likelihood in batched Torch form.
+
+    Parameters
+    ----------
+    innovations
+        Prediction errors with shape ``(time, variables)`` or
+        ``(batch, time, variables)``.
+    covariance
+        Innovation covariance with shape ``(variables, variables)`` or
+        ``(batch, variables, variables)``. A singleton covariance batch is
+        broadcast over independent trajectories.
+    reduction
+        ``"none"`` preserves the time axis, ``"mean"`` averages over time, and
+        ``"sum"`` returns the total log likelihood per trajectory.
+
+    Returns
+    -------
+    torch.Tensor
+        A scalar for one unbatched trajectory, or one value per batch element
+        for ``"mean"``/``"sum"``. ``"none"`` returns the corresponding time
+        series of pointwise log-likelihood contributions.
+
+    Notes
+    -----
+    For innovation :math:`e_t` and covariance :math:`V`, each contribution is
+
+    .. math::
+
+       \ell_t = -\frac{1}{2}\left(e_t^\top V^{-1}e_t
+       + \log|V| + n\log(2\pi)\right).
+
+    This is the same Gaussian innovations convention used by ComplexTorch's
+    VAR and state-space predictive diagnostics. The implementation preserves
+    dtype/device and never mixes trajectories.
+    """
+    if reduction not in {"none", "mean", "sum"}:
+        raise ValueError("reduction must be 'none', 'mean' or 'sum'")
+    errors = torch.as_tensor(innovations)
+    if not errors.is_floating_point():
+        errors = errors.to(torch.float64)
+    single = errors.ndim == 2
+    if single:
+        errors = errors.unsqueeze(0)
+    if errors.ndim != 3:
+        raise ValueError(
+            "innovations must have shape (time,n) or (batch,time,n)"
+        )
+    if errors.shape[1] < 1 or errors.shape[2] < 1:
+        raise ValueError("innovations must contain time points and variables")
+    if not bool(torch.isfinite(errors).all()):
+        raise ValueError("innovations must be finite")
+
+    cov = torch.as_tensor(covariance, dtype=errors.dtype, device=errors.device)
+    if cov.ndim == 2:
+        cov = cov.unsqueeze(0)
+    if cov.ndim != 3 or cov.shape[-2:] != (errors.shape[-1], errors.shape[-1]):
+        raise ValueError("covariance has incompatible variable dimensions")
+    if cov.shape[0] == 1 and errors.shape[0] > 1:
+        cov = cov.expand(errors.shape[0], -1, -1)
+    if cov.shape[0] != errors.shape[0]:
+        raise ValueError("covariance batch dimension must match innovations")
+    if not bool(torch.isfinite(cov).all()):
+        raise ValueError("covariance must be finite")
+
+    chol, _ = stable_cholesky(cov, jitter=1e-10)
+    solved = torch.cholesky_solve(errors.unsqueeze(-1), chol[:, None]).squeeze(-1)
+    logdet = 2.0 * torch.log(torch.diagonal(chol, dim1=-2, dim2=-1)).sum(-1)
+    values = -0.5 * (
+        (errors * solved).sum(-1)
+        + logdet[:, None]
+        + errors.shape[-1] * np.log(2.0 * np.pi)
+    )
+    if reduction == "mean":
+        values = values.mean(dim=1)
+    elif reduction == "sum":
+        values = values.sum(dim=1)
+    return values[0] if single else values
 
 
 def symmetric_covariance_parameter_count(n_variables: int) -> int:
@@ -32,12 +122,7 @@ def var_parameter_count(
     include_covariance: bool = True,
     include_intercept: bool = False,
 ) -> int:
-    r"""Return the parameter count of a VAR(:math:`p`) likelihood model.
-
-    The autoregressive coefficients contribute :math:`N^2p` parameters.  The
-    innovation covariance and intercept are included only when requested, so
-    callers can match the exact likelihood convention used for candidate fits.
-    """
+    r"""Return the parameter count of a VAR(:math:`p`) likelihood model."""
     n = int(n_variables)
     p = int(order)
     if n < 1 or p < 1:
@@ -60,15 +145,10 @@ def innovations_state_space_parameter_count(
 ) -> int:
     r"""Return the identifiable parameter count of an innovations SSM.
 
-    An innovations realization with state dimension :math:`r` and observation
-    dimension :math:`N` has raw dynamic matrices ``A``, ``C`` and ``K`` with
-    :math:`r^2 + 2Nr` entries.  For a minimal realization, state-basis
-    similarity transforms contribute :math:`r^2` non-identifiable degrees of
-    freedom, leaving :math:`2Nr` identifiable dynamic parameters.  The
-    innovation covariance and observation mean are included only when requested.
-
-    ``minimal=False`` returns the raw matrix-entry count and is therefore not an
-    identifiable model dimension; it is provided only for explicit diagnostics.
+    A raw innovations realization contributes :math:`r^2+2Nr` entries through
+    ``A``, ``C`` and ``K``. For a minimal realization, similarity transforms of
+    the latent state remove :math:`r^2` non-identifiable degrees of freedom,
+    leaving :math:`2Nr` identifiable dynamic parameters.
     """
     n = int(n_variables)
     r = int(n_states)
@@ -96,9 +176,9 @@ class InformationCriterionScores:
 class SelectionCandidate:
     """Likelihood and complexity metadata for one fitted candidate.
 
-    Array-valued fields may describe a batch of independent comparisons.  All
-    candidate fields are broadcast before candidates are stacked on the final
-    axis by :func:`select_by_information_criterion`.
+    Array-valued fields describe independent batched comparisons. Candidate
+    fields broadcast over batch dimensions; candidates themselves are stacked
+    on the final axis by :func:`select_by_information_criterion`.
     """
 
     name: str
@@ -117,7 +197,7 @@ class SelectionResult:
     scores: np.ndarray
     deltas: np.ndarray
     best_index: int | np.ndarray
-    best_candidate: str | np.ndarray
+    best_candidate_name: str | np.ndarray
     information_criteria: InformationCriterionScores
 
     def as_records(self) -> list[dict[str, object]]:
@@ -151,41 +231,10 @@ def score_information_criteria(
 ) -> InformationCriterionScores:
     r"""Compute AIC, BIC, and HQC without silently mixing likelihood scales.
 
-    Parameters
-    ----------
-    log_likelihood
-        Gaussian log likelihood, either total or mean per effective observation
-        according to ``likelihood``.
-    n_parameters
-        Number of free/identifiable parameters penalized by the criterion.
-    n_observations
-        Number of effective observations contributing to the likelihood.
-    likelihood
-        ``"total"`` for :math:`\log L` or ``"mean"`` for
-        :math:`\ell=\log L/N`.
-    scale
-        ``"total"`` returns the standard total AIC/BIC/HQC formulas;
-        ``"per_observation"`` divides every criterion by :math:`N`.  This latter
-        convention matches the existing MVGC-style VAR order selectors.
-    hurvich_tsai
-        Apply the existing ComplexTorch/MVGC Hurvich--Tsai AIC penalty factor
-        :math:`N/(N-k-1)`.  Invalid candidates with :math:`N-k-1\leq0` receive
-        ``NaN`` AIC values.
-
-    Notes
-    -----
-    For total log likelihood the uncorrected criteria are
-
-    .. math::
-
-       \mathrm{AIC}=-2\log L+2k,\quad
-       \mathrm{BIC}=-2\log L+k\log N,\quad
-       \mathrm{HQC}=-2\log L+2k\log\log N.
-
-    ``likelihood`` controls the input convention; ``scale`` controls only the
-    returned convention.  Therefore all four combinations are explicit and
-    mathematically equivalent after the corresponding multiplication/division by
-    :math:`N`.
+    ``likelihood`` specifies whether ``log_likelihood`` is total or mean per
+    effective observation. ``scale`` independently specifies whether returned
+    criteria are total or per observation. The latter reproduces the historical
+    MVGC-style convention used by :class:`VAROrderSelectionIC`.
     """
     if likelihood not in {"total", "mean"}:
         raise ValueError("likelihood must be 'total' or 'mean'")
@@ -259,10 +308,10 @@ def select_by_information_criterion(
 ) -> SelectionResult:
     """Score and rank arbitrary fitted candidates by one information criterion.
 
-    Candidate identity is model-family agnostic, so the same function ranks
-    VAR-vs-VAR, SSM-vs-SSM, VAR-vs-SSM, or batched mixtures.  Comparisons are
-    meaningful only when candidates describe likelihoods for the same observed
-    data under the same likelihood convention.
+    The same function ranks VAR-vs-VAR, SSM-vs-SSM, VAR-vs-SSM, and batched
+    mixtures. Within each independent comparison, all candidates must have been
+    scored on exactly the same number of observed samples. This prevents silent
+    comparison of likelihoods evaluated on different temporal windows.
     """
     if criterion not in {"aic", "bic", "hqc"}:
         raise ValueError("criterion must be 'aic', 'bic' or 'hqc'")
@@ -276,6 +325,10 @@ def select_by_information_criterion(
     loglik = _stack_candidate_values(candidate_tuple, "log_likelihood")
     params = _stack_candidate_values(candidate_tuple, "n_parameters")
     obs = _stack_candidate_values(candidate_tuple, "n_observations")
+    if not np.all(obs == obs[..., :1]):
+        raise ValueError(
+            "all candidates must use the same n_observations within each comparison"
+        )
     all_scores = score_information_criteria(
         loglik,
         params,
@@ -296,6 +349,6 @@ def select_by_information_criterion(
         scores=scores,
         deltas=deltas,
         best_index=best_index,
-        best_candidate=_best_names(names, best_array),
+        best_candidate_name=_best_names(names, best_array),
         information_criteria=all_scores,
     )
