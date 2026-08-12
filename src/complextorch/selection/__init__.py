@@ -9,6 +9,17 @@ both. Model fitting remains in :mod:`complextorch.var` and
 """
 
 from ._temporal import EpochTimeSeriesSplit, TemporalFold
+from .criteria import (
+    InformationCriterionScores,
+    SelectionCandidate,
+    SelectionResult,
+    gaussian_log_likelihood,
+    innovations_state_space_parameter_count,
+    score_information_criteria,
+    select_by_information_criterion,
+    symmetric_covariance_parameter_count,
+    var_parameter_count,
+)
 from .selection_state_space import (
     StateSpaceOrderScore,
     StateSpaceOrderSearchResult,
@@ -26,6 +37,9 @@ from .selection_var import (
 
 __all__ = [
     "EpochTimeSeriesSplit",
+    "InformationCriterionScores",
+    "SelectionCandidate",
+    "SelectionResult",
     "StateSpaceOrderScore",
     "StateSpaceOrderSearchCV",
     "StateSpaceOrderSearchResult",
@@ -37,4 +51,10 @@ __all__ = [
     "VAROrderSearchCV",
     "VAROrderSearchResult",
     "VAROrderSelectionIC",
+    "gaussian_log_likelihood",
+    "innovations_state_space_parameter_count",
+    "score_information_criteria",
+    "select_by_information_criterion",
+    "symmetric_covariance_parameter_count",
+    "var_parameter_count",
 ]

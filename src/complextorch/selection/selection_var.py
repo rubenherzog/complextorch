@@ -11,43 +11,7 @@ from sklearn.base import BaseEstimator
 from ..linalg import spd_logdet, stable_cholesky
 from ..var import VAR
 from ._temporal import EpochTimeSeriesSplit, _TemporalOrderSearchCV
-
-
-def _information_criteria(
-    loglik: float | np.ndarray,
-    n_parameters: int | np.ndarray,
-    n_observations: int | np.ndarray,
-    *,
-    hurvich_tsai: bool = False,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    r"""Return MVGC2-compatible per-observation AIC, BIC, and HQC.
-
-    ``loglik`` is the Gaussian log-likelihood contribution per effective
-    observation. With parameter-to-sample ratio :math:`k/N`, the criteria use
-    the MVGC convention
-
-    .. math::
-
-       \mathrm{AIC}=-2\ell+2k/N,
-       \qquad
-       \mathrm{BIC}=-2\ell+(k/N)\log N,
-
-    with HQC using :math:`2(k/N)\log\log N`. The optional Hurvich--Tsai
-    correction multiplies the AIC penalty by :math:`N/(N-k-1)`.
-    """
-    likelihood = np.asarray(loglik, dtype=float)
-    parameters = np.asarray(n_parameters, dtype=float)
-    observations = np.asarray(n_observations, dtype=float)
-    ratio = parameters / observations
-    if hurvich_tsai:
-        factor = observations / (observations - parameters - 1.0)
-        aic = -2.0 * likelihood + 2.0 * ratio * factor
-        aic = np.where(factor <= 0.0, np.nan, aic)
-    else:
-        aic = -2.0 * likelihood + 2.0 * ratio
-    bic = -2.0 * likelihood + ratio * np.log(observations)
-    hqc = -2.0 * likelihood + 2.0 * ratio * np.log(np.log(observations))
-    return aic, bic, hqc
+from .criteria import score_information_criteria
 
 
 @dataclass(frozen=True)
@@ -178,12 +142,15 @@ class VAROrderSelectionIC(BaseEstimator):
             observation_counts = np.asarray(
                 [multiplier * (n_times - order) for order in orders], dtype=float
             )
-        aic, bic, hqc = _information_criteria(
+        criteria = score_information_criteria(
             likelihood,
             parameter_counts,
             observation_counts,
+            likelihood="mean",
+            scale="per_observation",
             hurvich_tsai=self.hurvich_tsai,
         )
+        aic, bic, hqc = criteria.aic, criteria.bic, criteria.hqc
         if independent_batch:
             p_aic = np.asarray(orders)[np.nanargmin(aic, axis=1)]
             p_bic = np.asarray(orders)[np.nanargmin(bic, axis=1)]
@@ -443,12 +410,15 @@ class VAROrderSearchCV(_TemporalOrderSearchCV):
                 if self.mode == "pooled"
                 else n_times - order
             )
-        aic, bic, hqc = _information_criteria(
+        criteria = score_information_criteria(
             loglik,
             n_parameters,
             n_observations,
+            likelihood="mean",
+            scale="per_observation",
             hurvich_tsai=self.hurvich_tsai,
         )
+        aic, bic, hqc = criteria.aic, criteria.bic, criteria.hqc
         self._aic[..., order_index, fold_index] = aic
         self._bic[..., order_index, fold_index] = bic
         self._hqc[..., order_index, fold_index] = hqc
