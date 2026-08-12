@@ -1,14 +1,40 @@
 import numpy as np
 import pytest
+import torch
 
 from complextorch.selection import (
     SelectionCandidate,
+    gaussian_log_likelihood,
     innovations_state_space_parameter_count,
     score_information_criteria,
     select_by_information_criterion,
     symmetric_covariance_parameter_count,
     var_parameter_count,
 )
+
+
+def test_gaussian_log_likelihood_matches_manual_scalar_formula():
+    errors = torch.tensor([[1.0, -1.0], [0.0, 2.0]], dtype=torch.float64)
+    covariance = torch.eye(2, dtype=torch.float64)
+
+    result = gaussian_log_likelihood(errors, covariance, reduction="sum")
+    expected = -0.5 * (
+        errors.square().sum().item()
+        + errors.shape[0] * errors.shape[1] * np.log(2.0 * np.pi)
+    )
+
+    assert result.item() == pytest.approx(expected)
+
+
+def test_gaussian_log_likelihood_preserves_independent_batch_semantics():
+    errors = torch.zeros(1000, 5, 2, dtype=torch.float64)
+    covariance = torch.eye(2, dtype=torch.float64)
+
+    result = gaussian_log_likelihood(errors, covariance, reduction="sum")
+
+    assert result.shape == (1000,)
+    expected = -0.5 * 5 * 2 * np.log(2.0 * np.pi)
+    torch.testing.assert_close(result, torch.full_like(result, expected))
 
 
 def test_information_criteria_explicit_likelihood_and_output_scales_agree():
@@ -36,7 +62,7 @@ def test_selection_ranks_var_candidates():
 
     result = select_by_information_criterion(candidates, criterion="bic")
 
-    assert result.best_candidate == "VAR(1)"
+    assert result.best_candidate_name == "VAR(1)"
     assert result.best_index == 0
     assert result.deltas.shape == (2,)
     assert result.deltas[0] == pytest.approx(0.0)
@@ -54,7 +80,7 @@ def test_selection_ranks_state_space_candidates():
 
     result = select_by_information_criterion(candidates, criterion="hqc")
 
-    assert result.best_candidate == "SSM(1)"
+    assert result.best_candidate_name == "SSM(1)"
 
 
 def test_selection_ranks_var_against_state_space_candidate():
@@ -67,7 +93,7 @@ def test_selection_ranks_var_against_state_space_candidate():
 
     result = select_by_information_criterion(candidates, criterion="aic")
 
-    assert result.best_candidate == "SSM(2)"
+    assert result.best_candidate_name == "SSM(2)"
 
 
 def test_selection_supports_batched_and_broadcast_candidate_metadata():
@@ -88,9 +114,43 @@ def test_selection_supports_batched_and_broadcast_candidate_metadata():
 
     result = select_by_information_criterion(candidates, criterion="aic")
 
-    assert result.best_candidate.tolist() == ["SSM", "VAR"]
+    assert result.best_candidate_name.tolist() == ["SSM", "VAR"]
     assert result.scores.shape == (2, 2)
     assert result.information_criteria.bic.shape == (2, 2)
+
+
+def test_selection_compares_thousand_var_ssm_pairs_without_python_dataset_loop():
+    batch = 1000
+    n_observations = np.full(batch, 200)
+    candidates = [
+        SelectionCandidate(
+            "VAR",
+            log_likelihood=np.linspace(-120.0, -100.0, batch),
+            n_parameters=30,
+            n_observations=n_observations,
+        ),
+        SelectionCandidate(
+            "SSM",
+            log_likelihood=np.linspace(-121.0, -98.0, batch),
+            n_parameters=20,
+            n_observations=n_observations,
+        ),
+    ]
+
+    result = select_by_information_criterion(candidates, criterion="bic")
+
+    assert result.scores.shape == (batch, 2)
+    assert result.best_candidate_name.shape == (batch,)
+
+
+def test_selection_rejects_mismatched_observation_windows():
+    candidates = [
+        SelectionCandidate("VAR", -100.0, 10, 200),
+        SelectionCandidate("SSM", -100.0, 8, 199),
+    ]
+
+    with pytest.raises(ValueError, match="same n_observations"):
+        select_by_information_criterion(candidates)
 
 
 def test_minimal_innovations_ssm_parameter_count_quotients_state_basis():
