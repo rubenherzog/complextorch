@@ -5,9 +5,11 @@ from __future__ import annotations
 import importlib
 import inspect
 import os
+import re
 from pathlib import Path
 from typing import Any
 
+import complextorch
 from docutils import nodes
 from sphinx import addnodes
 from sphinx.util.docutils import SphinxDirective
@@ -52,23 +54,41 @@ def _source_location(obj: Any) -> tuple[Path | None, int | None]:
         return Path(module_file).resolve(), None
 
 
-def _github_source_url(obj: Any) -> str:
-    source_file, line = _source_location(obj)
-    ref = (
+def _github_ref() -> str:
+    """Return a GitHub-safe source ref, preferring an exact build commit."""
+    candidate = (
         os.environ.get("READTHEDOCS_GIT_COMMIT_HASH")
         or os.environ.get("GITHUB_SHA")
-        or "main"
-    )
+        or ""
+    ).strip()
+    return candidate if re.fullmatch(r"[0-9a-fA-F]{40}", candidate) else "main"
+
+
+def _repository_relative_source(source_file: Path) -> Path | None:
+    """Map an imported ComplexTorch source file back to the repository tree."""
+    package_dir = Path(complextorch.__file__).resolve().parent
+    source_root = package_dir.parent
+    try:
+        relative_to_src = source_file.relative_to(source_root)
+    except ValueError:
+        return None
+    return Path("src") / relative_to_src
+
+
+def _github_source_url(obj: Any) -> str:
+    source_file, line = _source_location(obj)
+    ref = _github_ref()
     if source_file is None:
         return f"https://github.com/rubenherzog/complextorch/tree/{ref}/src/complextorch"
 
-    try:
-        marker = source_file.parts.index("src")
-        relative = Path(*source_file.parts[marker:]).as_posix()
-    except ValueError:
-        relative = source_file.name
+    relative = _repository_relative_source(source_file)
+    if relative is None:
+        return f"https://github.com/rubenherzog/complextorch/tree/{ref}/src/complextorch"
 
-    url = f"https://github.com/rubenherzog/complextorch/blob/{ref}/{relative}"
+    url = (
+        "https://github.com/rubenherzog/complextorch/blob/"
+        f"{ref}/{relative.as_posix()}"
+    )
     if line is not None:
         url += f"#L{line}"
     return url
@@ -110,7 +130,18 @@ class ApiTableDirective(SphinxDirective):
             row = nodes.row()
 
             name_paragraph = nodes.paragraph()
-            name_paragraph += nodes.literal(text=dotted_name.rsplit(".", 1)[-1])
+            name_link = addnodes.pending_xref(
+                "",
+                refdomain="std",
+                reftype="doc",
+                reftarget=f"generated/{dotted_name}",
+                refexplicit=True,
+                classes=["api-object-name"],
+            )
+            name_link += nodes.strong(
+                "", "", nodes.literal(text=dotted_name.rsplit(".", 1)[-1])
+            )
+            name_paragraph += name_link
             row += _entry(name_paragraph)
 
             description = nodes.paragraph(text=_summary(obj))
