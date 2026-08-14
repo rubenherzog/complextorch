@@ -1,19 +1,18 @@
 /* Small presentation overrides for the Wagtail documentation theme. */
 
-/* Public API object names are links and should read as the primary table label. */
+/* Public API object names: match the current API-page callable-link style. */
 .api-summary-table .api-object-name,
 .api-summary-table .api-object-name code,
 .api-summary-table .api-object-name strong {
-    color: inherit !important;
-    font-weight: 700;
-    text-decoration: none !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
+    text-decoration: underline !important;
 }
 
 /*
  * Python callable cross-references throughout the documentation.
- * Sphinx renders :func: and :meth: roles as code.xref.py.py-func/py-meth
- * inside an internal reference.  Override the Wagtail theme's red,
- * underlined link treatment while keeping the targets clickable.
+ * Match the callable links shown on the API page: white, bold, underlined.
+ * This covers Sphinx :func: and :meth: links everywhere in the docs.
  */
 a.reference.internal:has(> code.xref.py.py-func),
 a.reference.internal:has(> code.xref.py.py-meth),
@@ -21,9 +20,9 @@ a.reference.internal > code.xref.py.py-func,
 a.reference.internal > code.xref.py.py-meth,
 a.reference.internal > code.xref.py.py-func span,
 a.reference.internal > code.xref.py.py-meth span {
-    color: inherit !important;
+    color: #ffffff !important;
     font-weight: 700 !important;
-    text-decoration: none !important;
+    text-decoration: underline !important;
 }
 
 /* Sphinx-Gallery executable output: dark background with readable white text. */
