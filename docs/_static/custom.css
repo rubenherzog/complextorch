@@ -4,7 +4,26 @@
 .api-summary-table .api-object-name,
 .api-summary-table .api-object-name code,
 .api-summary-table .api-object-name strong {
+    color: inherit !important;
     font-weight: 700;
+    text-decoration: none !important;
+}
+
+/*
+ * Python callable cross-references throughout the documentation.
+ * Sphinx renders :func: and :meth: roles as code.xref.py.py-func/py-meth
+ * inside an internal reference.  Override the Wagtail theme's red,
+ * underlined link treatment while keeping the targets clickable.
+ */
+a.reference.internal:has(> code.xref.py.py-func),
+a.reference.internal:has(> code.xref.py.py-meth),
+a.reference.internal > code.xref.py.py-func,
+a.reference.internal > code.xref.py.py-meth,
+a.reference.internal > code.xref.py.py-func span,
+a.reference.internal > code.xref.py.py-meth span {
+    color: inherit !important;
+    font-weight: 700 !important;
+    text-decoration: none !important;
 }
 
 /* Sphinx-Gallery executable output: dark background with readable white text. */
