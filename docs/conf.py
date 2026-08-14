@@ -49,4 +49,5 @@ html_theme_options = {
     "github_url": "https://github.com/rubenherzog/complextorch/blob/main/docs/",
     "footer_links": "Maintained by <a href=\"https://github.com/rubenherzog\">Rubén Herzog</a>",
 }
-html_static_path: list[str] = []
+html_static_path = ["_static"]
+html_css_files = ["custom.css"]
