@@ -1,0 +1,21 @@
+/* Small presentation overrides for the Wagtail documentation theme. */
+
+/* Public API object names are links and should read as the primary table label. */
+.api-summary-table .api-object-name,
+.api-summary-table .api-object-name code,
+.api-summary-table .api-object-name strong {
+    font-weight: 700;
+}
+
+/* Sphinx-Gallery executable output: dark background with readable white text. */
+.sphx-glr-script-out .highlight,
+.sphx-glr-script-out .highlight pre,
+.sphx-glr-script-out pre,
+.sphx-glr-script-out code {
+    background: #2f3337 !important;
+    color: #ffffff !important;
+}
+
+.sphx-glr-script-out .highlight {
+    border-color: #555b61;
+}
