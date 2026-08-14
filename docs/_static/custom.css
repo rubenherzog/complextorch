@@ -39,6 +39,24 @@ a.reference.internal strong {
     text-decoration-color: #ffffff !important;
 }
 
+/* Compact entry points on the documentation landing page. */
+.landing-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0 2rem;
+}
+
+.landing-card {
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 0.35rem;
+    padding: 1rem 1.15rem;
+}
+
+.landing-card > :last-child {
+    margin-bottom: 0;
+}
+
 /* Sphinx-Gallery executable output: dark background with readable white text. */
 .sphx-glr-script-out .highlight,
 .sphx-glr-script-out .highlight pre,
