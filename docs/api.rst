@@ -37,6 +37,19 @@ State-space models
    complextorch.reduce_innovations_state_space
    complextorch.project_state_space
 
+Canonical model transformations
+-------------------------------
+
+:func:`~complextorch.as_innovations_state_space` provides the public common
+conversion for supported canonical dynamical models.  Model transformations
+such as :func:`~complextorch.scale_dynamics` act on this common representation
+without refitting observations.
+
+.. api-table::
+
+   complextorch.as_innovations_state_space
+   complextorch.scale_dynamics
+
 Model selection
 ---------------
 
@@ -67,10 +80,14 @@ Control and Riccati methods
 Dynamical dependence and optimization
 -------------------------------------
 
-:func:`~complextorch.optimise_dynamical_dependence` uses the canonical staged
-SSDI workflow when ``objective=None`` and returns
-:class:`~complextorch.DDSSDIOptimizationResult`. Explicit single-stage proxy or
-spectral optimization returns :class:`~complextorch.DDOptimizationResult`.
+:func:`~complextorch.dynamical_dependence` evaluates DD for a supplied
+projection. :func:`~complextorch.optimise_dynamical_dependence` searches over
+projection subspaces using the canonical staged SSDI workflow when
+``objective=None`` and returns :class:`~complextorch.DDSSDIOptimizationResult`.
+The default numerical step policy is ``optimizer="adaptive"``; ``"armijo"``
+runs the same scientific proxy--cluster--spectral workflow with Riemannian
+Armijo backtracking. Explicit single-stage proxy or spectral optimization
+returns :class:`~complextorch.DDOptimizationResult`.
 
 .. api-table::
 
@@ -132,6 +149,19 @@ Model-derived measures
    complextorch.mvgc_pvalue
    complextorch.significance
 
+Fit diagnostics
+---------------
+
+In-sample and out-of-sample evaluation are exposed through the same public
+:func:`~complextorch.fit_diagnostics` entry point and share the
+:func:`~complextorch.innovation_diagnostics` statistical core.
+
+.. api-table::
+
+   complextorch.FitDiagnostics
+   complextorch.fit_diagnostics
+   complextorch.innovation_diagnostics
+
 Resampling inference and confidence intervals
 ---------------------------------------------
 
@@ -187,13 +217,13 @@ Dynamics and additional measure primitives
    complextorch.measures.gaussian_phiid_mmi
    complextorch.measures.gaussian_phiid_atoms
 
-Synthetic systems, simulation, spectra, and multiscale utilities
-----------------------------------------------------------------
+Synthetic systems and covariance generators
+-------------------------------------------
 
-:func:`~complextorch.synthetic_var` constructs canonical batched VAR(1) systems
-for controlled sweeps over topology, spectral radius, innovation correlation,
-and topology-specific parameters. Every canonical topology supports arbitrary
-``N >= 2``.
+Synthetic constructors define dynamical systems or covariance structures; they
+do not simulate observation trajectories. :func:`~complextorch.synthetic_var`
+constructs canonical batched VAR(1) systems for controlled sweeps over topology,
+spectral radius, innovation correlation, and topology-specific parameters.
 
 .. api-table::
 
@@ -203,12 +233,28 @@ and topology-specific parameters. Every canonical topology supports arbitrary
    complextorch.equicorrelated_innovation_covariance
    complextorch.planted_module_projection
    complextorch.synthetic_var
-   complextorch.automatic_burnin
-   complextorch.simulate_var
    complextorch.demo_var
    complextorch.random_stable_var
    complextorch.random_correlation_matrix
    complextorch.random_positive_definite_covariance
+
+Trajectory simulation
+---------------------
+
+Trajectory generation is kept separate from synthetic model construction.
+:func:`~complextorch.simulate_var` simulates independent stationary Gaussian VAR
+trajectories from supplied coefficients and innovation covariance.
+
+.. api-table::
+
+   complextorch.automatic_burnin
+   complextorch.simulate_var
+
+Spectra and multiscale utilities
+-------------------------------
+
+.. api-table::
+
    complextorch.innovations_spectral_density
    complextorch.integrate_spectral_rate
    complextorch.downsample_innovations_state_space
