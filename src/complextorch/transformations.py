@@ -166,6 +166,7 @@ def scale_dynamics(
     n_scale = int(scale.numel())
 
     def expand_grid(tensor: torch.Tensor) -> torch.Tensor:
+        """Broadcast one batched system matrix over the common lambda grid."""
         return tensor[:, None].expand(
             batch, n_scale, *tensor.shape[1:]
         ).reshape(batch * n_scale, *tensor.shape[1:])
