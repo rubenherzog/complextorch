@@ -194,7 +194,6 @@ def predictive_information_from_model(
         if observation_covariance is None else observation_covariance
     )
     innovations = as_innovations(model).innovation_covariance
-    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
     return 0.5 * (spd_logdet(covariance) - spd_logdet(innovations)) / math.log(base)
 
 
@@ -322,40 +321,29 @@ def emergence_from_model(
     model: CovarianceModel,
     macro_projection: torch.Tensor,
     *,
+    lag: int = 1,
+    history: str = "lagged",
     observation_covariance: torch.Tensor | None = None,
+    autocovariance_sequence: torch.Tensor | None = None,
     base: float = 2.0,
 ) -> dict[str, torch.Tensor]:
-    """Gaussian Psi, Delta and Gamma using exact projected innovations."""
-    covariance = (
-        observation_autocovariances(model, 0)[..., 0, :, :]
-        if observation_covariance is None else observation_covariance
+    """Compatibility wrapper for model-derived emergence criteria.
+
+    The finite-delay path implements the Rosas--Mediano practical criteria.
+    ``history="full"`` selects the explicitly ComplexTorch-defined full-past
+    extension.
+    """
+    from .emergence import emergence_from_model as _emergence_from_model
+
+    return _emergence_from_model(
+        model,
+        macro_projection,
+        lag=lag,
+        history=history,
+        base=base,
+        autocovariance_sequence=autocovariance_sequence,
+        observation_covariance=observation_covariance,
     )
-    m = torch.as_tensor(macro_projection, dtype=covariance.dtype, device=covariance.device)
-    if m.ndim == 2 and covariance.ndim == 3:
-        m = m.unsqueeze(0)
-    macro_covariance = symmetrise(m @ covariance @ m.transpose(-1, -2))
-    micro_innovation = as_innovations(model).innovation_covariance
-    macro_given_micro = symmetrise(m @ micro_innovation @ m.transpose(-1, -2))
-    macro_innovation = projected_innovation_covariance(model, m)
-    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
-    i_full = 0.5 * (spd_logdet(macro_covariance) - spd_logdet(macro_given_micro)) / math.log(base)
-    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
-    i_macro = 0.5 * (spd_logdet(macro_covariance) - spd_logdet(macro_innovation)) / math.log(base)
-    full_parts = 0.5 * torch.log(
-        torch.diagonal(macro_covariance, dim1=-2, dim2=-1)
-        / torch.diagonal(macro_given_micro, dim1=-2, dim2=-1)
-    ).sum(-1) / math.log(base)
-    self_parts = 0.5 * torch.log(
-        torch.diagonal(macro_covariance, dim1=-2, dim2=-1)
-        / torch.diagonal(macro_innovation, dim1=-2, dim2=-1)
-    ).sum(-1) / math.log(base)
-    return {
-        "psi": i_full - i_macro,
-        "delta": i_macro - self_parts,
-        "gamma": i_full - full_parts,
-        "macro_predictive_information": i_macro,
-        "macro_from_micro_predictive_information": i_full,
-    }
 
 
 __all__ = [
