@@ -150,6 +150,7 @@ from .synthetic import (
     synthetic_var,
 )
 from .var import VAR, VARParameters
+from .transformations import as_innovations_state_space, scale_dynamics
 
 __all__ = [
     "ConfidenceIntervalResult",
@@ -192,6 +193,7 @@ __all__ = [
     "VARParameters",
     "VARSystem",
     "WhitenessResult",
+    "as_innovations_state_space",
     "automatic_burnin",
     "available_synthetic_systems",
     "build_measure_context",
@@ -245,6 +247,7 @@ __all__ = [
     "simulate_var",
     "solve_dare",
     "solve_generalized_dare",
+    "scale_dynamics",
     "spectral_delta_o_information_rate",
     "spectral_dynamical_dependence",
     "spectral_dynamical_dependence_gradient",

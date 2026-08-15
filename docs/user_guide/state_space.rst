@@ -42,10 +42,45 @@ predictor/innovations form
    \qquad \varepsilon_t\sim\mathcal N(0,V).
 
 Here :math:`K` is the innovations gain and :math:`V` the innovations covariance.
-A general model is converted with :func:`~complextorch.innovations_form`; a
-:class:`~complextorch.VARSystem` is converted with
-:func:`~complextorch.var_to_innovations_state_space`. Exact marginalization uses
+:func:`~complextorch.as_innovations_state_space` is the public canonical
+converter for :class:`~complextorch.VARSystem`,
+:class:`~complextorch.StateSpaceModel`, and already-converted
+:class:`~complextorch.InnovationsStateSpace` objects. Exact marginalization uses
 :func:`~complextorch.reduce_innovations_state_space`.
+
+Scaling dynamical strength
+--------------------------
+
+:func:`~complextorch.scale_dynamics` defines a one-parameter family around any
+canonical linear Gaussian system. After exact conversion to innovations form,
+
+.. math::
+
+   Q=KVK^{\mathsf T},
+   \qquad R=V,
+   \qquad S=KV,
+
+are held fixed while only the latent transition is scaled,
+
+.. math::
+
+   A_\lambda=\lambda A.
+
+The generalized DARE is then solved with the unchanged
+:math:`C,Q,R,S` to obtain the exact innovations gain and covariance of the
+scaled process. Therefore
+
+.. math::
+
+   \rho(A_\lambda)=\lambda\rho(A).
+
+The empirical process is recovered at :math:`\lambda=1`;
+:math:`\lambda=0` removes latent temporal propagation. For a stable empirical
+system with :math:`\rho(A)>0`, the stability boundary is
+:math:`\lambda_c=1/\rho(A)`. The boundary itself is excluded because the
+stationary model-derived measures require strict stability. A one-dimensional
+``lambda_`` tensor is interpreted as a common grid and is applied to every
+input batch element using Torch batching.
 
 Kalman filtering
 ----------------
