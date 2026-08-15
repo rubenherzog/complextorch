@@ -192,7 +192,7 @@ For the default :func:`~complextorch.optimise_dynamical_dependence` staged SSDI
 workflow, report:
 
 - microscopic model representation and dimensions :math:`n` and :math:`m`;
-- optimizer backend;
+- numerical step policy (``adaptive`` or ``armijo``);
 - whether initial projections were supplied or generated;
 - ``preoptimization_runs`` and ``random_seed`` when generated;
 - proxy ``lags`` configuration;
@@ -204,6 +204,11 @@ workflow, report:
 - number and sizes of Grassmann clusters;
 - final spectral convergence/objective distribution;
 - basis-invariant subspace distances when endpoints are compared.
+
+``adaptive`` and ``armijo`` are alternative numerical policies for the same
+scientific proxy--cluster--spectral SSDI workflow. Historical
+``complexbox``/``riemannian_armijo`` names are compatibility aliases and should
+not be used as the primary terminology in new analysis records.
 
 A staged result is represented by
 :class:`~complextorch.DDSSDIOptimizationResult`. Its convenience ``objective``
@@ -292,7 +297,7 @@ A compact record can use the following structure::
 
    ssdi, when used:
      macro dimension: <m>
-     optimizer: complexbox | riemannian_armijo
+     optimizer: adaptive | armijo
      preoptimization runs: <value>
      random seed: <value>
      proxy lags: <value>
