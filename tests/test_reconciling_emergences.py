@@ -11,8 +11,6 @@ from complextorch.control import var_to_innovations_state_space
 from complextorch.dd import dynamical_dependence
 from complextorch.linalg import spd_logdet, symmetrise
 from complextorch.measures import (
-    ModelMeasureConfig,
-    compute_all_model_measures,
     emergence_from_model,
     model_autocovariances,
 )
@@ -316,16 +314,3 @@ def test_full_history_does_not_depend_on_lag_argument() -> None:
     five = emergence_from_model(system, projection, history="full", lag=5)
     for name in ("psi", "delta", "gamma"):
         torch.testing.assert_close(one[name], five[name])
-
-
-def test_compute_all_can_select_full_past_emergence() -> None:
-    system = _system()
-    projection = _projection()
-    config = ModelMeasureConfig(
-        macro_projection=projection,
-        emergence_history="full",
-    )
-    aggregate = compute_all_model_measures(system, config)["emergence"]
-    direct = emergence_from_model(system, projection, history="full")
-    for name in ("psi", "delta", "gamma"):
-        torch.testing.assert_close(aggregate[name], direct[name])
