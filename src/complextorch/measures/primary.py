@@ -187,13 +187,10 @@ def build_measure_context(
     """Build the canonical analytical backbone for one model."""
     config = ModelMeasureConfig() if config is None else config
     innovations = as_innovations(model)
-    covariance = None
-    autocovariance_sequence = None
-    if isinstance(model, (VARSystem, StateSpaceModel)):
-        autocovariance_sequence = observation_autocovariances(
-            model, required_autocovariance_max_lag(model, config)
-        )
-        covariance = autocovariance_sequence[..., 0, :, :]
+    autocovariance_sequence = observation_autocovariances(
+        model, required_autocovariance_max_lag(model, config)
+    )
+    covariance = autocovariance_sequence[..., 0, :, :]
     spectrum = None
     if config.frequencies is not None:
         spectrum = innovations_spectrum(
@@ -633,75 +630,62 @@ def compute_all_model_measures(
             )
         result["available"].extend(["cross_spectral_density", "spectral_entropy"])
 
-    if isinstance(model, (VARSystem, StateSpaceModel)):
-        result["gaussian"] = gaussian_measures_from_model(
-            model,
-            base=config.base,
-            covariance=context.observation_covariance,
-        )
-        result["autocovariances"] = context.autocovariances
-        result["dynamics"].update(
-            {
-                "predictive_information": predictive_information_from_model(
-                    model,
-                    observation_covariance=context.observation_covariance,
-                    base=config.base,
-                ),
-                "active_information_storage": finite_lag_ais(
-                    context.autocovariances,
-                    config.ais_lag,
-                    base=config.base,
-                ),
-                "active_information_storage_lag": config.ais_lag,
-            }
-        )
-        result["cmem"] = cmem_from_primitives(
-            context.observation_covariance,
-            context.innovations.innovation_covariance,
-            context.autocovariances,
-            curve_max_lag=config.cmem_max_lag,
-            decomposition_max_lag=(
-                model.order if isinstance(model, VARSystem)
-                else config.cmem_decomposition_max_lag
-            ),
-        )
-        result["available"].extend(
-            [
-                "gaussian",
-                "autocovariances",
-                "predictive_information",
-                "active_information_storage",
-                "cmem",
-            ]
-        )
-        if config.phiid_variables is not None:
-            result["phiid"] = phiid_from_model(
+    result["gaussian"] = gaussian_measures_from_model(
+        model,
+        base=config.base,
+        covariance=context.observation_covariance,
+    )
+    result["autocovariances"] = context.autocovariances
+    result["dynamics"].update(
+        {
+            "predictive_information": predictive_information_from_model(
                 model,
-                config.phiid_variables,
-                lag=config.phiid_lag,
-                autocovariance_sequence=context.autocovariances,
-            )
-            result["available"].append("phiid")
-        if config.macro_projection is not None:
-            result["emergence"] = emergence_from_model(
-                model,
-                config.macro_projection,
                 observation_covariance=context.observation_covariance,
                 base=config.base,
-            )
-            result["available"].append("emergence")
-    else:
-        reason = "stationary observation covariance is not stored by InnovationsStateSpace"
-        for name in (
+            ),
+            "active_information_storage": finite_lag_ais(
+                context.autocovariances,
+                config.ais_lag,
+                base=config.base,
+            ),
+            "active_information_storage_lag": config.ais_lag,
+        }
+    )
+    result["cmem"] = cmem_from_primitives(
+        context.observation_covariance,
+        context.innovations.innovation_covariance,
+        context.autocovariances,
+        curve_max_lag=config.cmem_max_lag,
+        decomposition_max_lag=(
+            model.order if isinstance(model, VARSystem)
+            else config.cmem_decomposition_max_lag
+        ),
+    )
+    result["available"].extend(
+        [
             "gaussian",
             "autocovariances",
             "predictive_information",
             "active_information_storage",
             "cmem",
-            "phiid",
-            "emergence",
-        ):
-            result["not_available"][name] = reason
+        ]
+    )
+    if config.phiid_variables is not None:
+        result["phiid"] = phiid_from_model(
+            model,
+            config.phiid_variables,
+            lag=config.phiid_lag,
+            autocovariance_sequence=context.autocovariances,
+        )
+        result["available"].append("phiid")
+    if config.macro_projection is not None:
+        result["emergence"] = emergence_from_model(
+            model,
+            config.macro_projection,
+            observation_covariance=context.observation_covariance,
+            base=config.base,
+        )
+        result["available"].append("emergence")
 
     if config.source is not None and config.target is not None:
         result["mvgc"]["temporal"] = temporal_mvgc(

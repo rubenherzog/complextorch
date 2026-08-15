@@ -19,13 +19,13 @@ from ..control import (
     _as_innovations_state_space,
     _project_innovations_state_space,
 )
-from ..linalg import spd_logdet, symmetrise
+from ..linalg import solve_discrete_lyapunov, spd_logdet, symmetrise
 from ..representations import StateSpaceModel, VARSystem
 from ..spectra import innovations_spectral_density
 from .gaussian import gaussian_entropy, gaussian_mutual_information, total_correlation
 
 Model = VARSystem | StateSpaceModel | InnovationsStateSpace
-CovarianceModel = VARSystem | StateSpaceModel
+CovarianceModel = VARSystem | StateSpaceModel | InnovationsStateSpace
 
 
 def as_innovations(model: Model) -> InnovationsStateSpace:
@@ -62,7 +62,22 @@ def _batched_matrix(value: torch.Tensor) -> tuple[torch.Tensor, bool]:
 
 
 def observation_autocovariances(model: CovarianceModel, max_lag: int = 1) -> torch.Tensor:
-    """Return Gamma[tau]=Cov(y[t+tau],y[t]) for lags 0..max_lag."""
+    r"""Return :math:`\Gamma_\tau=\operatorname{Cov}(y_{t+\tau},y_t)`.
+
+    For an innovations-form model
+
+    .. math::
+
+       x_{t+1}=Ax_t+K\varepsilon_t,\qquad
+       y_t=Cx_t+\varepsilon_t,\qquad
+       \operatorname{Cov}(\varepsilon_t)=V,
+
+    the stationary state covariance solves
+    :math:`P=APA^\top+KVK^\top`.  The contemporaneous covariance is
+    :math:`\Gamma_0=CPC^\top+V`, while for positive lags the shared
+    innovation at time ``t`` contributes the required cross term,
+    :math:`\operatorname{Cov}(x_{t+1},y_t)=APC^\top+KV`.
+    """
     if max_lag < 0:
         raise ValueError("max_lag must be nonnegative")
     if isinstance(model, VARSystem):
@@ -71,6 +86,46 @@ def observation_autocovariances(model: CovarianceModel, max_lag: int = 1) -> tor
         state_covariance = model.state_covariance
         observation_noise = torch.zeros_like(model.present_covariance)
         single = False
+        cross_state_observation = None
+    elif isinstance(model, InnovationsStateSpace):
+        transition, transition_single = _batched_matrix(model.transition)
+        observation, observation_single = _batched_matrix(model.observation)
+        gain, gain_single = _batched_matrix(model.gain)
+        innovation_covariance, covariance_single = _batched_matrix(
+            model.innovation_covariance
+        )
+        single = (
+            transition_single
+            and observation_single
+            and gain_single
+            and covariance_single
+        )
+        batch = max(
+            transition.shape[0],
+            observation.shape[0],
+            gain.shape[0],
+            innovation_covariance.shape[0],
+        )
+        transition, observation, gain, innovation_covariance = [
+            value.expand(batch, *value.shape[1:]) if value.shape[0] == 1 else value
+            for value in (transition, observation, gain, innovation_covariance)
+        ]
+        if any(
+            value.shape[0] != batch
+            for value in (transition, observation, gain, innovation_covariance)
+        ):
+            raise ValueError("model batch dimensions are not broadcast-compatible")
+        process_covariance = symmetrise(
+            gain @ innovation_covariance @ gain.transpose(-1, -2)
+        )
+        state_covariance, _ = solve_discrete_lyapunov(
+            transition, process_covariance
+        )
+        observation_noise = innovation_covariance
+        cross_state_observation = (
+            transition @ state_covariance @ observation.transpose(-1, -2)
+            + gain @ innovation_covariance
+        )
     else:
         if model.state_covariance is None:
             raise ValueError("StateSpaceModel.state_covariance is required")
@@ -87,18 +142,23 @@ def observation_autocovariances(model: CovarianceModel, max_lag: int = 1) -> tor
             value.expand(batch, *value.shape[1:]) if value.shape[0] == 1 else value
             for value in (transition, observation, state_covariance, observation_noise)
         ]
-    batch = transition.shape[0]
-    power = torch.eye(
-        transition.shape[-1], dtype=transition.dtype, device=transition.device
-    ).expand(batch, -1, -1)
-    values = []
-    for lag in range(max_lag + 1):
-        if lag:
-            power = power @ transition
-        gamma = observation @ power @ state_covariance @ observation.transpose(-1, -2)
-        if lag == 0:
-            gamma = gamma + observation_noise
-        values.append(symmetrise(gamma) if lag == 0 else gamma)
+        cross_state_observation = None
+
+    values = [
+        symmetrise(
+            observation @ state_covariance @ observation.transpose(-1, -2)
+            + observation_noise
+        )
+    ]
+    if max_lag:
+        if cross_state_observation is None:
+            cross_state_observation = (
+                transition @ state_covariance @ observation.transpose(-1, -2)
+            )
+        for lag in range(1, max_lag + 1):
+            if lag > 1:
+                cross_state_observation = transition @ cross_state_observation
+            values.append(observation @ cross_state_observation)
     result = torch.stack(values, dim=1)
     return result[0] if single else result
 
