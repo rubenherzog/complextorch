@@ -13,6 +13,7 @@ project = "ComplexTorch"
 author = "Rubén Herzog"
 release = complextorch.__version__
 version = release
+language = "en"
 
 extensions = [
     "api_table",
@@ -49,5 +50,9 @@ html_theme_options = {
     "github_url": "https://github.com/rubenherzog/complextorch/blob/main/docs/",
     "footer_links": "Maintained by <a href=\"https://github.com/rubenherzog\">Rubén Herzog</a>",
 }
+# Keep the same full documentation tree visible on every page.  The Wagtail
+# theme supports this through Sphinx's globaltoc sidebar; making it explicit
+# avoids falling back to a page-local/flat sidebar on particular documents.
+html_sidebars = {"**": ["searchbox.html", "globaltoc.html"]}
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]

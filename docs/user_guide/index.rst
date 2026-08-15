@@ -1,26 +1,23 @@
 User guide
 ==========
 
-This guide documents the mathematical and scientific conventions implemented by
-ComplexTorch. It complements the :doc:`../api` reference: the API pages describe
-signatures and return types, while these pages explain models, equations, tensor
-semantics, estimation assumptions, numerical choices, and interpretation.
+This guide explains the mathematical and scientific conventions implemented by
+ComplexTorch. It is organized by workflow rather than by module name so that the
+left navigation remains useful while reading individual pages.
+
+Use the :doc:`../api` reference for signatures, parameters, return types, and
+source links. Use this guide for models, equations, assumptions, tensor
+semantics, numerical choices, interpretation, and scientific limitations.
 
 The guide is grounded in the implementation on the repository ``main`` branch.
 When external software is mentioned, it is a parity/reference implementation;
 the cited scientific literature remains the primary mathematical authority.
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 3
 
-   conventions
-   var
-   state_space
-   selection
-   state_space_cv
-   fit_diagnostics
-   control
-   dynamical_dependence
+   foundations/index
+   models/index
+   fitting/index
    measures
-   phiid_redundancy
-   numerics_reproducibility
+   control
