@@ -26,12 +26,8 @@ import math
 
 import torch
 
-from ..control import (
-    InnovationsStateSpace,
-    _batched,
-    conditional_observation_covariance_from_past,
-)
-from ..linalg import spd_logdet, symmetrise
+from ..control import InnovationsStateSpace, _batched, _project_innovations_state_space
+from ..linalg import solve_discrete_lyapunov, spd_logdet, symmetrise
 from .backbone import CovarianceModel, as_innovations, observation_autocovariances
 from .gaussian import gaussian_mutual_information
 
@@ -200,7 +196,6 @@ def emergence_from_autocovariances(
 
     variances = torch.diagonal(present, dim1=-2, dim2=-1)
 
-    # Cov(V_{t+tau}, X_t): shape (batch, macro, micro).
     macro_future_micro_past = projection @ future_past
     micro_to_macro = _scalar_vector_mi(
         variances,
@@ -209,7 +204,6 @@ def emergence_from_autocovariances(
         base=base,
     )
 
-    # Cov(X_{t+tau}, V_t): shape (batch, micro, macro).
     micro_future_macro_past = future_past @ projection.transpose(-1, -2)
     macro_to_micro = _scalar_vector_mi(
         variances,
@@ -218,9 +212,7 @@ def emergence_from_autocovariances(
         base=base,
     )
 
-    pairwise_micro = _pairwise_scalar_mi(
-        variances, future_past, base=base
-    )
+    pairwise_micro = _pairwise_scalar_mi(variances, future_past, base=base)
     micro_sum_by_target = pairwise_micro.sum(dim=-1)
 
     psi = macro_mi - micro_to_macro.sum(dim=-1)
@@ -240,6 +232,65 @@ def emergence_from_autocovariances(
     if gamma_single and projection_single:
         return {name: value[0] for name, value in result.items()}
     return result
+
+
+def _conditional_observation_covariance_from_past(
+    model: CovarianceModel,
+    conditioning_projection: torch.Tensor,
+) -> torch.Tensor:
+    """Return ``Cov(X_t | (L X)_{<t})`` via existing projected innovations.
+
+    The canonical projection routine already solves the required generalized
+    DARE. Its latent state is the steady-state predictor conditioned on the
+    projected history. Therefore the conditional state-error covariance is
+    the difference between the unconditional microscopic state covariance and
+    the projected predictor-state covariance.
+    """
+    innovations = as_innovations(model)
+    projected = _project_innovations_state_space(
+        innovations, conditioning_projection
+    )
+
+    def _predictor_state_covariance(system: InnovationsStateSpace) -> torch.Tensor:
+        """Return the stationary covariance of an innovations predictor state."""
+        transition, _ = _batched(system.transition, 3)
+        gain, _ = _batched(system.gain, 3)
+        innovation_covariance, _ = _batched(system.innovation_covariance, 3)
+        batch = max(
+            transition.shape[0], gain.shape[0], innovation_covariance.shape[0]
+        )
+        values = [transition, gain, innovation_covariance]
+        if any(value.shape[0] not in (1, batch) for value in values):
+            raise ValueError("incompatible projected-innovations batch dimensions")
+        transition, gain, innovation_covariance = [
+            value.expand(batch, *value.shape[1:])
+            if value.shape[0] == 1 else value
+            for value in values
+        ]
+        process_covariance = symmetrise(
+            gain @ innovation_covariance @ gain.transpose(-1, -2)
+        )
+        covariance, _ = solve_discrete_lyapunov(transition, process_covariance)
+        return covariance
+
+    microscopic_state = _predictor_state_covariance(innovations)
+    projected_state = _predictor_state_covariance(projected)
+    batch = max(microscopic_state.shape[0], projected_state.shape[0])
+    if microscopic_state.shape[0] == 1:
+        microscopic_state = microscopic_state.expand(batch, -1, -1)
+    if projected_state.shape[0] == 1:
+        projected_state = projected_state.expand(batch, -1, -1)
+
+    observation, _ = _batched(innovations.observation, 3)
+    noise, _ = _batched(innovations.innovation_covariance, 3)
+    if observation.shape[0] == 1:
+        observation = observation.expand(batch, -1, -1)
+    if noise.shape[0] == 1:
+        noise = noise.expand(batch, -1, -1)
+    state_error = symmetrise(microscopic_state - projected_state)
+    return symmetrise(
+        observation @ state_error @ observation.transpose(-1, -2) + noise
+    )
 
 
 def _expanded_innovations_for_singleton_histories(
@@ -318,9 +369,7 @@ def emergence_from_full_past(
         projection @ covariance @ projection.transpose(-1, -2)
     )
 
-    # One generalized DARE per model/projection pair gives the prediction
-    # covariance of all microscopic variables conditioned on the macro past.
-    macro_conditioned = conditional_observation_covariance_from_past(
+    macro_conditioned = _conditional_observation_covariance_from_past(
         model, projection
     )
     if macro_conditioned.ndim == 2:
@@ -342,8 +391,6 @@ def emergence_from_full_past(
         marginal_variance / macro_conditioned_variance
     ) / math.log(base)
 
-    # Batch all singleton microscopic histories through the same DARE primitive:
-    # (model, source variable) is flattened into one solver batch.
     selectors = torch.eye(
         n_variables, dtype=covariance.dtype, device=covariance.device
     ).reshape(1, n_variables, 1, n_variables).expand(batch, -1, -1, -1)
@@ -351,11 +398,10 @@ def emergence_from_full_past(
     expanded_model = _expanded_innovations_for_singleton_histories(
         model, batch, n_variables
     )
-    micro_conditioned = conditional_observation_covariance_from_past(
+    micro_conditioned = _conditional_observation_covariance_from_past(
         expanded_model, selectors
     ).reshape(batch, n_variables, n_variables, n_variables)
 
-    # Shape convention matches the finite-delay result: (target, source).
     conditional_variance = torch.diagonal(
         micro_conditioned, dim1=-2, dim2=-1
     )
@@ -365,7 +411,9 @@ def emergence_from_full_past(
     micro_pairwise = micro_pairwise.transpose(-1, -2)
 
     macro_conditioned_by_micro = symmetrise(
-        projection[:, None] @ micro_conditioned @ projection[:, None].transpose(-1, -2)
+        projection[:, None]
+        @ micro_conditioned
+        @ projection[:, None].transpose(-1, -2)
     )
     micro_to_macro = 0.5 * (
         spd_logdet(macro_covariance)[:, None]
