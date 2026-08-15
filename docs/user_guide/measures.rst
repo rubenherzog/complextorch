@@ -36,6 +36,10 @@ References
   *Physical Review E*, 91, 040101.
 - Rosas, F. E. et al. (2019). Quantifying high-order interdependencies via the
   O-information. *Physical Review E*, 100, 032305.
+- Rosas, F. E., Mediano, P. A. M., Jensen, H. J., Seth, A. K., Barrett, A. B.,
+  Carhart-Harris, R. L. and Bor, D. (2020). Reconciling emergences: An
+  information-theoretic approach to identify causal emergence in multivariate
+  data. *PLoS Computational Biology*, 16(12), e1008289.
 - Williams, P. L. and Beer, R. D. (2010). Nonnegative decomposition of
   multivariate information. arXiv:1004.2515.
 - Mediano, P. A. M. et al. (2021). Integrated information decomposition.
