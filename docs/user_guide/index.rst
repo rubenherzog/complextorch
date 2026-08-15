@@ -19,5 +19,6 @@ the cited scientific literature remains the primary mathematical authority.
    foundations/index
    models/index
    fitting/index
+   inference/index
    measures
    control
