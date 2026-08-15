@@ -194,7 +194,6 @@ def predictive_information_from_model(
         if observation_covariance is None else observation_covariance
     )
     innovations = as_innovations(model).innovation_covariance
-    # Evaluate log-determinants through an SPD-aware factorisation for numerical stability.
     return 0.5 * (spd_logdet(covariance) - spd_logdet(innovations)) / math.log(base)
 
 
@@ -322,19 +321,29 @@ def emergence_from_model(
     model: CovarianceModel,
     macro_projection: torch.Tensor,
     *,
+    lag: int = 1,
+    history: str = "lagged",
     observation_covariance: torch.Tensor | None = None,
+    autocovariance_sequence: torch.Tensor | None = None,
     base: float = 2.0,
 ) -> dict[str, torch.Tensor]:
-    """Compatibility wrapper for the Rosas--Mediano lag-one criteria.
+    """Compatibility wrapper for model-derived emergence criteria.
 
-    ``observation_covariance`` is retained for API compatibility but no longer
-    changes the emergence calculation, which requires the model-implied lagged
-    autocovariance as specified by Rosas et al. (2020).
+    The finite-delay path implements the Rosas--Mediano practical criteria.
+    ``history="full"`` selects the explicitly ComplexTorch-defined full-past
+    extension.
     """
-    del observation_covariance
     from .emergence import emergence_from_model as _emergence_from_model
 
-    return _emergence_from_model(model, macro_projection, lag=1, base=base)
+    return _emergence_from_model(
+        model,
+        macro_projection,
+        lag=lag,
+        history=history,
+        base=base,
+        autocovariance_sequence=autocovariance_sequence,
+        observation_covariance=observation_covariance,
+    )
 
 
 __all__ = [
