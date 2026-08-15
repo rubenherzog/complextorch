@@ -209,6 +209,8 @@ Dynamics and additional measure primitives
    complextorch.measures.spectral_entropy
    complextorch.measures.state_space_temporal_mvgc
    complextorch.measures.pairwise_spectral_gc
+   complextorch.measures.emergence_from_model
+   complextorch.measures.emergence_from_full_past
    complextorch.measures.emergence_measures
    complextorch.measures.emergence_from_observations
    complextorch.measures.covariance_amplification
@@ -251,7 +253,7 @@ trajectories from supplied coefficients and innovation covariance.
    complextorch.simulate_var
 
 Spectra and multiscale utilities
---------------------------------
+-------------------------------
 
 .. api-table::
 
