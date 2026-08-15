@@ -163,7 +163,7 @@ In-sample and out-of-sample evaluation are exposed through the same public
    complextorch.innovation_diagnostics
 
 Inference, confidence intervals, and NuMIT
------------------------------------------
+------------------------------------------
 
 Sampling uncertainty and constrained null-reference normalisation are separate
 operations. :func:`~complextorch.measure_confidence_intervals` fits a fixed-order
