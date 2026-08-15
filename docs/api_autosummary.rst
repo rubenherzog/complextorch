@@ -27,6 +27,8 @@ from :doc:`api`.
    ~complextorch.reduce_state_space
    ~complextorch.reduce_innovations_state_space
    ~complextorch.project_state_space
+   ~complextorch.as_innovations_state_space
+   ~complextorch.scale_dynamics
    ~complextorch.EpochTimeSeriesSplit
    ~complextorch.VAROrderSelectionIC
    ~complextorch.VAROrderSearchCV
@@ -93,6 +95,17 @@ from :doc:`api`.
    ~complextorch.consistency
    ~complextorch.mvgc_pvalue
    ~complextorch.significance
+   ~complextorch.FitDiagnostics
+   ~complextorch.fit_diagnostics
+   ~complextorch.innovation_diagnostics
+   ~complextorch.measure_confidence_intervals
+   ~complextorch.InferenceMeasureConfig
+   ~complextorch.ConfidenceIntervalResult
+   ~complextorch.MeasureInterval
+   ~complextorch.ResamplingMethod
+   ~complextorch.numit_pid_var
+   ~complextorch.var_total_mutual_information
+   ~complextorch.NuMITPIDResult
    ~complextorch.measures.conditional_covariance
    ~complextorch.measures.gaussian_conditional_mutual_information
    ~complextorch.measures.total_correlation
