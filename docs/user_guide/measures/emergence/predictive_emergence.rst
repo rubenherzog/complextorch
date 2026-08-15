@@ -100,9 +100,7 @@ API
    )
 
 The result contains ``psi``, ``delta`` and ``gamma`` together with the mutual
-information terms from which they are assembled.  ``ModelMeasureConfig`` also
-accepts ``emergence_lag`` and ``emergence_history`` so the same choice is
-available through :func:`~complextorch.measures.compute_all_model_measures`.
+information terms from which they are assembled.
 
 Relation to dynamical dependence
 --------------------------------
