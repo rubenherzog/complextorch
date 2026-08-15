@@ -33,6 +33,22 @@ ComplexTorch's DD functions return :math:`F`, not :math:`F/2`. The default log
 base of the scalar DD measure is 2. Use natural logarithms when direct
 natural-log SSDI/ComplexBox parity is required.
 
+Evaluation versus optimization
+------------------------------
+
+The public API separates the **scientific DD quantity** from the **search over
+macro subspaces**. :func:`~complextorch.dynamical_dependence` evaluates DD for a
+supplied projection and belongs to the evaluation layer implemented in
+``dd.py``. The optimization objectives, gradients, numerical step policies,
+and canonical staged SSDI search are implemented in ``dd_optimization.py`` and
+exposed through :func:`~complextorch.optimise_dynamical_dependence` and its
+lower-level helpers.
+
+This architectural separation does not define a second DD measure and does not
+change the SSDI scientific workflow. It keeps evaluation usable independently
+from optimization and prevents adaptive and Armijo search machinery from being
+duplicated across intermediate modules.
+
 Subspaces, not bases
 --------------------
 
@@ -159,21 +175,28 @@ frequency :math:`[0,1/2]`. The default ceilings are
 ``preoptimization_max_iterations=10000`` and
 ``spectral_max_iterations=10000``.
 
-Optimizer backends
-------------------
+Numerical step policies
+-----------------------
 
-``optimizer="adaptive"`` is the default numerical policy for the staged SSDI workflow. In staged
-mode, ComplexTorch selects the scientifically recommended ComplexBox variant 1
-for both proxy and spectral stages unless that stage is explicitly overridden.
+``optimizer="adaptive"`` is the default numerical step policy. It implements
+the ComplexBox-compatible adaptive search behavior, and staged mode uses the
+scientifically recommended variant 1 for proxy pre-optimization and spectral
+refinement unless a stage-specific variant is explicitly supplied.
 
-``optimizer="armijo"`` is the Riemannian Armijo step policy for the same staged SSDI workflow. It uses the same
-proxy, clustering, and spectral scientific pipeline, while replacing the
-optimization update rule with the native batched Riemannian Armijo method.
+``optimizer="armijo"`` replaces the numerical update rule with native batched
+Riemannian Armijo backtracking. It uses the **same** proxy objective, Grassmann
+clustering rule, spectral objective, and staged scientific workflow; therefore
+``adaptive`` and ``armijo`` should not be interpreted as different definitions
+of dynamical dependence.
 
-Stage-specific backend options are passed with ``preoptimizer_options`` and
+The historical names ``"complexbox"`` and ``"riemannian_armijo"`` are accepted
+as compatibility aliases for ``"adaptive"`` and ``"armijo"`` respectively.
+New analyses and documentation should use the current names.
+
+Stage-specific numerical options are passed with ``preoptimizer_options`` and
 ``spectral_optimizer_options``. The legacy ``optimizer_options`` and
 ``max_iterations`` arguments are intentionally rejected in staged mode because
-the two stages have separate controls.
+the two optimization stages have separate controls.
 
 Result contract
 ---------------
@@ -207,7 +230,9 @@ final full spectral-DD solutions rather than proxy pre-optimization.
 The common :class:`~complextorch.DDOptimizationResult` stores sorted objective
 values, physical-coordinate projections, iteration counts, convergence flags
 and raw codes, final step sizes, objective/gradient/backtracking evaluation
-counts, optional normalized history, backend name, and objective name.
+counts, optional normalized history, numerical policy name, and objective name.
+Compatibility aliases are normalized to the current ``adaptive``/``armijo``
+names before the optimization result is produced.
 
 Single-system scope
 -------------------
@@ -225,7 +250,7 @@ For a reproducible staged SSDI analysis, report at least:
 
 - repository commit and model representation;
 - microscopic dimension :math:`n` and macro dimension :math:`m`;
-- optimizer backend;
+- numerical step policy (``adaptive`` or ``armijo``);
 - number and source of initial restart subspaces;
 - random seed when restarts are generated;
 - proxy lag configuration;
