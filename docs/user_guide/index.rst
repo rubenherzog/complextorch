@@ -14,10 +14,10 @@ When external software is mentioned, it is a parity/reference implementation;
 the cited scientific literature remains the primary mathematical authority.
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 3
 
    foundations/index
    models/index
    fitting/index
-   information_complexity/index
-   control_emergence/index
+   measures
+   control
