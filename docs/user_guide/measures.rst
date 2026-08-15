@@ -64,4 +64,4 @@ Repository references
 - ``src/complextorch/measures/criticality.py``
 - ``src/complextorch/control.py``
 - ``src/complextorch/dd.py``
-- ``src/complextorch/dd_ssdi.py``
+- ``src/complextorch/dd_optimization.py``

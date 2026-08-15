@@ -64,8 +64,8 @@ Control and Riccati methods
    complextorch.ProjectionSearchResult
    complextorch.optimise_dynamical_dependence_projection
 
-Dynamical-dependence optimization
----------------------------------
+Dynamical dependence and optimization
+-------------------------------------
 
 :func:`~complextorch.optimise_dynamical_dependence` uses the canonical staged
 SSDI workflow when ``objective=None`` and returns

@@ -9,7 +9,7 @@ from complextorch import (
     optimise_dynamical_dependence,
     proxy_dynamical_dependence,
 )
-from complextorch.dd_ssdi import _var_proxy_inputs, grassmann_distances, lcluster
+from complextorch.dd_optimization import _var_proxy_inputs, grassmann_distances, lcluster
 
 
 def _small_var(dtype=torch.float64):
@@ -123,8 +123,8 @@ def test_staged_ssdi_riemannian_uses_same_workflow_contract():
         frequency_points=17,
     )
     assert isinstance(result, DDSSDIOptimizationResult)
-    assert result.preoptimization.optimizer == "riemannian_armijo"
-    assert result.spectral.optimizer == "riemannian_armijo"
+    assert result.preoptimization.optimizer == "armijo"
+    assert result.spectral.optimizer == "armijo"
     assert int(result.cluster_sizes.sum()) == 5
 
 

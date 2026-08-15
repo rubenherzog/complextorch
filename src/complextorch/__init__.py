@@ -10,7 +10,6 @@ from .confidence import measure_confidence_intervals
 from .control import (
     InnovationsStateSpace,
     ProjectionSearchResult,
-    dynamical_dependence,
     innovations_form,
     innovations_transfer_function,
     optimise_dynamical_dependence_projection,
@@ -22,14 +21,13 @@ from .control import (
     stochastic_interaction,
     var_to_innovations_state_space,
 )
-from .dd import (
+from .dd import dynamical_dependence
+from .dd_optimization import (
     DDObjective,
     DDOptimizationResult,
     DDSSDIOptimizationResult,
     DDOptimizer,
     optimise_dynamical_dependence,
-)
-from .dd_optimization import (
     DDGradientSearchResult,
     innovations_proxy_sequence,
     optimise_dynamical_dependence_proxy,
@@ -41,8 +39,7 @@ from .dd_optimization import (
     spectral_dynamical_dependence_gradient,
 )
 from .inference import ConfidenceIntervalResult, MeasureInterval, ResamplingMethod
-from .diagnostics import FitDiagnostics, innovation_diagnostics
-from ._diagnostics_evaluation import fit_diagnostics
+from .diagnostics import FitDiagnostics, fit_diagnostics, innovation_diagnostics
 from .inference_registry import InferenceMeasureConfig
 from .measures.entropy_rate import (
     marginal_entropy_rate,
@@ -123,14 +120,7 @@ from .selection import (
     VAROrderSearchResult,
     VAROrderSelectionIC,
 )
-from .simulate import (
-    automatic_burnin,
-    demo_var,
-    random_correlation_matrix,
-    random_positive_definite_covariance,
-    random_stable_var,
-    simulate_var,
-)
+from .simulate import automatic_burnin, simulate_var
 from .spectra import innovations_spectral_density, integrate_spectral_rate
 from .state_space import (
     N4SID,
@@ -140,6 +130,10 @@ from .state_space import (
     kalman_smoother,
 )
 from .synthetic import (
+    demo_var,
+    random_correlation_matrix,
+    random_positive_definite_covariance,
+    random_stable_var,
     SYNTHETIC_SYSTEMS,
     SYNTHETIC_SYSTEM_PARAMETERS,
     available_synthetic_systems,

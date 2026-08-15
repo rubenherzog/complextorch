@@ -17,11 +17,12 @@ Matrix orientation follows the ComplexTorch VAR convention
 from __future__ import annotations
 
 from collections.abc import Callable
+import math
 
 import torch
 
 from .linalg import spectral_radius
-from .representations import VARSystem, build_var_system
+from .representations import VARSystem, build_var_system, companion_matrix
 
 
 SYNTHETIC_SYSTEMS: tuple[str, ...] = (
@@ -176,8 +177,6 @@ def _directed_ring_adjacency(
     )
     adjacency[0, n_variables - 1] = 1.0
     if frustrated:
-        # One inhibitory edge preserves the unsigned graph while changing its
-        # signed interaction structure. Source 0 -> target 1 is flipped.
         adjacency[1, 0] = -1.0
     return adjacency
 
@@ -307,8 +306,6 @@ def _module_labels(n_variables: int, n_modules: int, device: torch.device) -> to
 
     if not 1 < n_modules <= n_variables:
         raise ValueError("n_modules must lie in [2, n_variables]")
-    # Nearly equal deterministic groups; unlike divisibility-based layouts this
-    # remains defined for every N.
     return torch.div(
         torch.arange(n_variables, device=device) * n_modules,
         n_variables,
@@ -463,7 +460,7 @@ def _hub(
         adjacency[others, hub] = 1.0
     elif direction == "convergent":
         adjacency[hub, others] = 1.0
-    else:  # pragma: no cover - private guard
+    else:
         raise RuntimeError("unknown hub direction")
     return _normalise_topology(
         _weighted_topology(
@@ -665,24 +662,6 @@ def synthetic_var(
         Canonical ComplexTorch VAR representation. Continuous parameter batch
         dimensions are broadcast together and flattened into ``batch_size``;
         coefficients therefore have shape ``(batch, 1, N, N)``.
-
-    Examples
-    --------
-    A rho/r grid can be evaluated without Python loops::
-
-        rho, r = torch.meshgrid(
-            torch.linspace(0.1, 0.95, 20),
-            torch.linspace(-0.2, 0.8, 30),
-            indexing="ij",
-        )
-        model = synthetic_var(
-            "directed_ring", 6,
-            spectral_radius_target=rho,
-            noise_correlation=r,
-        )
-
-    For the non-normality/noise plane, keep ``spectral_radius_target`` fixed and
-    broadcast a tensor-valued ``coupling`` in ``nonnormal_feedforward``.
     """
 
     _validate_n_variables(n_variables)
@@ -716,3 +695,98 @@ def synthetic_var(
     coefficients = transition.reshape(-1, 1, n_variables, n_variables)
     covariance = covariance.reshape(-1, n_variables, n_variables)
     return build_var_system(coefficients, covariance)
+
+
+def random_correlation_matrix(
+    n_variables: int,
+    *,
+    batch: int = 1,
+    seed: int = 0,
+    dtype: torch.dtype = torch.float64,
+    device: str | torch.device = "cpu",
+) -> torch.Tensor:
+    """Generate LKJ(eta=1) correlation matrices via the onion construction.
+
+    Uses only Torch operations and a local generator, preserving dtype/device.
+    """
+    if n_variables < 1 or batch < 1:
+        raise ValueError("n_variables and batch must be positive")
+    dev = torch.device(device)
+    generator = torch.Generator(device=dev).manual_seed(int(seed))
+    outputs = []
+    for _ in range(batch):
+        correlation = torch.ones((1, 1), dtype=dtype, device=dev)
+        for k in range(2, n_variables + 1):
+            alpha = torch.tensor(0.5 * (k - 1), dtype=dtype, device=dev)
+            beta = torch.tensor(0.5 * (n_variables - k + 1), dtype=dtype, device=dev)
+            ga = torch._standard_gamma(alpha, generator=generator)
+            gb = torch._standard_gamma(beta, generator=generator)
+            radius = torch.sqrt(ga / (ga + gb))
+            direction = torch.randn(k - 1, dtype=dtype, device=dev, generator=generator)
+            direction = direction / torch.linalg.vector_norm(direction) * radius
+            vector = torch.linalg.cholesky(correlation) @ direction
+            expanded = torch.eye(k, dtype=dtype, device=dev)
+            expanded[: k - 1, : k - 1] = correlation
+            expanded[: k - 1, k - 1] = vector
+            expanded[k - 1, : k - 1] = vector
+            correlation = expanded
+        outputs.append(correlation)
+    return torch.stack(outputs)
+
+
+def random_positive_definite_covariance(
+    n_variables: int,
+    *,
+    batch: int = 1,
+    seed: int = 0,
+    scale_min: float = 0.5,
+    scale_max: float = 1.5,
+    dtype: torch.dtype = torch.float64,
+    device: str | torch.device = "cpu",
+) -> torch.Tensor:
+    """Generate positive definite covariance."""
+    correlation = random_correlation_matrix(
+        n_variables, batch=batch, seed=seed, dtype=dtype, device=device
+    )
+    generator = torch.Generator(device=torch.device(device)).manual_seed(seed + 1)
+    scales = scale_min + (scale_max - scale_min) * torch.rand(
+        (batch, n_variables), generator=generator, dtype=dtype, device=device
+    )
+    return scales[..., :, None] * correlation * scales[..., None, :]
+
+
+def random_stable_var(batch:int,n_variables:int,order:int,*,spectral_radius_target:float=.85,noise_scale:float=1.,seed:int=0,dtype=torch.float64,device='cpu'):
+    r"""Generate random stable VAR coefficients and innovation covariance."""
+    if not 0<spectral_radius_target<1: raise ValueError('spectral_radius_target must lie in (0,1)')
+    gen=torch.Generator(device=torch.device(device)); gen.manual_seed(seed)
+    raw=torch.randn((batch,order,n_variables,n_variables),generator=gen,dtype=dtype,device=device)/math.sqrt(n_variables*order)
+    lo=torch.zeros(batch,dtype=dtype,device=device); hi=torch.ones(batch,dtype=dtype,device=device); raw_rho=spectral_radius(companion_matrix(raw)); lo=torch.where(raw_rho<=spectral_radius_target,hi,lo)
+    for _ in range(48):
+        mid=.5*(lo+hi); rho=spectral_radius(companion_matrix(raw*mid[:,None,None,None])); ok=rho<=spectral_radius_target; lo=torch.where(ok,mid,lo); hi=torch.where(ok,hi,mid)
+    coef=raw*lo[:,None,None,None]; q=noise_scale*torch.eye(n_variables,dtype=dtype,device=device).expand(batch,-1,-1).clone(); return coef,q
+
+
+def _cycle(n,frustrated,*,dtype,device):
+    """Build the signed or unsigned cycle template used by ``demo_var``."""
+    m=torch.zeros((n,n),dtype=dtype,device=device)
+    for row in range(n): m[row,(row+1)%n]=1
+    if frustrated: m[0,1]=-1
+    return m
+
+
+def demo_var(n_variables:int=3,order:int=2,*,temporal_path:float=-.95,temporal_gain:float=.9,noise_correlation:float=-.25,lag_weights=None,stability_target:float=.98,dtype=torch.float64,device='cpu'):
+    """Construct the historical stable demonstration VAR system."""
+    dev=torch.device(device); weights=torch.ones(order,dtype=dtype,device=dev) if lag_weights is None else torch.as_tensor(lag_weights,dtype=dtype,device=dev)
+    pattern=_cycle(n_variables,temporal_path<0,dtype=dtype,device=dev); eye=torch.eye(n_variables,dtype=dtype,device=dev); w=abs(float(temporal_path)); mats=[]
+    for lag in range(order):
+        raw=(1-w)*eye+w*torch.linalg.matrix_power(pattern,lag+1); mats.append(weights[lag]*temporal_gain*raw/spectral_radius(raw))
+    coef=torch.stack(mats).unsqueeze(0)
+    if float(spectral_radius(companion_matrix(coef)))>=stability_target:
+        lo,hi=0.,1.
+        for _ in range(60):
+            mid=.5*(lo+hi)
+            if float(spectral_radius(companion_matrix(mid*coef)))<stability_target: lo=mid
+            else: hi=mid
+        coef=lo*coef
+    lower=-1/(n_variables-1)+1e-4; corr=min(.999,max(lower,float(noise_correlation))); q=(1-corr)*eye+corr*torch.ones_like(eye)
+    return coef,q.unsqueeze(0)

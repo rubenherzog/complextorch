@@ -162,11 +162,11 @@ frequency :math:`[0,1/2]`. The default ceilings are
 Optimizer backends
 ------------------
 
-``optimizer="complexbox"`` remains the default and reference backend. In staged
+``optimizer="adaptive"`` is the default numerical policy for the staged SSDI workflow. In staged
 mode, ComplexTorch selects the scientifically recommended ComplexBox variant 1
 for both proxy and spectral stages unless that stage is explicitly overridden.
 
-``optimizer="riemannian_armijo"`` is an opt-in alternative. It uses the same
+``optimizer="armijo"`` is the Riemannian Armijo step policy for the same staged SSDI workflow. It uses the same
 proxy, clustering, and spectral scientific pipeline, while replacing the
 optimization update rule with the native batched Riemannian Armijo method.
 
@@ -273,7 +273,5 @@ Repository references
 - ``src/complextorch/control.py``
 - ``src/complextorch/dd.py``
 - ``src/complextorch/dd_optimization.py``
-- ``src/complextorch/dd_riemannian.py``
-- ``src/complextorch/dd_ssdi.py``
 - ``tests/test_dd_ssdi.py``
 - ``tests/test_ssdi_validation.py``
