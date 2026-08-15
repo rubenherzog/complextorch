@@ -310,7 +310,7 @@ Repository references
 - ``src/complextorch/var.py``
 - ``src/complextorch/state_space.py``
 - ``src/complextorch/dd.py``
-- ``src/complextorch/dd_ssdi.py``
+- ``src/complextorch/dd_optimization.py``
 - ``src/complextorch/selection/``
 - ``src/complextorch/measures/``
 - ``tests/``

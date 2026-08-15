@@ -13,7 +13,7 @@ from complextorch import (
     optimise_dynamical_dependence_spectral,
     orthonormalise_projection,
 )
-from complextorch.dd_riemannian import (
+from complextorch.dd_optimization import (
     DDRiemannianSearchResult,
     optimise_dynamical_dependence_proxy_riemannian,
     optimise_dynamical_dependence_spectral_riemannian,
@@ -83,7 +83,7 @@ def test_root_api_is_unified_and_complexbox_legacy_is_preserved():
 
 def test_unified_dd_optimizer_defaults_to_complexbox():
     signature = inspect.signature(optimise_dynamical_dependence)
-    assert signature.parameters["optimizer"].default == "complexbox"
+    assert signature.parameters["optimizer"].default == "adaptive"
 
 
 def test_unified_default_matches_proxy_complexbox_exactly():
@@ -107,7 +107,7 @@ def test_unified_default_matches_proxy_complexbox_exactly():
 
     assert isinstance(backend, DDGradientSearchResult)
     assert isinstance(common, DDOptimizationResult)
-    assert common.optimizer == "complexbox"
+    assert common.optimizer == "adaptive"
     assert common.objective_name == "proxy"
     _assert_common_matches_backend(common, backend)
     assert torch.equal(common.objective_evaluations, backend.iterations)
@@ -140,7 +140,7 @@ def test_unified_complexbox_matches_spectral_backend_exactly():
         max_iterations=20,
         optimizer_options={"variant": 1, "initial_step_size": 1e-3},
     )
-    assert common.optimizer == "complexbox"
+    assert common.optimizer == "adaptive"
     assert common.objective_name == "spectral"
     _assert_common_matches_backend(common, backend)
 
@@ -171,7 +171,7 @@ def test_unified_riemannian_matches_proxy_backend_exactly():
     )
 
     assert isinstance(backend, DDRiemannianSearchResult)
-    assert common.optimizer == "riemannian_armijo"
+    assert common.optimizer == "armijo"
     _assert_common_matches_backend(common, backend)
     assert torch.equal(common.objective_evaluations, backend.objective_evaluations)
     assert torch.equal(common.gradient_evaluations, backend.gradient_evaluations)
