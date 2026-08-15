@@ -253,7 +253,7 @@ trajectories from supplied coefficients and innovation covariance.
    complextorch.simulate_var
 
 Spectra and multiscale utilities
--------------------------------
+---------------------------------
 
 .. api-table::
 
