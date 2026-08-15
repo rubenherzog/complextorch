@@ -162,15 +162,16 @@ In-sample and out-of-sample evaluation are exposed through the same public
    complextorch.fit_diagnostics
    complextorch.innovation_diagnostics
 
-Resampling inference and confidence intervals
----------------------------------------------
+Inference, confidence intervals, and NuMIT
+------------------------------------------
 
-The confidence-interval API fits a fixed-order VAR, generates one shared
-resampling ensemble, and evaluates all requested compatible analytical measures
-on that ensemble. Residual bootstrap and Gaussian parametric Monte Carlo are
-available. Dynamical-dependence intervals always use the supplied fixed
-projection or fixed batch of projections; projection optimization is never
-repeated inside resampling.
+Sampling uncertainty and constrained null-reference normalisation are separate
+operations. :func:`~complextorch.measure_confidence_intervals` fits a fixed-order
+VAR and evaluates compatible measures on one shared residual-bootstrap or
+Gaussian-parametric resampling ensemble. :func:`~complextorch.numit_pid_var`
+instead compares Gaussian VAR PID atoms with an otherwise-random ensemble
+matched to the observed total past--future mutual information. NuMIT is not a
+bootstrap confidence-interval method.
 
 .. api-table::
 
@@ -178,6 +179,10 @@ repeated inside resampling.
    complextorch.InferenceMeasureConfig
    complextorch.ConfidenceIntervalResult
    complextorch.MeasureInterval
+   complextorch.ResamplingMethod
+   complextorch.numit_pid_var
+   complextorch.var_total_mutual_information
+   complextorch.NuMITPIDResult
 
 Gaussian covariance primitives
 ------------------------------
@@ -253,7 +258,7 @@ trajectories from supplied coefficients and innovation covariance.
    complextorch.simulate_var
 
 Spectra and multiscale utilities
----------------------------------
+--------------------------------
 
 .. api-table::
 
