@@ -1,9 +1,15 @@
-"""Rosas--Mediano practical criteria for causal emergence.
+"""Rosas--Mediano practical criteria and a ComplexTorch full-past extension.
 
-This module implements the finite-delay practical criteria introduced in
-Rosas et al. (2020), Eq. (10), for a deterministic linear macro-feature
-``V_t = L X_t``.  For stationary Gaussian models the criteria are evaluated
-exactly from model-implied autocovariances, without simulation or refitting.
+The published finite-delay criteria from Rosas et al. (2020), Eq. (10), are
+implemented for deterministic linear macro-features ``V_t = L X_t``. For
+stationary Gaussian models they are evaluated exactly from model-implied
+autocovariances, without simulation or refitting.
+
+ComplexTorch additionally provides explicitly separate full-past analogues.
+Those quantities are not definitions from Rosas et al.; they replace each
+finite delayed source by its complete semi-infinite past and use exact
+projected-history prediction covariances from the canonical innovations/DARE
+core.
 
 References
 ----------
@@ -20,8 +26,13 @@ import math
 
 import torch
 
-from ..linalg import symmetrise
-from .backbone import CovarianceModel, observation_autocovariances
+from ..control import (
+    InnovationsStateSpace,
+    _batched,
+    conditional_observation_covariance_from_past,
+)
+from ..linalg import spd_logdet, symmetrise
+from .backbone import CovarianceModel, as_innovations, observation_autocovariances
 from .gaussian import gaussian_mutual_information
 
 
@@ -132,7 +143,7 @@ def emergence_from_autocovariances(
     lag: int = 1,
     base: float = 2.0,
 ) -> dict[str, torch.Tensor]:
-    r"""Evaluate the Rosas--Mediano practical emergence criteria.
+    r"""Evaluate the published Rosas--Mediano practical emergence criteria.
 
     For ``V_t = L X_t`` and :math:`\tau=\text{lag}` this computes
 
@@ -231,6 +242,155 @@ def emergence_from_autocovariances(
     return result
 
 
+def _expanded_innovations_for_singleton_histories(
+    model: CovarianceModel,
+    batch: int,
+    n_variables: int,
+) -> InnovationsStateSpace:
+    """Repeat each model once per singleton conditioning history."""
+    innovations = as_innovations(model)
+    values = []
+    for tensor in (
+        innovations.transition,
+        innovations.observation,
+        innovations.gain,
+        innovations.innovation_covariance,
+    ):
+        value, _ = _batched(tensor, 3)
+        if value.shape[0] not in (1, batch):
+            raise ValueError("model batch is incompatible with macro_projection batch")
+        if value.shape[0] == 1:
+            value = value.expand(batch, *value.shape[1:])
+        values.append(value.repeat_interleave(n_variables, dim=0))
+    return InnovationsStateSpace(*values)
+
+
+def emergence_from_full_past(
+    model: CovarianceModel,
+    macro_projection: torch.Tensor,
+    *,
+    base: float = 2.0,
+    observation_covariance: torch.Tensor | None = None,
+) -> dict[str, torch.Tensor]:
+    r"""Evaluate the ComplexTorch full-past extension of emergence criteria.
+
+    This extension is **not** defined in Rosas et al. (2020). ComplexTorch
+    defines
+
+    .. math::
+
+       \Psi_\infty(V)
+       = I(V_{<t};V_t)-\sum_j I(X^j_{<t};V_t),
+
+    .. math::
+
+       \Delta_\infty(V)
+       = \max_j\left[I(V_{<t};X_t^j)
+       -\sum_i I(X^i_{<t};X_t^j)\right],
+
+    .. math::
+
+       \Gamma_\infty(V)=\max_j I(V_{<t};X_t^j).
+
+    Every conditional covariance is computed exactly from the model's
+    innovations representation using the existing generalized-DARE projection
+    core. No finite-history truncation or simulated trajectory is used.
+    """
+    base = _validate_base(base)
+    covariance = (
+        observation_autocovariances(model, 0)[..., 0, :, :]
+        if observation_covariance is None
+        else torch.as_tensor(observation_covariance)
+    )
+    covariance = torch.as_tensor(covariance)
+    covariance_single = covariance.ndim == 2
+    if covariance_single:
+        covariance = covariance.unsqueeze(0)
+    projection, projection_single = _batched_projection(
+        macro_projection, covariance
+    )
+    gamma = covariance.unsqueeze(1)
+    gamma, projection = _broadcast_model_projection(gamma, projection)
+    covariance = symmetrise(gamma[:, 0])
+    batch, n_variables, _ = covariance.shape
+
+    macro_covariance = symmetrise(
+        projection @ covariance @ projection.transpose(-1, -2)
+    )
+
+    # One generalized DARE per model/projection pair gives the prediction
+    # covariance of all microscopic variables conditioned on the macro past.
+    macro_conditioned = conditional_observation_covariance_from_past(
+        model, projection
+    )
+    if macro_conditioned.ndim == 2:
+        macro_conditioned = macro_conditioned.unsqueeze(0)
+    if macro_conditioned.shape[0] == 1 and batch > 1:
+        macro_conditioned = macro_conditioned.expand(batch, -1, -1)
+    macro_given_macro_past = symmetrise(
+        projection @ macro_conditioned @ projection.transpose(-1, -2)
+    )
+    macro_mi = 0.5 * (
+        spd_logdet(macro_covariance) - spd_logdet(macro_given_macro_past)
+    ) / math.log(base)
+
+    marginal_variance = torch.diagonal(covariance, dim1=-2, dim2=-1)
+    macro_conditioned_variance = torch.diagonal(
+        macro_conditioned, dim1=-2, dim2=-1
+    )
+    macro_to_micro = 0.5 * torch.log(
+        marginal_variance / macro_conditioned_variance
+    ) / math.log(base)
+
+    # Batch all singleton microscopic histories through the same DARE primitive:
+    # (model, source variable) is flattened into one solver batch.
+    selectors = torch.eye(
+        n_variables, dtype=covariance.dtype, device=covariance.device
+    ).reshape(1, n_variables, 1, n_variables).expand(batch, -1, -1, -1)
+    selectors = selectors.reshape(batch * n_variables, 1, n_variables)
+    expanded_model = _expanded_innovations_for_singleton_histories(
+        model, batch, n_variables
+    )
+    micro_conditioned = conditional_observation_covariance_from_past(
+        expanded_model, selectors
+    ).reshape(batch, n_variables, n_variables, n_variables)
+
+    # Shape convention matches the finite-delay result: (target, source).
+    conditional_variance = torch.diagonal(
+        micro_conditioned, dim1=-2, dim2=-1
+    )
+    micro_pairwise = 0.5 * torch.log(
+        marginal_variance[:, None, :] / conditional_variance
+    ) / math.log(base)
+    micro_pairwise = micro_pairwise.transpose(-1, -2)
+
+    macro_conditioned_by_micro = symmetrise(
+        projection[:, None] @ micro_conditioned @ projection[:, None].transpose(-1, -2)
+    )
+    micro_to_macro = 0.5 * (
+        spd_logdet(macro_covariance)[:, None]
+        - spd_logdet(macro_conditioned_by_micro)
+    ) / math.log(base)
+
+    psi = macro_mi - micro_to_macro.sum(dim=-1)
+    delta_terms = macro_to_micro - micro_pairwise.sum(dim=-1)
+    delta = delta_terms.max(dim=-1).values
+    gamma_value = macro_to_micro.max(dim=-1).values
+
+    result = {
+        "psi": psi,
+        "delta": delta,
+        "gamma": gamma_value,
+        "macro_mutual_information": macro_mi,
+        "micro_to_macro_mutual_information": micro_to_macro,
+        "macro_to_micro_mutual_information": macro_to_micro,
+        "micro_pairwise_mutual_information": micro_pairwise,
+    }
+    if covariance_single and projection_single:
+        return {name: value[0] for name, value in result.items()}
+    return result
+
+
 def emergence_from_model(
     model: CovarianceModel,
     macro_projection: torch.Tensor,
@@ -239,17 +399,15 @@ def emergence_from_model(
     history: str = "lagged",
     base: float = 2.0,
     autocovariance_sequence: torch.Tensor | None = None,
+    observation_covariance: torch.Tensor | None = None,
 ) -> dict[str, torch.Tensor]:
-    r"""Return Rosas--Mediano :math:`\Psi`, :math:`\Delta`, and :math:`\Gamma`.
+    r"""Return finite-delay or full-past emergence criteria.
 
-    The published practical criteria are finite-delay quantities. ``history``
-    therefore currently accepts only ``"lagged"``. A full-past extension is
-    intentionally not exposed yet: exact cross-prediction terms such as
-    :math:`I(V_{<t};X_t^j)` require prediction covariances conditioned on an
-    arbitrary projected history, not only the reduced innovation covariance.
-    They are computable with generalized DAREs, but ComplexTorch does not yet
-    expose the reusable projected-history prediction primitive needed to do so
-    without duplicating the control core.
+    ``history="lagged"`` implements the practical :math:`\Psi_\tau`,
+    :math:`\Delta_\tau`, and :math:`\Gamma_\tau` criteria published by
+    Rosas--Mediano et al. ``history="full"`` selects the explicitly
+    ComplexTorch-defined full-past extension :math:`\Psi_\infty`,
+    :math:`\Delta_\infty`, and :math:`\Gamma_\infty`.
 
     Parameters
     ----------
@@ -260,24 +418,28 @@ def emergence_from_model(
         Full-row-rank linear map ``L`` in ``V_t = L X_t``, with shape
         ``(m,n)`` or ``(batch,m,n)``. No projection is estimated internally.
     lag
-        Positive delay :math:`\tau`. Defaults to 1.
+        Positive delay :math:`\tau` for ``history="lagged"``. It has no role
+        in the full-past definition.
     history
-        ``"lagged"`` for the published finite-delay criteria. ``"full"`` is
-        reserved for a future explicitly ComplexTorch-defined extension and
-        currently raises ``NotImplementedError``.
+        ``"lagged"`` for the published Rosas--Mediano criteria or ``"full"``
+        for the ComplexTorch extension.
     base
         Logarithm base. Defaults to 2 (bits).
     autocovariance_sequence
-        Optional precomputed model autocovariances, used by aggregate measure
-        evaluation to avoid recomputation.
+        Optional precomputed autocovariances for the finite-delay path.
+    observation_covariance
+        Optional precomputed stationary covariance for the full-past path.
     """
     if history not in {"lagged", "full"}:
         raise ValueError("history must be 'lagged' or 'full'")
+    if lag < 1:
+        raise ValueError("lag must be at least one")
     if history == "full":
-        raise NotImplementedError(
-            "history='full' requires projected-history conditional prediction "
-            "covariances from generalized DAREs; this extension is not yet "
-            "implemented to avoid duplicating the control reduction core"
+        return emergence_from_full_past(
+            model,
+            macro_projection,
+            base=base,
+            observation_covariance=observation_covariance,
         )
     autocovariances = (
         observation_autocovariances(model, lag)
@@ -294,10 +456,13 @@ def emergence_measures(
     macro_projection: torch.Tensor,
     *,
     lag: int = 1,
+    history: str = "lagged",
     base: float = 2.0,
 ) -> dict[str, torch.Tensor]:
     """Backward-compatible alias for :func:`emergence_from_model`."""
-    return emergence_from_model(model, macro_projection, lag=lag, base=base)
+    return emergence_from_model(
+        model, macro_projection, lag=lag, history=history, base=base
+    )
 
 
 def emergence_from_observations(
@@ -309,8 +474,9 @@ def emergence_from_observations(
 ) -> dict[str, torch.Tensor]:
     """Gaussian plug-in estimate of the published finite-delay criteria.
 
-    This secondary estimator exists for compatibility with the observation API;
-    the primary implementation is :func:`emergence_from_model`.
+    This secondary estimator intentionally implements only the finite-delay
+    Rosas--Mediano quantities. The exact ``history="full"`` extension is
+    model-based because it requires an innovations/DARE representation.
     """
     if lag < 1:
         raise ValueError("lag must be at least one")
@@ -345,6 +511,7 @@ def emergence_from_observations(
 
 __all__ = [
     "emergence_from_autocovariances",
+    "emergence_from_full_past",
     "emergence_from_model",
     "emergence_measures",
     "emergence_from_observations",
