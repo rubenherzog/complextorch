@@ -767,6 +767,7 @@ def random_stable_var(batch:int,n_variables:int,order:int,*,spectral_radius_targ
 
 
 def _cycle(n,frustrated,*,dtype,device):
+    """Build the signed or unsigned cycle template used by ``demo_var``."""
     m=torch.zeros((n,n),dtype=dtype,device=device)
     for row in range(n): m[row,(row+1)%n]=1
     if frustrated: m[0,1]=-1
@@ -774,6 +775,7 @@ def _cycle(n,frustrated,*,dtype,device):
 
 
 def demo_var(n_variables:int=3,order:int=2,*,temporal_path:float=-.95,temporal_gain:float=.9,noise_correlation:float=-.25,lag_weights=None,stability_target:float=.98,dtype=torch.float64,device='cpu'):
+    """Construct the historical stable demonstration VAR system."""
     dev=torch.device(device); weights=torch.ones(order,dtype=dtype,device=dev) if lag_weights is None else torch.as_tensor(lag_weights,dtype=dtype,device=dev)
     pattern=_cycle(n_variables,temporal_path<0,dtype=dtype,device=dev); eye=torch.eye(n_variables,dtype=dtype,device=dev); w=abs(float(temporal_path)); mats=[]
     for lag in range(order):
