@@ -41,7 +41,12 @@ import torch
 
 from ..control import InnovationsStateSpace, reduce_innovations_state_space
 from ..linalg import spd_logdet
-from ..spectra import hermitian_logdet, innovations_spectral_density
+from ..spectra import (
+    SpectralMeasureContext,
+    _resolve_spectral_measure_context,
+    hermitian_logdet,
+    innovations_spectral_density,
+)
 from .rates import (
     _normalise_group,
     _validate_log_base,
@@ -172,13 +177,17 @@ def _spectral_oir_logdet_terms(
     *,
     sampling_frequency: float,
     marginalization: str,
+    spectral_context: SpectralMeasureContext | None,
 ) -> torch.Tensor:
     """Evaluate the OIR spectral log-determinant identity at every frequency."""
     cache: dict[Group, InnovationsStateSpace] = {}
     full_spectrum = None
     if marginalization == "spectrum":
-        full_spectrum = innovations_spectral_density(
-            system, frequencies, sampling_frequency=sampling_frequency
+        full_spectrum = _resolve_spectral_measure_context(
+            system,
+            frequencies,
+            sampling_frequency=sampling_frequency,
+            context=spectral_context,
         )
     elif marginalization != "dare":
         raise ValueError("marginalization must be 'dare' or 'spectrum'")
@@ -186,8 +195,7 @@ def _spectral_oir_logdet_terms(
     def log_spectrum(indices: Group) -> torch.Tensor:
         """Return the Hermitian log-determinant spectrum of one marginal."""
         if full_spectrum is not None:
-            index = torch.as_tensor(indices, dtype=torch.long, device=full_spectrum.device)
-            spectrum = full_spectrum.index_select(-2, index).index_select(-1, index)
+            spectrum = full_spectrum.submatrix(indices)
         else:
             model = _marginal_model(system, indices, cache)
             spectrum = innovations_spectral_density(
@@ -217,6 +225,7 @@ def spectral_o_information_rate(
     sampling_frequency: float = 1.0,
     base: float = math.e,
     marginalization: str = "dare",
+    spectral_context: SpectralMeasureContext | None = None,
 ) -> torch.Tensor:
     r"""Compute the frequency-resolved Gaussian O-information rate.
 
@@ -240,6 +249,8 @@ def spectral_o_information_rate(
         ``"spectrum"`` obtains every marginal spectral matrix as a submatrix
         of one full model spectrum, avoiding repeated DARE solves while giving
         the same frequency-resolved quantity.
+    spectral_context
+        Optional reusable full-spectrum context for ``marginalization="spectrum"``.
 
     Returns
     -------
@@ -262,6 +273,7 @@ def spectral_o_information_rate(
             frequencies,
             sampling_frequency=sampling_frequency,
             marginalization=marginalization,
+            spectral_context=spectral_context,
         )
         / math.log(base_value)
     )
