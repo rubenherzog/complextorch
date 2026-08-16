@@ -127,7 +127,12 @@ from .selection import (
     VAROrderSelectionIC,
 )
 from .simulate import automatic_burnin, simulate_var
-from .spectra import innovations_spectral_density, integrate_spectral_rate
+from .spectra import (
+    SpectralMeasureContext,
+    build_spectral_measure_context,
+    innovations_spectral_density,
+    integrate_spectral_rate,
+)
 from .state_space import (
     N4SID,
     LarimoreStateSpace,
@@ -172,6 +177,7 @@ __all__ = [
     "SpectralHOPResult",
     "SpectralPDGCResult",
     "SpectralPIRDResult",
+    "SpectralMeasureContext",
     "VAR",
     "EpochTimeSeriesSplit",
     "InnovationsStateSpace",
@@ -198,6 +204,7 @@ __all__ = [
     "automatic_burnin",
     "available_synthetic_systems",
     "build_measure_context",
+    "build_spectral_measure_context",
     "build_var_system",
     "companion_matrix",
     "compute_all_model_measures",
