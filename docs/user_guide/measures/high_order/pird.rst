@@ -76,3 +76,17 @@ integration, PID lattice, and Möbius inversion primitives rather than
 implementing parallel numerical machinery.
 
 See :doc:`../../measures` for shared scientific and repository references.
+
+Scalable extrema for feature extraction
+----------------------------------------
+
+:func:`~complextorch.pird_extrema` is a feature-extraction helper for the
+common singleton case used in large-system fingerprinting. It evaluates every
+valid pair of singleton sources against every distinct singleton target, then
+returns the maximum integrated PIRD synergy and redundancy together with the
+attaining ``(source0, source1, target)`` indices. The full spectral density is
+computed once and all candidate submatrices are evaluated in Torch batches.
+
+This does not replace the general PIRD API: use
+:func:`~complextorch.partial_information_rate_decomposition` when the full atom
+structure, grouped variables, or three-source decomposition is required.
