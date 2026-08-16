@@ -17,7 +17,7 @@ import math
 import torch
 
 from ..control import reduce_innovations_state_space
-from ..spectra import hermitian_logdet, innovations_spectral_density
+from ..spectra import hermitian_logdet, innovations_spectral_density, integrate_spectral_rate
 from .backbone import Model, as_innovations
 from .gaussian import gaussian_entropy
 
@@ -26,6 +26,10 @@ def marginal_entropy_rate(
     model: Model,
     *,
     base: float = 2.0,
+    method: str = "dare",
+    frequencies: torch.Tensor | None = None,
+    sampling_frequency: float = 1.0,
+    half_open: bool = False,
 ) -> torch.Tensor:
     r"""Return one exact Gaussian entropy rate per observed variable.
 
@@ -47,6 +51,16 @@ def marginal_entropy_rate(
         ``VARSystem``, ``StateSpaceModel``, or ``InnovationsStateSpace``.
     base
         Logarithm base used for the differential entropy rate.
+    method
+        ``"dare"`` computes exact marginal innovations through generalized-DARE
+        reduction. ``"spectral"`` computes all marginal rates from one full
+        spectral density and numerical integration.
+    frequencies
+        Frequency grid required by ``method="spectral"``.
+    sampling_frequency
+        Sampling frequency associated with ``frequencies``.
+    half_open
+        Use the shared Faes/HOP half-open spectral integration convention.
 
     Returns
     -------
@@ -57,11 +71,31 @@ def marginal_entropy_rate(
     """
     innovations = as_innovations(model)
     n_observations = innovations.observation.shape[-2]
-    values = []
-    for index in range(n_observations):
-        marginal = reduce_innovations_state_space(innovations, (index,))
-        values.append(gaussian_entropy(marginal.innovation_covariance, base=base))
-    return torch.stack(values, dim=-1)
+    if method == "dare":
+        values = []
+        for index in range(n_observations):
+            marginal = reduce_innovations_state_space(innovations, (index,))
+            values.append(gaussian_entropy(marginal.innovation_covariance, base=base))
+        return torch.stack(values, dim=-1)
+    if method != "spectral":
+        raise ValueError("method must be 'dare' or 'spectral'")
+    if frequencies is None:
+        raise ValueError("frequencies are required when method='spectral'")
+
+    spectrum = innovations_spectral_density(
+        innovations, frequencies, sampling_frequency=sampling_frequency
+    )
+    diagonal = torch.diagonal(spectrum, dim1=-2, dim2=-1).real
+    density = 0.5 * (
+        math.log(2.0 * math.pi * math.e * float(sampling_frequency))
+        + torch.log(diagonal)
+    ) / math.log(float(base))
+    return integrate_spectral_rate(
+        density.movedim(-1, -2),
+        frequencies,
+        sampling_frequency=sampling_frequency,
+        half_open=half_open,
+    )
 
 
 def spectral_entropy_rate_from_spectrum(
