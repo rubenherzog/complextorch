@@ -149,6 +149,8 @@ from :doc:`api`.
    ~complextorch.random_stable_var
    ~complextorch.random_correlation_matrix
    ~complextorch.random_positive_definite_covariance
+   ~complextorch.SpectralMeasureContext
+   ~complextorch.build_spectral_measure_context
    ~complextorch.innovations_spectral_density
    ~complextorch.integrate_spectral_rate
    ~complextorch.downsample_innovations_state_space
