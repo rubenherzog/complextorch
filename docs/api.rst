@@ -268,6 +268,8 @@ Spectra and multiscale utilities
 
 .. api-table::
 
+   complextorch.SpectralMeasureContext
+   complextorch.build_spectral_measure_context
    complextorch.innovations_spectral_density
    complextorch.integrate_spectral_rate
    complextorch.downsample_innovations_state_space
