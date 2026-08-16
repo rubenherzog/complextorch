@@ -17,7 +17,12 @@ import math
 import torch
 
 from ..control import reduce_innovations_state_space
-from ..spectra import hermitian_logdet, innovations_spectral_density, integrate_spectral_rate
+from ..spectra import (
+    SpectralMeasureContext,
+    _resolve_spectral_measure_context,
+    hermitian_logdet,
+    innovations_spectral_density,
+)
 from .backbone import Model, as_innovations
 from .gaussian import gaussian_entropy
 
@@ -30,6 +35,7 @@ def marginal_entropy_rate(
     frequencies: torch.Tensor | None = None,
     sampling_frequency: float = 1.0,
     half_open: bool = False,
+    spectral_context: SpectralMeasureContext | None = None,
 ) -> torch.Tensor:
     r"""Return one exact Gaussian entropy rate per observed variable.
 
@@ -61,6 +67,9 @@ def marginal_entropy_rate(
         Sampling frequency associated with ``frequencies``.
     half_open
         Use the shared Faes/HOP half-open spectral integration convention.
+    spectral_context
+        Optional reusable full-spectrum context. When supplied with
+        ``method="spectral"``, its spectrum is reused instead of recomputed.
 
     Returns
     -------
@@ -82,20 +91,18 @@ def marginal_entropy_rate(
     if frequencies is None:
         raise ValueError("frequencies are required when method='spectral'")
 
-    spectrum = innovations_spectral_density(
-        innovations, frequencies, sampling_frequency=sampling_frequency
+    context = _resolve_spectral_measure_context(
+        innovations,
+        frequencies,
+        sampling_frequency=sampling_frequency,
+        context=spectral_context,
     )
-    diagonal = torch.diagonal(spectrum, dim1=-2, dim2=-1).real
+    diagonal = torch.diagonal(context.spectrum, dim1=-2, dim2=-1).real
     density = 0.5 * (
         math.log(2.0 * math.pi * math.e * float(sampling_frequency))
         + torch.log(diagonal)
     ) / math.log(float(base))
-    return integrate_spectral_rate(
-        density.movedim(-1, -2),
-        frequencies,
-        sampling_frequency=sampling_frequency,
-        half_open=half_open,
-    )
+    return context.integrate(density.movedim(-1, -2), half_open=half_open)
 
 
 def spectral_entropy_rate_from_spectrum(
