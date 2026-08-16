@@ -107,3 +107,21 @@ full singleton-pair MIR matrix and its unordered-pair mean. The default
 spectral submatrices in batch, and numerically integrates their MIR densities.
 This avoids repeated generalized-DARE reductions while preserving the same
 scientific quantity up to the explicitly controlled spectral quadrature error.
+
+Reusable spectral measure context
+---------------------------------
+
+When several spectral features are evaluated on the same model and frequency
+grid, :func:`~complextorch.build_spectral_measure_context` computes the full
+observation spectrum once and stores it with its frequency metadata in
+:class:`~complextorch.SpectralMeasureContext`. The scalable spectral backends
+for marginal entropy rates/CMem1, pairwise MIR, OIR, and PIRD extrema accept
+this context through ``spectral_context=``. Reusing the context changes only
+computation reuse; all measure definitions, frequency grids, and quadrature
+conventions remain explicit and unchanged.
+
+A context is tied scientifically to the model from which it was built. It
+should therefore only be reused for measures of that same model, on the same
+frequency grid and sampling frequency. ComplexTorch validates the spectral
+metadata and observation dimension; callers remain responsible for preserving
+model identity when caching contexts across a larger analysis.
