@@ -1,5 +1,6 @@
 import itertools
 
+import pytest
 import torch
 
 import complextorch
@@ -128,8 +129,8 @@ def test_pird_extrema_matches_bruteforce_public_pird():
 
     synergy = torch.stack(synergy, dim=-1)
     redundancy = torch.stack(redundancy, dim=-1)
-    expected_syn, _ = synergy.max(dim=-1)
-    expected_red, _ = redundancy.max(dim=-1)
+    expected_syn = synergy.max(dim=-1).values
+    expected_red = redundancy.max(dim=-1).values
     torch.testing.assert_close(efficient.synergistic, expected_syn, rtol=0.0, atol=1e-12)
     torch.testing.assert_close(efficient.redundant, expected_red, rtol=0.0, atol=1e-12)
     # Multiple triples can tie by symmetry. Validate that the reported argmax
@@ -152,7 +153,6 @@ def test_pairwise_mir_spectral_matches_dare():
         mean_pairwise_gaussian_mutual_information_rate,
         pairwise_gaussian_mutual_information_rate,
     )
-
     system = var_to_innovations_state_space(_model())
     frequencies = torch.linspace(0.0, 0.5, 1025, dtype=torch.float64)
     exact = pairwise_gaussian_mutual_information_rate(system, method="dare", base=2.0)
@@ -191,3 +191,96 @@ def test_feature_helpers_preserve_float32_dtype():
     assert torch.isfinite(mir).all()
     assert torch.isfinite(gc).all()
     assert torch.isfinite(pird.synergistic).all()
+
+
+def test_spectral_measure_context_is_reusable_across_feature_helpers(monkeypatch):
+    from complextorch import (
+        build_spectral_measure_context,
+        pairwise_gaussian_mutual_information_rate,
+    )
+    import complextorch.spectra as spectra
+
+    model = _model()
+    system = var_to_innovations_state_space(model)
+    frequency = _grid(257)
+    context = build_spectral_measure_context(system, frequency)
+
+    expected_entropy = marginal_entropy_rate(
+        system, method="spectral", frequencies=frequency, base=2.0
+    )
+    expected_cmem = cmem1_full_past(
+        model, marginal_method="spectral", frequencies=frequency, base=2.0
+    )
+    expected_mir = pairwise_gaussian_mutual_information_rate(
+        system, method="spectral", frequencies=frequency, base=2.0
+    )
+    expected_oir = spectral_o_information_rate(
+        system,
+        frequency,
+        ([0], [1], [2], [3]),
+        base=2.0,
+        marginalization="spectrum",
+    )
+    expected_pird = pird_extrema(system, frequency, base=2.0)
+
+    def fail_if_recomputed(*args, **kwargs):
+        raise AssertionError("full spectrum was recomputed instead of reusing context")
+
+    monkeypatch.setattr(spectra, "innovations_spectral_density", fail_if_recomputed)
+
+    actual_entropy = marginal_entropy_rate(
+        system,
+        method="spectral",
+        frequencies=frequency,
+        base=2.0,
+        spectral_context=context,
+    )
+    actual_cmem = cmem1_full_past(
+        model,
+        marginal_method="spectral",
+        frequencies=frequency,
+        base=2.0,
+        spectral_context=context,
+    )
+    actual_mir = pairwise_gaussian_mutual_information_rate(
+        system,
+        method="spectral",
+        frequencies=frequency,
+        base=2.0,
+        spectral_context=context,
+    )
+    actual_oir = spectral_o_information_rate(
+        system,
+        frequency,
+        ([0], [1], [2], [3]),
+        base=2.0,
+        marginalization="spectrum",
+        spectral_context=context,
+    )
+    actual_pird = pird_extrema(
+        system, frequency, base=2.0, spectral_context=context
+    )
+
+    torch.testing.assert_close(actual_entropy, expected_entropy)
+    torch.testing.assert_close(actual_cmem, expected_cmem)
+    torch.testing.assert_close(actual_mir, expected_mir)
+    torch.testing.assert_close(actual_oir, expected_oir)
+    torch.testing.assert_close(actual_pird.synergistic, expected_pird.synergistic)
+    torch.testing.assert_close(actual_pird.redundant, expected_pird.redundant)
+
+
+def test_spectral_measure_context_rejects_incompatible_grid():
+    from complextorch import build_spectral_measure_context
+
+    system = var_to_innovations_state_space(_model())
+    frequency = _grid(129)
+    context = build_spectral_measure_context(system, frequency)
+    shifted = frequency.clone()
+    shifted[1] += 1e-4
+    with pytest.raises(ValueError):
+        marginal_entropy_rate(
+            system,
+            method="spectral",
+            frequencies=shifted,
+            spectral_context=context,
+        )
