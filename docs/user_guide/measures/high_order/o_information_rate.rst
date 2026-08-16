@@ -46,6 +46,13 @@ spectral-density matrices:
 Whole-band spectral integration recovers temporal OIR up to numerical
 quadrature error.
 
+For large batches, ``marginalization="spectrum"`` evaluates all required
+marginals as submatrices of one full spectral density and therefore avoids
+repeated generalized-DARE reductions. ``marginalization="dare"`` preserves the
+original reduced-innovations path and remains the default. The two paths are
+frequency-resolved identities; only subsequent numerical integration introduces
+quadrature error.
+
 O-information gradient / delta O-information rate
 -------------------------------------------------
 
