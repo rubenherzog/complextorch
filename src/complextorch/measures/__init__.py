@@ -46,7 +46,11 @@ from .pid import (
     gaussian_pid_from_var,
     var_past_future_covariance,
 )
-from .rates import gaussian_mutual_information_rate, pairwise_gaussian_mutual_information_rate, mean_pairwise_gaussian_mutual_information_rate
+from .rates import (
+    gaussian_mutual_information_rate,
+    mean_pairwise_gaussian_mutual_information_rate,
+    pairwise_gaussian_mutual_information_rate,
+)
 from .planner import DynamicalMeasures
 from .registry import MEASURE_REGISTRY, PRIMARY_MEASURES, SECONDARY_MEASURES
 __all__ = [name for name in globals() if not name.startswith("_")]
