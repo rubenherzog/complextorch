@@ -524,7 +524,7 @@ def compute_all_model_measures(
     result["criticality"] = _criticality(model, context)
     result["available"].append("criticality")
 
-    pairwise_temporal = pairwise_temporal_mvgc(model, base=config.base)
+    pairwise_temporal = pairwise_temporal_mvgc(context.innovations, base=config.base)
     result["mvgc"] = {"pairwise_temporal": pairwise_temporal}
     result["available"].append("mvgc")
 
