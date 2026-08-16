@@ -171,18 +171,28 @@ def _spectral_oir_logdet_terms(
     frequencies: torch.Tensor,
     *,
     sampling_frequency: float,
+    marginalization: str,
 ) -> torch.Tensor:
     """Evaluate the OIR spectral log-determinant identity at every frequency."""
     cache: dict[Group, InnovationsStateSpace] = {}
+    full_spectrum = None
+    if marginalization == "spectrum":
+        full_spectrum = innovations_spectral_density(
+            system, frequencies, sampling_frequency=sampling_frequency
+        )
+    elif marginalization != "dare":
+        raise ValueError("marginalization must be 'dare' or 'spectrum'")
 
     def log_spectrum(indices: Group) -> torch.Tensor:
         """Return the Hermitian log-determinant spectrum of one marginal."""
-        model = _marginal_model(system, indices, cache)
-        spectrum = innovations_spectral_density(
-            model,
-            frequencies,
-            sampling_frequency=sampling_frequency,
-        )
+        if full_spectrum is not None:
+            index = torch.as_tensor(indices, dtype=torch.long, device=full_spectrum.device)
+            spectrum = full_spectrum.index_select(-2, index).index_select(-1, index)
+        else:
+            model = _marginal_model(system, indices, cache)
+            spectrum = innovations_spectral_density(
+                model, frequencies, sampling_frequency=sampling_frequency
+            )
         return hermitian_logdet(spectrum)
 
     joint = log_spectrum(_flatten(groups))
@@ -206,6 +216,7 @@ def spectral_o_information_rate(
     *,
     sampling_frequency: float = 1.0,
     base: float = math.e,
+    marginalization: str = "dare",
 ) -> torch.Tensor:
     r"""Compute the frequency-resolved Gaussian O-information rate.
 
@@ -224,6 +235,11 @@ def spectral_o_information_rate(
         implementation.
     base
         Logarithm base. Defaults to natural units.
+    marginalization
+        ``"dare"`` preserves the exact reduced-innovations path.
+        ``"spectrum"`` obtains every marginal spectral matrix as a submatrix
+        of one full model spectrum, avoiding repeated DARE solves while giving
+        the same frequency-resolved quantity.
 
     Returns
     -------
@@ -245,6 +261,7 @@ def spectral_o_information_rate(
             normalised,
             frequencies,
             sampling_frequency=sampling_frequency,
+            marginalization=marginalization,
         )
         / math.log(base_value)
     )
