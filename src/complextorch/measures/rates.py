@@ -17,7 +17,14 @@ from ..control import (
     reduce_innovations_state_space,
 )
 from ..linalg import spd_logdet
-from ..spectra import hermitian_logdet, hermitian_part, innovations_spectral_density
+from ..spectra import (
+    SpectralMeasureContext,
+    _resolve_spectral_measure_context,
+    hermitian_logdet,
+    hermitian_part,
+    innovations_spectral_density,
+    integrate_spectral_rate,
+)
 from ._nested_var import normalise_indices
 
 
@@ -320,3 +327,94 @@ def spectral_gaussian_transfer_entropy_rate(
     return 0.5 * (
         hermitian_logdet(target_spectrum) - hermitian_logdet(intrinsic)
     ) / math.log(base_value)
+
+
+def pairwise_gaussian_mutual_information_rate(
+    system: InnovationsStateSpace,
+    *,
+    base: float = math.e,
+    method: str = "dare",
+    frequencies: torch.Tensor | None = None,
+    sampling_frequency: float = 1.0,
+    half_open: bool = False,
+    spectral_context: SpectralMeasureContext | None = None,
+) -> torch.Tensor:
+    r"""Return the symmetric matrix of singleton Gaussian MIR values.
+
+    ``method="dare"`` preserves the exact reduced-innovations calculation.
+    ``method="spectral"`` evaluates the full model spectrum once, extracts all
+    singleton pair spectra in batch, and integrates their MIR densities.  The
+    latter is useful for high-throughput feature extraction because it avoids
+    one generalized DARE solve per pair.
+
+    The diagonal is exactly zero.  Leading model batch dimensions are
+    preserved.
+    """
+    base_value = _validate_log_base(base)
+    n_variables = system.observation.shape[-2]
+    covariance = system.innovation_covariance
+    result_shape = (*covariance.shape[:-2], n_variables, n_variables)
+    if n_variables < 2:
+        return torch.zeros(result_shape, dtype=covariance.dtype, device=covariance.device)
+
+    if method == "dare":
+        result = torch.zeros(result_shape, dtype=covariance.dtype, device=covariance.device)
+        for left in range(n_variables):
+            for right in range(left + 1, n_variables):
+                value = gaussian_mutual_information_rate(
+                    system, left, right, base=base_value
+                )
+                result[..., left, right] = value
+                result[..., right, left] = value
+        return result
+    if method != "spectral":
+        raise ValueError("method must be 'dare' or 'spectral'")
+    if frequencies is None:
+        raise ValueError("frequencies are required when method='spectral'")
+
+    context = _resolve_spectral_measure_context(
+        system,
+        frequencies,
+        sampling_frequency=sampling_frequency,
+        context=spectral_context,
+    )
+    spectrum = context.spectrum
+    diagonal = torch.diagonal(spectrum, dim1=-2, dim2=-1).real
+    product = diagonal.unsqueeze(-1) * diagonal.unsqueeze(-2)
+    determinant = product - spectrum.abs().square()
+    tiny = torch.finfo(spectrum.real.dtype).tiny
+    density = 0.5 * torch.log(
+        product.clamp_min(tiny) / determinant.clamp_min(tiny)
+    ) / math.log(base_value)
+    eye = torch.eye(n_variables, dtype=torch.bool, device=spectrum.device)
+    density = density.masked_fill(eye, 0.0)
+    return context.integrate(density.movedim(-3, -1), half_open=half_open)
+
+
+def mean_pairwise_gaussian_mutual_information_rate(
+    system: InnovationsStateSpace,
+    *,
+    base: float = math.e,
+    method: str = "dare",
+    frequencies: torch.Tensor | None = None,
+    sampling_frequency: float = 1.0,
+    half_open: bool = False,
+    spectral_context: SpectralMeasureContext | None = None,
+) -> torch.Tensor:
+    """Return the mean singleton MIR over unordered observation pairs."""
+    matrix = pairwise_gaussian_mutual_information_rate(
+        system,
+        base=base,
+        method=method,
+        frequencies=frequencies,
+        sampling_frequency=sampling_frequency,
+        half_open=half_open,
+        spectral_context=spectral_context,
+    )
+    n_variables = matrix.shape[-1]
+    if n_variables < 2:
+        return torch.zeros(matrix.shape[:-2], dtype=matrix.dtype, device=matrix.device)
+    indices = torch.triu_indices(
+        n_variables, n_variables, offset=1, device=matrix.device
+    )
+    return matrix[..., indices[0], indices[1]].mean(dim=-1)

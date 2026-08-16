@@ -18,6 +18,7 @@ import torch
 
 from ..linalg import spd_logdet, spd_solve, symmetrise
 from ..representations import VARSystem
+from ..spectra import SpectralMeasureContext
 from .gaussian import gaussian_mutual_information, total_correlation
 
 
@@ -322,6 +323,55 @@ def compute_cmem_from_primitives(
     return CMemResult(*(value[0] for value in result.__dict__.values()))
 
 
+def cmem1_full_past(
+    model,
+    *,
+    base: float = 2.0,
+    marginal_method: str = "dare",
+    frequencies: torch.Tensor | None = None,
+    sampling_frequency: float = 1.0,
+    half_open: bool = False,
+    spectral_context: SpectralMeasureContext | None = None,
+) -> torch.Tensor:
+    r"""Return full-past CMem1 from exact or spectral marginal entropy rates.
+
+    The full-past definition is
+
+    .. math::
+
+       CMem_1 = [H(X_t)-h(X)] - \sum_i [H(X_t^i)-h(X^i)],
+
+    where every marginal entropy rate :math:`h(X^i)` is the entropy rate of
+    the exact marginal process. ``marginal_method="dare"`` uses exact
+    generalized-DARE reductions. ``marginal_method="spectral"`` reuses one
+    full spectral density and numerical quadrature, which is substantially
+    cheaper for high-dimensional feature extraction.
+    """
+    from .backbone import as_innovations, observation_autocovariances
+    from .entropy_rate import marginal_entropy_rate
+    from .gaussian import gaussian_entropy
+
+    innovations = as_innovations(model)
+    present = observation_autocovariances(model, 0)[..., 0, :, :]
+    full_ais = gaussian_entropy(present, base=base) - gaussian_entropy(
+        innovations.innovation_covariance, base=base
+    )
+    diagonal = torch.diagonal(present, dim1=-2, dim2=-1)
+    marginal_present = 0.5 * (
+        math.log(2.0 * math.pi * math.e) + torch.log(diagonal)
+    ) / math.log(float(base))
+    marginal_rates = marginal_entropy_rate(
+        innovations,
+        base=base,
+        method=marginal_method,
+        frequencies=frequencies,
+        sampling_frequency=sampling_frequency,
+        half_open=half_open,
+        spectral_context=spectral_context,
+    )
+    return full_ais - (marginal_present - marginal_rates).sum(dim=-1)
+
+
 def cmem3_total(system: VARSystem) -> torch.Tensor:
     """Return CMem3 total for a canonical VAR system."""
     return cmem3_total_from_covariances(
@@ -427,6 +477,7 @@ __all__ = [
     "compute_cmem_from_primitives",
     "cmem3_total",
     "cmem1_total",
+    "cmem1_full_past",
     "cmem3_curve",
     "cmem1_curve",
     "cmem3_lag_decomposition",

@@ -44,7 +44,11 @@ from .gaussian import (
     s_information,
     total_correlation,
 )
-from .mvgc import state_space_spectral_mvgc, state_space_temporal_mvgc
+from .mvgc import (
+    pairwise_temporal_mvgc,
+    state_space_spectral_mvgc,
+    state_space_temporal_mvgc,
+)
 from .oir import o_information_rate, spectral_o_information_rate
 from .phid import gaussian_phiid_atoms
 from .rates import (
@@ -439,33 +443,6 @@ def _pairwise_spectral_matrix(
     return result
 
 
-def _pairwise_temporal_mvgc(
-    model: Model,
-    *,
-    base: float,
-) -> torch.Tensor:
-    """Return all ordered singleton-to-singleton temporal MVGC values."""
-    innovations = as_innovations(model)
-    n_variables = innovations.observation.shape[-2]
-    covariance = innovations.innovation_covariance
-    result = torch.zeros(
-        (*covariance.shape[:-2], n_variables, n_variables),
-        dtype=covariance.dtype,
-        device=covariance.device,
-    )
-    for source in range(n_variables):
-        for target in range(n_variables):
-            if source == target:
-                continue
-            result[..., source, target] = state_space_temporal_mvgc(
-                innovations,
-                source=(source,),
-                target=(target,),
-                base=base,
-            )
-    return result
-
-
 def _pairwise_spectral_mvgc(
     model: Model,
     frequencies: torch.Tensor,
@@ -547,7 +524,7 @@ def compute_all_model_measures(
     result["criticality"] = _criticality(model, context)
     result["available"].append("criticality")
 
-    pairwise_temporal = _pairwise_temporal_mvgc(model, base=config.base)
+    pairwise_temporal = pairwise_temporal_mvgc(context.innovations, base=config.base)
     result["mvgc"] = {"pairwise_temporal": pairwise_temporal}
     result["available"].append("mvgc")
 

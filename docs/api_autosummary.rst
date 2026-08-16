@@ -66,8 +66,12 @@ from :doc:`api`.
    ~complextorch.compute_all_model_measures
    ~complextorch.model_autocovariances
    ~complextorch.temporal_mvgc
+   ~complextorch.pairwise_temporal_mvgc
+   ~complextorch.maximum_temporal_mvgc
    ~complextorch.spectral_mvgc
    ~complextorch.gaussian_mutual_information_rate
+   ~complextorch.pairwise_gaussian_mutual_information_rate
+   ~complextorch.mean_pairwise_gaussian_mutual_information_rate
    ~complextorch.gaussian_transfer_entropy_rate
    ~complextorch.gaussian_instantaneous_information_rate
    ~complextorch.spectral_gaussian_mutual_information_rate
@@ -79,6 +83,8 @@ from :doc:`api`.
    ~complextorch.partial_information_rate_decomposition
    ~complextorch.spectral_partial_information_rate_decomposition
    ~complextorch.PIRDResult
+   ~complextorch.PIRDExtremaResult
+   ~complextorch.pird_extrema
    ~complextorch.SpectralPIRDResult
    ~complextorch.partial_granger_causality_decomposition
    ~complextorch.spectral_partial_granger_causality_decomposition
@@ -143,6 +149,8 @@ from :doc:`api`.
    ~complextorch.random_stable_var
    ~complextorch.random_correlation_matrix
    ~complextorch.random_positive_definite_covariance
+   ~complextorch.SpectralMeasureContext
+   ~complextorch.build_spectral_measure_context
    ~complextorch.innovations_spectral_density
    ~complextorch.integrate_spectral_rate
    ~complextorch.downsample_innovations_state_space

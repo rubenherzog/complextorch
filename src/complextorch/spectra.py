@@ -6,6 +6,8 @@ unit time, matching the existing ComplexTorch convention.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import torch
 
 from .control import InnovationsStateSpace, innovations_transfer_function
@@ -103,6 +105,86 @@ def innovations_spectral_density(
             @ transfer.conj().transpose(-1, -2)
         ) / float(sampling_frequency)
     return hermitian_part(spectrum)
+
+
+@dataclass(frozen=True)
+class SpectralMeasureContext:
+    """Reusable full observation spectrum and its frequency metadata.
+
+    The context is a lightweight cache for high-throughput model-derived
+    measures that depend on the same full spectral-density matrix.  It does not
+    alter any measure definition; it only avoids recomputing ``S(f)`` when
+    several spectral features are evaluated on the same model and grid.
+    """
+
+    frequencies: torch.Tensor
+    spectrum: torch.Tensor
+    sampling_frequency: float
+
+    @property
+    def n_observations(self) -> int:
+        """Number of observed variables represented by the spectrum."""
+        return self.spectrum.shape[-1]
+
+    def submatrix(self, indices) -> torch.Tensor:
+        """Return one observation-group spectral submatrix."""
+        index = torch.as_tensor(indices, dtype=torch.long, device=self.spectrum.device)
+        return self.spectrum.index_select(-2, index).index_select(-1, index)
+
+    def integrate(self, values: torch.Tensor, *, half_open: bool = False) -> torch.Tensor:
+        """Integrate a spectral rate using this context's grid metadata."""
+        return integrate_spectral_rate(
+            values,
+            self.frequencies,
+            sampling_frequency=self.sampling_frequency,
+            half_open=half_open,
+        )
+
+
+def build_spectral_measure_context(
+    system: InnovationsStateSpace,
+    frequencies: torch.Tensor,
+    *,
+    sampling_frequency: float = 1.0,
+) -> SpectralMeasureContext:
+    """Build a reusable full-spectrum context for model-derived measures."""
+    frequency = torch.as_tensor(
+        frequencies, dtype=system.transition.dtype, device=system.transition.device
+    )
+    spectrum = innovations_spectral_density(
+        system, frequency, sampling_frequency=sampling_frequency
+    )
+    return SpectralMeasureContext(
+        frequencies=frequency,
+        spectrum=spectrum,
+        sampling_frequency=float(sampling_frequency),
+    )
+
+
+def _resolve_spectral_measure_context(
+    system: InnovationsStateSpace,
+    frequencies: torch.Tensor,
+    *,
+    sampling_frequency: float = 1.0,
+    context: SpectralMeasureContext | None = None,
+) -> SpectralMeasureContext:
+    """Return a compatible supplied context or build one."""
+    if context is None:
+        return build_spectral_measure_context(
+            system, frequencies, sampling_frequency=sampling_frequency
+        )
+    frequency = torch.as_tensor(
+        frequencies, dtype=context.frequencies.dtype, device=context.frequencies.device
+    )
+    if context.n_observations != system.observation.shape[-2]:
+        raise ValueError("spectral context has incompatible observation dimension")
+    if context.sampling_frequency != float(sampling_frequency):
+        raise ValueError("spectral context has incompatible sampling_frequency")
+    if frequency.shape != context.frequencies.shape or not torch.equal(
+        frequency, context.frequencies
+    ):
+        raise ValueError("spectral context has incompatible frequencies")
+    return context
 
 
 def integrate_spectral_rate(

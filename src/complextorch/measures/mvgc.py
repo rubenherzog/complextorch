@@ -211,6 +211,54 @@ def state_space_temporal_mvgc(
     return (spd_logdet(reduced_covariance) - spd_logdet(full_covariance)) / math.log(base)
 
 
+def pairwise_temporal_mvgc(
+    system: VARSystem | InnovationsStateSpace,
+    *,
+    base: float = math.e,
+) -> torch.Tensor:
+    r"""Return all conditional singleton MVGC values with one reduction per source.
+
+    For :math:`F_{i\to j\mid X\setminus\{i,j\}}`, removing source ``i``
+    defines the same reduced model for every target ``j != i``. This function
+    therefore performs only ``n_variables`` reduced-innovations DARE solves,
+    rather than one reduction per ordered pair, while preserving the exact
+    conditional-MVGC definition.
+    """
+    innovations = _as_innovations(system)
+    n_variables = innovations.observation.shape[-2]
+    covariance = innovations.innovation_covariance
+    result = torch.zeros(
+        (*covariance.shape[:-2], n_variables, n_variables),
+        dtype=covariance.dtype,
+        device=covariance.device,
+    )
+    if n_variables < 2:
+        return result
+    full_variances = torch.diagonal(covariance, dim1=-2, dim2=-1)
+    for source in range(n_variables):
+        keep = tuple(index for index in range(n_variables) if index != source)
+        reduced = reduce_innovations_state_space(innovations, keep)
+        reduced_variances = torch.diagonal(
+            reduced.innovation_covariance, dim1=-2, dim2=-1
+        )
+        targets = torch.as_tensor(keep, dtype=torch.long, device=covariance.device)
+        values = (
+            torch.log(reduced_variances)
+            - torch.log(full_variances.index_select(-1, targets))
+        ) / math.log(base)
+        result[..., source, targets] = values
+    return result
+
+
+def maximum_temporal_mvgc(
+    system: VARSystem | InnovationsStateSpace,
+    *,
+    base: float = math.e,
+) -> torch.Tensor:
+    """Return the maximum ordered singleton conditional temporal MVGC."""
+    return pairwise_temporal_mvgc(system, base=base).amax(dim=(-2, -1))
+
+
 def _partial_covariance(
     covariance: torch.Tensor,
     variables,

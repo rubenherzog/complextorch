@@ -17,7 +17,12 @@ import math
 import torch
 
 from ..control import reduce_innovations_state_space
-from ..spectra import hermitian_logdet, innovations_spectral_density
+from ..spectra import (
+    SpectralMeasureContext,
+    _resolve_spectral_measure_context,
+    hermitian_logdet,
+    innovations_spectral_density,
+)
 from .backbone import Model, as_innovations
 from .gaussian import gaussian_entropy
 
@@ -26,6 +31,11 @@ def marginal_entropy_rate(
     model: Model,
     *,
     base: float = 2.0,
+    method: str = "dare",
+    frequencies: torch.Tensor | None = None,
+    sampling_frequency: float = 1.0,
+    half_open: bool = False,
+    spectral_context: SpectralMeasureContext | None = None,
 ) -> torch.Tensor:
     r"""Return one exact Gaussian entropy rate per observed variable.
 
@@ -47,6 +57,19 @@ def marginal_entropy_rate(
         ``VARSystem``, ``StateSpaceModel``, or ``InnovationsStateSpace``.
     base
         Logarithm base used for the differential entropy rate.
+    method
+        ``"dare"`` computes exact marginal innovations through generalized-DARE
+        reduction. ``"spectral"`` computes all marginal rates from one full
+        spectral density and numerical integration.
+    frequencies
+        Frequency grid required by ``method="spectral"``.
+    sampling_frequency
+        Sampling frequency associated with ``frequencies``.
+    half_open
+        Use the shared Faes/HOP half-open spectral integration convention.
+    spectral_context
+        Optional reusable full-spectrum context. When supplied with
+        ``method="spectral"``, its spectrum is reused instead of recomputed.
 
     Returns
     -------
@@ -57,11 +80,29 @@ def marginal_entropy_rate(
     """
     innovations = as_innovations(model)
     n_observations = innovations.observation.shape[-2]
-    values = []
-    for index in range(n_observations):
-        marginal = reduce_innovations_state_space(innovations, (index,))
-        values.append(gaussian_entropy(marginal.innovation_covariance, base=base))
-    return torch.stack(values, dim=-1)
+    if method == "dare":
+        values = []
+        for index in range(n_observations):
+            marginal = reduce_innovations_state_space(innovations, (index,))
+            values.append(gaussian_entropy(marginal.innovation_covariance, base=base))
+        return torch.stack(values, dim=-1)
+    if method != "spectral":
+        raise ValueError("method must be 'dare' or 'spectral'")
+    if frequencies is None:
+        raise ValueError("frequencies are required when method='spectral'")
+
+    context = _resolve_spectral_measure_context(
+        innovations,
+        frequencies,
+        sampling_frequency=sampling_frequency,
+        context=spectral_context,
+    )
+    diagonal = torch.diagonal(context.spectrum, dim1=-2, dim2=-1).real
+    density = 0.5 * (
+        math.log(2.0 * math.pi * math.e * float(sampling_frequency))
+        + torch.log(diagonal)
+    ) / math.log(float(base))
+    return context.integrate(density.movedim(-1, -2), half_open=half_open)
 
 
 def spectral_entropy_rate_from_spectrum(

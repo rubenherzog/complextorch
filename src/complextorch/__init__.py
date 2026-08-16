@@ -41,6 +41,8 @@ from .dd_optimization import (
 from .inference import ConfidenceIntervalResult, MeasureInterval, ResamplingMethod
 from .diagnostics import FitDiagnostics, fit_diagnostics, innovation_diagnostics
 from .inference_registry import InferenceMeasureConfig
+from .measures.cmem import cmem1_full_past
+from .measures.mvgc import maximum_temporal_mvgc, pairwise_temporal_mvgc
 from .measures.entropy_rate import (
     marginal_entropy_rate,
     spectral_entropy_rate,
@@ -67,9 +69,11 @@ from .measures.pid import (
 )
 from .measures.phid_primary import phiid_redundancy_from_model
 from .measures.pird import (
+    PIRDExtremaResult,
     PIRDResult,
     SpectralPIRDResult,
     partial_information_rate_decomposition,
+    pird_extrema,
     spectral_partial_information_rate_decomposition,
 )
 from .measures.primary import (
@@ -85,6 +89,8 @@ from .measures.primary import (
 from .measures.rates import (
     gaussian_instantaneous_information_rate,
     gaussian_mutual_information_rate,
+    mean_pairwise_gaussian_mutual_information_rate,
+    pairwise_gaussian_mutual_information_rate,
     gaussian_transfer_entropy_rate,
     spectral_gaussian_mutual_information_rate,
     spectral_gaussian_transfer_entropy_rate,
@@ -121,7 +127,12 @@ from .selection import (
     VAROrderSelectionIC,
 )
 from .simulate import automatic_burnin, simulate_var
-from .spectra import innovations_spectral_density, integrate_spectral_rate
+from .spectra import (
+    SpectralMeasureContext,
+    build_spectral_measure_context,
+    innovations_spectral_density,
+    integrate_spectral_rate,
+)
 from .state_space import (
     N4SID,
     LarimoreStateSpace,
@@ -159,12 +170,14 @@ __all__ = [
     "N4SID",
     "PDGCResult",
     "PIRDResult",
+    "PIRDExtremaResult",
     "ResamplingMethod",
     "SYNTHETIC_SYSTEMS",
     "SYNTHETIC_SYSTEM_PARAMETERS",
     "SpectralHOPResult",
     "SpectralPDGCResult",
     "SpectralPIRDResult",
+    "SpectralMeasureContext",
     "VAR",
     "EpochTimeSeriesSplit",
     "InnovationsStateSpace",
@@ -191,9 +204,11 @@ __all__ = [
     "automatic_burnin",
     "available_synthetic_systems",
     "build_measure_context",
+    "build_spectral_measure_context",
     "build_var_system",
     "companion_matrix",
     "compute_all_model_measures",
+    "cmem1_full_past",
     "consistency",
     "delta_o_information_rate",
     "demo_var",
@@ -204,6 +219,8 @@ __all__ = [
     "from_complexbox_var",
     "gaussian_instantaneous_information_rate",
     "gaussian_mutual_information_rate",
+    "mean_pairwise_gaussian_mutual_information_rate",
+    "pairwise_gaussian_mutual_information_rate",
     "gaussian_transfer_entropy_rate",
     "hop_analysis",
     "innovations_form",
@@ -216,6 +233,7 @@ __all__ = [
     "marginal_entropy_rate",
     "measure_confidence_intervals",
     "model_autocovariances",
+    "maximum_temporal_mvgc",
     "mvgc_pvalue",
     "o_information_rate",
     "optimise_dynamical_dependence",
@@ -225,6 +243,8 @@ __all__ = [
     "orthonormalise_projection",
     "partial_granger_causality_decomposition",
     "partial_information_rate_decomposition",
+    "pairwise_temporal_mvgc",
+    "pird_extrema",
     "phiid_from_model",
     "phiid_redundancy_from_model",
     "planted_module_projection",
