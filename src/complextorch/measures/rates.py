@@ -18,6 +18,8 @@ from ..control import (
 )
 from ..linalg import spd_logdet
 from ..spectra import (
+    SpectralMeasureContext,
+    _resolve_spectral_measure_context,
     hermitian_logdet,
     hermitian_part,
     innovations_spectral_density,
@@ -335,6 +337,7 @@ def pairwise_gaussian_mutual_information_rate(
     frequencies: torch.Tensor | None = None,
     sampling_frequency: float = 1.0,
     half_open: bool = False,
+    spectral_context: SpectralMeasureContext | None = None,
 ) -> torch.Tensor:
     r"""Return the symmetric matrix of singleton Gaussian MIR values.
 
@@ -344,21 +347,18 @@ def pairwise_gaussian_mutual_information_rate(
     latter is useful for high-throughput feature extraction because it avoids
     one generalized DARE solve per pair.
 
-    The diagonal is exactly zero. Leading model batch dimensions are preserved.
+    The diagonal is exactly zero.  Leading model batch dimensions are
+    preserved.
     """
     base_value = _validate_log_base(base)
     n_variables = system.observation.shape[-2]
     covariance = system.innovation_covariance
     result_shape = (*covariance.shape[:-2], n_variables, n_variables)
     if n_variables < 2:
-        return torch.zeros(
-            result_shape, dtype=covariance.dtype, device=covariance.device
-        )
+        return torch.zeros(result_shape, dtype=covariance.dtype, device=covariance.device)
 
     if method == "dare":
-        result = torch.zeros(
-            result_shape, dtype=covariance.dtype, device=covariance.device
-        )
+        result = torch.zeros(result_shape, dtype=covariance.dtype, device=covariance.device)
         for left in range(n_variables):
             for right in range(left + 1, n_variables):
                 value = gaussian_mutual_information_rate(
@@ -372,9 +372,13 @@ def pairwise_gaussian_mutual_information_rate(
     if frequencies is None:
         raise ValueError("frequencies are required when method='spectral'")
 
-    spectrum = innovations_spectral_density(
-        system, frequencies, sampling_frequency=sampling_frequency
+    context = _resolve_spectral_measure_context(
+        system,
+        frequencies,
+        sampling_frequency=sampling_frequency,
+        context=spectral_context,
     )
+    spectrum = context.spectrum
     diagonal = torch.diagonal(spectrum, dim1=-2, dim2=-1).real
     product = diagonal.unsqueeze(-1) * diagonal.unsqueeze(-2)
     determinant = product - spectrum.abs().square()
@@ -384,12 +388,7 @@ def pairwise_gaussian_mutual_information_rate(
     ) / math.log(base_value)
     eye = torch.eye(n_variables, dtype=torch.bool, device=spectrum.device)
     density = density.masked_fill(eye, 0.0)
-    return integrate_spectral_rate(
-        density.movedim(-3, -1),
-        frequencies,
-        sampling_frequency=sampling_frequency,
-        half_open=half_open,
-    )
+    return context.integrate(density.movedim(-3, -1), half_open=half_open)
 
 
 def mean_pairwise_gaussian_mutual_information_rate(
@@ -400,6 +399,7 @@ def mean_pairwise_gaussian_mutual_information_rate(
     frequencies: torch.Tensor | None = None,
     sampling_frequency: float = 1.0,
     half_open: bool = False,
+    spectral_context: SpectralMeasureContext | None = None,
 ) -> torch.Tensor:
     """Return the mean singleton MIR over unordered observation pairs."""
     matrix = pairwise_gaussian_mutual_information_rate(
@@ -409,12 +409,11 @@ def mean_pairwise_gaussian_mutual_information_rate(
         frequencies=frequencies,
         sampling_frequency=sampling_frequency,
         half_open=half_open,
+        spectral_context=spectral_context,
     )
     n_variables = matrix.shape[-1]
     if n_variables < 2:
-        return torch.zeros(
-            matrix.shape[:-2], dtype=matrix.dtype, device=matrix.device
-        )
+        return torch.zeros(matrix.shape[:-2], dtype=matrix.dtype, device=matrix.device)
     indices = torch.triu_indices(
         n_variables, n_variables, offset=1, device=matrix.device
     )
