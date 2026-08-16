@@ -34,7 +34,13 @@ from dataclasses import dataclass
 import torch
 
 from ..control import InnovationsStateSpace
-from ..spectra import hermitian_logdet, innovations_spectral_density, integrate_spectral_rate
+from ..spectra import (
+    SpectralMeasureContext,
+    _resolve_spectral_measure_context,
+    hermitian_logdet,
+    innovations_spectral_density,
+    integrate_spectral_rate,
+)
 from ._pid_lattice import Antichain, PIDLattice, Subset, pid_lattice, pid_mobius_inversion
 from .oir import Group, _flatten, _normalise_groups
 from .rates import (
@@ -386,6 +392,7 @@ def pird_extrema(
     sampling_frequency: float = 1.0,
     base: float = math.e,
     half_open: bool = False,
+    spectral_context: SpectralMeasureContext | None = None,
 ) -> PIRDExtremaResult:
     r"""Return maximum singleton PIRD synergy/redundancy over all valid triples.
 
@@ -408,9 +415,13 @@ def pird_extrema(
     n_variables = system.observation.shape[-2]
     if n_variables < 3:
         raise ValueError("pird_extrema requires at least three observed variables")
-    spectrum = innovations_spectral_density(
-        system, frequencies, sampling_frequency=sampling_frequency
+    context = _resolve_spectral_measure_context(
+        system,
+        frequencies,
+        sampling_frequency=sampling_frequency,
+        context=spectral_context,
     )
+    spectrum = context.spectrum
     triples = [
         (left, right, target)
         for target in range(n_variables)
@@ -426,6 +437,7 @@ def pird_extrema(
         sub = spectrum[..., :, indices[:, :, None], indices[:, None, :]]
         return hermitian_logdet(sub)
 
+    # Advanced indexing gives (..., frequency, candidate) for scalar spectra.
     d0 = spectrum[..., :, s0, s0].real
     d1 = spectrum[..., :, s1, s1].real
     dt = spectrum[..., :, target, target].real
@@ -444,27 +456,13 @@ def pird_extrema(
     i01 = 0.5 * (log_sources + torch.log(dt) - log_triplet) / log_base
     redundant_spectrum = torch.minimum(i0, i1).movedim(-1, -2)
     synergistic_spectrum = (i01 - torch.maximum(i0, i1)).movedim(-1, -2)
-    redundant = integrate_spectral_rate(
-        redundant_spectrum,
-        frequencies,
-        sampling_frequency=sampling_frequency,
-        half_open=half_open,
-    )
-    synergistic = integrate_spectral_rate(
-        synergistic_spectrum,
-        frequencies,
-        sampling_frequency=sampling_frequency,
-        half_open=half_open,
-    )
+    redundant = context.integrate(redundant_spectrum, half_open=half_open)
+    synergistic = context.integrate(synergistic_spectrum, half_open=half_open)
     max_red, red_pos = redundant.max(dim=-1)
     max_syn, syn_pos = synergistic.max(dim=-1)
     return PIRDExtremaResult(
         synergistic=max_syn,
         redundant=max_red,
-        synergistic_indices=index.index_select(0, syn_pos.reshape(-1)).reshape(
-            *syn_pos.shape, 3
-        ),
-        redundant_indices=index.index_select(0, red_pos.reshape(-1)).reshape(
-            *red_pos.shape, 3
-        ),
+        synergistic_indices=index.index_select(0, syn_pos.reshape(-1)).reshape(*syn_pos.shape, 3),
+        redundant_indices=index.index_select(0, red_pos.reshape(-1)).reshape(*red_pos.shape, 3),
     )
