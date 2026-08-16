@@ -18,6 +18,7 @@ import torch
 
 from ..linalg import spd_logdet, spd_solve, symmetrise
 from ..representations import VARSystem
+from ..spectra import SpectralMeasureContext
 from .gaussian import gaussian_mutual_information, total_correlation
 
 
@@ -330,6 +331,7 @@ def cmem1_full_past(
     frequencies: torch.Tensor | None = None,
     sampling_frequency: float = 1.0,
     half_open: bool = False,
+    spectral_context: SpectralMeasureContext | None = None,
 ) -> torch.Tensor:
     r"""Return full-past CMem1 from exact or spectral marginal entropy rates.
 
@@ -365,6 +367,7 @@ def cmem1_full_past(
         frequencies=frequencies,
         sampling_frequency=sampling_frequency,
         half_open=half_open,
+        spectral_context=spectral_context,
     )
     return full_ais - (marginal_present - marginal_rates).sum(dim=-1)
 
