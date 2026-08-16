@@ -34,7 +34,7 @@ from dataclasses import dataclass
 import torch
 
 from ..control import InnovationsStateSpace
-from ..spectra import integrate_spectral_rate
+from ..spectra import hermitian_logdet, innovations_spectral_density, integrate_spectral_rate
 from ._pid_lattice import Antichain, PIDLattice, Subset, pid_lattice, pid_mobius_inversion
 from .oir import Group, _flatten, _normalise_groups
 from .rates import (
@@ -366,4 +366,105 @@ def partial_information_rate_decomposition(
         redundant=integrate(spectral.redundant),
         synergistic=integrate(spectral.synergistic),
         delta=integrate(spectral.delta),
+    )
+
+
+@dataclass(frozen=True)
+class PIRDExtremaResult:
+    """Maximum singleton two-source PIRD synergy and redundancy over triples."""
+
+    synergistic: torch.Tensor
+    redundant: torch.Tensor
+    synergistic_indices: torch.Tensor
+    redundant_indices: torch.Tensor
+
+
+def pird_extrema(
+    system: InnovationsStateSpace,
+    frequencies: torch.Tensor,
+    *,
+    sampling_frequency: float = 1.0,
+    base: float = math.e,
+    half_open: bool = False,
+) -> PIRDExtremaResult:
+    r"""Return maximum singleton PIRD synergy/redundancy over all valid triples.
+
+    Every candidate uses two singleton sources and one distinct singleton target.
+    The implementation computes the full spectral density once and evaluates all
+    source-pair/target combinations with batched spectral submatrices. For the
+    two-source minimum-MIR PIRD,
+
+    .. math::
+
+       R(f)=\min(i_0(f), i_1(f)), \qquad
+       S(f)=i_{01}(f)-\max(i_0(f), i_1(f)).
+
+    The frequency-resolved quantities are integrated before the maximum is taken,
+    matching :func:`partial_information_rate_decomposition` exactly up to the
+    chosen numerical quadrature. Returned index tensors contain
+    ``(source0, source1, target)`` for each model batch element.
+    """
+    base_value = _validate_log_base(base)
+    n_variables = system.observation.shape[-2]
+    if n_variables < 3:
+        raise ValueError("pird_extrema requires at least three observed variables")
+    spectrum = innovations_spectral_density(
+        system, frequencies, sampling_frequency=sampling_frequency
+    )
+    triples = [
+        (left, right, target)
+        for target in range(n_variables)
+        for left in range(n_variables)
+        for right in range(left + 1, n_variables)
+        if target not in (left, right)
+    ]
+    index = torch.as_tensor(triples, dtype=torch.long, device=spectrum.device)
+    s0, s1, target = index.unbind(-1)
+
+    def logdet_submatrix(indices: torch.Tensor) -> torch.Tensor:
+        """Gather candidate spectral submatrices and return Hermitian logdets."""
+        sub = spectrum[..., :, indices[:, :, None], indices[:, None, :]]
+        return hermitian_logdet(sub)
+
+    d0 = spectrum[..., :, s0, s0].real
+    d1 = spectrum[..., :, s1, s1].real
+    dt = spectrum[..., :, target, target].real
+
+    pair0 = torch.stack([s0, target], dim=-1)
+    pair1 = torch.stack([s1, target], dim=-1)
+    source_pair = torch.stack([s0, s1], dim=-1)
+    triplet = index
+    log_pair0 = logdet_submatrix(pair0)
+    log_pair1 = logdet_submatrix(pair1)
+    log_sources = logdet_submatrix(source_pair)
+    log_triplet = logdet_submatrix(triplet)
+    log_base = math.log(base_value)
+    i0 = 0.5 * (torch.log(d0) + torch.log(dt) - log_pair0) / log_base
+    i1 = 0.5 * (torch.log(d1) + torch.log(dt) - log_pair1) / log_base
+    i01 = 0.5 * (log_sources + torch.log(dt) - log_triplet) / log_base
+    redundant_spectrum = torch.minimum(i0, i1).movedim(-1, -2)
+    synergistic_spectrum = (i01 - torch.maximum(i0, i1)).movedim(-1, -2)
+    redundant = integrate_spectral_rate(
+        redundant_spectrum,
+        frequencies,
+        sampling_frequency=sampling_frequency,
+        half_open=half_open,
+    )
+    synergistic = integrate_spectral_rate(
+        synergistic_spectrum,
+        frequencies,
+        sampling_frequency=sampling_frequency,
+        half_open=half_open,
+    )
+    max_red, red_pos = redundant.max(dim=-1)
+    max_syn, syn_pos = synergistic.max(dim=-1)
+    return PIRDExtremaResult(
+        synergistic=max_syn,
+        redundant=max_red,
+        synergistic_indices=index.index_select(0, syn_pos.reshape(-1)).reshape(
+            *syn_pos.shape, 3
+        ),
+        redundant_indices=index.index_select(0, red_pos.reshape(-1)).reshape(
+            *red_pos.shape, 3
+        ),
     )
