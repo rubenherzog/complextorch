@@ -147,10 +147,10 @@ def measure_confidence_intervals(
 
     Notes
     -----
-    In ``mode="pooled"`` no lag row crosses a trajectory boundary. In
+    In ``mode="pooled"`` trajectory boundaries are preserved. In
     ``mode="independent"`` each accepted bootstrap replicate requires every
-    trajectory-specific VAR to be stable so all measures retain a common
-    resampling axis.
+    trajectory-specific fitted system to be stable so all measures retain a
+    common resampling axis.
     """
     if n_resamples < 2:
         raise ValueError("n_resamples must be at least two")
