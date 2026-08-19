@@ -3,9 +3,8 @@ r"""Registry of model-derived measures evaluated on one resampling ensemble.
 The registry is deliberately separate from the resampling engine. It consumes a
 single canonical VAR, general state-space, or innovations-form system (possibly
 batched over bootstrap replicates) and evaluates every configured compatible
-analytical measure without refitting observations. High-order HOP outputs reuse
-the already-computed PIRD and PDGC tensors rather than invoking either
-decomposition twice.
+analytical measure without refitting observations. High-order HOP outputs reuse the already-computed PIRD
+and PDGC tensors rather than invoking either decomposition twice.
 
 References
 ----------
@@ -88,14 +87,8 @@ def _result_tensors(result: Any) -> dict[str, torch.Tensor]:
     """Extract only tensor-valued scientific fields from a result dataclass."""
     output: dict[str, torch.Tensor] = {}
     for name in (
-        "subset_mir",
-        "subset_gc",
-        "redundancy",
-        "atoms",
-        "unique",
-        "redundant",
-        "synergistic",
-        "delta",
+        "subset_mir", "subset_gc", "redundancy", "atoms", "unique",
+        "redundant", "synergistic", "delta",
     ):
         value = getattr(result, name, None)
         if torch.is_tensor(value):
