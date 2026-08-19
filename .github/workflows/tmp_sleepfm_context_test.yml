@@ -3,6 +3,8 @@ name: tmp SleepFM context test
 on:
   push:
     branches: [tmp-sleepfm-context-test]
+  pull_request:
+    branches: [main]
 
 jobs:
   compare:
@@ -42,7 +44,6 @@ jobs:
           python - <<'PY'
           import os, sys, json
           import numpy as np
-          import pandas as pd
           import torch
           from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
           sys.path.insert(0, os.path.join(os.getcwd(),'sleepfm'))
