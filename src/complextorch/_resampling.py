@@ -41,7 +41,7 @@ class MeasureInterval:
 
 @dataclass(frozen=True)
 class ConfidenceIntervalResult:
-    """Confidence intervals obtained from one shared VAR resampling ensemble."""
+    """Confidence intervals obtained from one shared model resampling ensemble."""
 
     intervals: Mapping[str, MeasureInterval]
     method: ResamplingMethod
@@ -50,8 +50,9 @@ class ConfidenceIntervalResult:
     n_valid: int
     n_failed: int
     seed: int | None
-    var_order: int
+    var_order: int | None
     fit_mode: str
+    estimator_type: str = "VAR"
 
     def __getitem__(self, name: str) -> MeasureInterval:
         """Return one named interval."""
