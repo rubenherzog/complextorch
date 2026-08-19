@@ -139,27 +139,19 @@ def _experiment(n_times: int):
 
 
 def test_parametric_bootstrap_poc_converges_across_var_ssm_and_innovations():
-    """Fixed-model bootstrap is feasible across all three estimator families.
-
-    The assertion is intentionally qualitative: the three independently fitted
-    estimators need not have identical finite-sample intervals.  On a long
-    trajectory from a correctly specified VAR(1), however, their point
-    estimates and bootstrap intervals should describe the same observable
-    predictive-information target.
-    """
-    truth, intervals = _experiment(1600)
-
-    for name, interval in intervals.items():
-        point, lower, upper = interval
-        assert bool(torch.isfinite(interval).all()), name
-        assert bool(lower <= point <= upper), (name, interval)
-        assert bool((point - truth).abs() < 0.12), (name, point, truth)
-
-    lowers = torch.stack([value[1] for value in intervals.values()])
-    uppers = torch.stack([value[2] for value in intervals.values()])
-    # A common intersection is a direct finite-sample check that all three
-    # inference routes remain compatible for the same observable process.
-    assert bool(lowers.max() <= uppers.min()), intervals
-
-    points = torch.stack([value[0] for value in intervals.values()])
-    assert bool((points.max() - points.min()) < 0.12), intervals
+    """Probe finite- and longer-sample behavior before production changes."""
+    short_truth, short = _experiment(1600)
+    long_truth, long = _experiment(6400)
+    for group in (short, long):
+        for name, interval in group.items():
+            assert bool(torch.isfinite(interval).all()), (name, interval)
+    # Temporary diagnostic assertion: CI logs expose the deterministic numerical
+    # experiment so the architecture can be chosen from evidence, not assumption.
+    raise AssertionError(
+        {
+            "short_truth": float(short_truth),
+            "short": {name: value.tolist() for name, value in short.items()},
+            "long_truth": float(long_truth),
+            "long": {name: value.tolist() for name, value in long.items()},
+        }
+    )
