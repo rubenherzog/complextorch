@@ -172,9 +172,11 @@ Inference, confidence intervals, and NuMIT
 ------------------------------------------
 
 Sampling uncertainty and constrained null-reference normalisation are separate
-operations. :func:`~complextorch.measure_confidence_intervals` fits a fixed-order
-VAR and evaluates compatible measures on one shared residual-bootstrap or
-Gaussian-parametric resampling ensemble. :func:`~complextorch.numit_pid_var`
+operations. :func:`~complextorch.measure_confidence_intervals` accepts fixed-
+complexity VAR, innovations-form, or general state-space estimators and evaluates
+compatible model-derived measures on one shared residual-bootstrap or Gaussian-
+parametric ensemble. State-space surrogate generation is normalized through the
+canonical innovations representation. :func:`~complextorch.numit_pid_var`
 instead compares Gaussian VAR PID atoms with an otherwise-random ensemble
 matched to the observed total past--future mutual information. NuMIT is not a
 bootstrap confidence-interval method.
