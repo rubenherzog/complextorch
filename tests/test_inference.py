@@ -1,7 +1,15 @@
 import pytest
 import torch
 
-from complextorch import InferenceMeasureConfig, ModelMeasureConfig, VAR, simulate_var
+from complextorch import (
+    InferenceMeasureConfig,
+    LarimoreStateSpace,
+    LinearGaussianEM,
+    ModelMeasureConfig,
+    N4SID,
+    VAR,
+    simulate_var,
+)
 from complextorch._resampling import _batched_ols_refit
 from complextorch.inference import NuMITPIDResult, measure_confidence_intervals, numit_pid_var
 
@@ -121,3 +129,91 @@ def test_invalid_resampling_requests_fail_explicitly():
             var=VAR(order=1, mode="pooled", solver="lwr"),
             n_resamples=4,
         )
+
+
+def test_state_space_parametric_ci_converges_with_var_and_innovations():
+    """Equivalent model families give compatible finite-sample PI intervals."""
+    coefficients = torch.tensor(
+        [[[0.45, 0.10], [-0.05, 0.30]]], dtype=torch.float64
+    )
+    covariance = torch.tensor(
+        [[0.9, 0.18], [0.18, 0.7]], dtype=torch.float64
+    )
+    data = simulate_var(coefficients, covariance, 800, burnin=250, seed=2826)[0]
+    initial = N4SID(2, block_rows=6, mode="pooled", dtype="float64").fit(data).system_
+    estimators = (
+        VAR(order=1, mode="pooled", dtype="float64"),
+        LinearGaussianEM(initial, n_iter=5, mode="pooled"),
+        LarimoreStateSpace(
+            2, 6, future_horizon=6, mode="pooled", dtype="float64"
+        ),
+    )
+    intervals = []
+    for estimator in estimators:
+        result = measure_confidence_intervals(
+            data,
+            measures="predictive_information",
+            estimator=estimator,
+            method="parametric",
+            n_resamples=24,
+            confidence=0.95,
+            seed=123,
+        )
+        interval = result["dynamics.predictive_information"]
+        intervals.append(interval)
+        assert result.n_valid == 24
+        assert bool(interval.lower <= interval.estimate <= interval.upper)
+
+    points = torch.stack([interval.estimate for interval in intervals])
+    lowers = torch.stack([interval.lower for interval in intervals])
+    uppers = torch.stack([interval.upper for interval in intervals])
+    assert bool(points.max() - points.min() < 0.03)
+    assert bool(lowers.max() <= uppers.min())
+
+
+def test_innovations_state_space_residual_bootstrap_is_supported():
+    """Residual-vector bootstrap works directly with innovations-form fits."""
+    data = _stable_data(batch=1, n_times=220, seed=31)[0]
+    result = measure_confidence_intervals(
+        data,
+        measures="predictive_information",
+        estimator=LarimoreStateSpace(
+            2, 5, future_horizon=5, mode="pooled", dtype="float64"
+        ),
+        method="residual_bootstrap",
+        n_resamples=12,
+        seed=5,
+        return_samples=True,
+    )
+    interval = result["dynamics.predictive_information"]
+    assert result.estimator_type == "LarimoreStateSpace"
+    assert result.var_order is None
+    assert interval.samples.shape == (result.n_valid,)
+    assert bool(torch.isfinite(interval.samples).all())
+
+
+def test_state_space_independent_mode_preserves_trajectory_axis():
+    """State-space resampling never mixes independent trajectory fits."""
+    coefficients = torch.tensor(
+        [
+            [[[0.45, 0.10], [-0.05, 0.30]]],
+            [[[0.35, -0.05], [0.08, 0.25]]],
+        ],
+        dtype=torch.float64,
+    )
+    covariance = torch.eye(2, dtype=torch.float64).expand(2, -1, -1).contiguous()
+    data = simulate_var(coefficients, covariance, 260, burnin=100, seed=99)
+    result = measure_confidence_intervals(
+        data,
+        measures="predictive_information",
+        estimator=LarimoreStateSpace(2, 5, mode="independent", dtype="float64"),
+        method="parametric",
+        n_resamples=8,
+        seed=1,
+        return_samples=True,
+    )
+    interval = result["dynamics.predictive_information"]
+    assert interval.estimate.shape == (2,)
+    assert interval.lower.shape == (2,)
+    assert interval.upper.shape == (2,)
+    assert interval.samples.shape == (result.n_valid, 2)
