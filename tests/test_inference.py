@@ -121,3 +121,192 @@ def test_invalid_resampling_requests_fail_explicitly():
             var=VAR(order=1, mode="pooled", solver="lwr"),
             n_resamples=4,
         )
+
+
+def test_state_space_parametric_ci_converges_with_var_and_innovations():
+    """Equivalent fitted families give compatible PI intervals on one process."""
+    from complextorch import LarimoreStateSpace, LinearGaussianEM, N4SID
+
+    coefficients = torch.tensor(
+        [[[0.45, 0.10], [-0.05, 0.30]]], dtype=torch.float64
+    )
+    covariance = torch.tensor(
+        [[0.9, 0.18], [0.18, 0.7]], dtype=torch.float64
+    )
+    data = simulate_var(coefficients, covariance, 800, burnin=250, seed=2826)[0]
+    initial = N4SID(2, block_rows=6, mode="pooled", dtype="float64").fit(data).system_
+    estimators = (
+        VAR(order=1, mode="pooled", dtype="float64"),
+        LinearGaussianEM(initial, n_iter=5, mode="pooled"),
+        LarimoreStateSpace(
+            2, 6, future_horizon=6, mode="pooled", dtype="float64"
+        ),
+    )
+    intervals = []
+    for estimator in estimators:
+        result = measure_confidence_intervals(
+            data,
+            measures="predictive_information",
+            estimator=estimator,
+            method="parametric",
+            n_resamples=24,
+            confidence=0.95,
+            seed=123,
+        )
+        interval = result["dynamics.predictive_information"]
+        intervals.append(interval)
+        assert result.n_valid == 24
+        assert bool(torch.isfinite(interval.lower))
+        assert bool(torch.isfinite(interval.upper))
+
+    points = torch.stack([interval.estimate for interval in intervals])
+    lowers = torch.stack([interval.lower for interval in intervals])
+    uppers = torch.stack([interval.upper for interval in intervals])
+    assert bool(points.max() - points.min() < 0.03)
+    assert bool(lowers.max() <= uppers.min())
+
+
+def test_n4sid_confidence_path_is_supported_without_claiming_calibration():
+    """Compact N4SID is supported as a fixed estimator family."""
+    from complextorch import N4SID
+
+    data = _stable_data(batch=1, n_times=260, seed=27)[0]
+    result = measure_confidence_intervals(
+        data,
+        measures="predictive_information",
+        estimator=N4SID(2, block_rows=5, mode="pooled", dtype="float64"),
+        method="parametric",
+        n_resamples=8,
+        seed=4,
+        return_samples=True,
+    )
+    interval = result["dynamics.predictive_information"]
+    assert result.estimator_type == "N4SID"
+    assert result.var_order is None
+    assert interval.samples.shape == (result.n_valid,)
+    assert bool(torch.isfinite(interval.samples).all())
+
+
+def test_innovations_state_space_residual_bootstrap_is_supported():
+    """Residual-vector bootstrap works directly with Larimore innovations fits."""
+    from complextorch import LarimoreStateSpace
+
+    data = _stable_data(batch=1, n_times=220, seed=31)[0]
+    result = measure_confidence_intervals(
+        data,
+        measures="predictive_information",
+        estimator=LarimoreStateSpace(
+            2, 5, future_horizon=5, mode="pooled", dtype="float64"
+        ),
+        method="residual_bootstrap",
+        n_resamples=12,
+        seed=5,
+        return_samples=True,
+    )
+    interval = result["dynamics.predictive_information"]
+    assert result.estimator_type == "LarimoreStateSpace"
+    assert result.var_order is None
+    assert interval.samples.shape == (result.n_valid,)
+    assert bool(torch.isfinite(interval.samples).all())
+
+
+def test_state_space_independent_mode_preserves_trajectory_axis():
+    """Innovations-form resampling preserves independent trajectory outputs."""
+    from complextorch import LarimoreStateSpace
+
+    coefficients = torch.tensor(
+        [
+            [[[0.45, 0.10], [-0.05, 0.30]]],
+            [[[0.35, -0.05], [0.08, 0.25]]],
+        ],
+        dtype=torch.float64,
+    )
+    covariance = torch.eye(2, dtype=torch.float64).expand(2, -1, -1).contiguous()
+    data = simulate_var(coefficients, covariance, 260, burnin=100, seed=99)
+    result = measure_confidence_intervals(
+        data,
+        measures="predictive_information",
+        estimator=LarimoreStateSpace(2, 5, mode="independent", dtype="float64"),
+        method="parametric",
+        n_resamples=8,
+        seed=1,
+        return_samples=True,
+    )
+    interval = result["dynamics.predictive_information"]
+    assert interval.estimate.shape == (2,)
+    assert interval.lower.shape == (2,)
+    assert interval.upper.shape == (2,)
+    assert interval.samples.shape == (result.n_valid, 2)
+
+
+def test_innovations_ci_reuses_complete_measure_registry():
+    """One Larimore ensemble supplies CIs across primary and HOP/rate families."""
+    from complextorch import LarimoreStateSpace
+
+    coefficients = torch.tensor(
+        [[[0.35, 0.00, 0.00], [0.08, 0.30, 0.00], [0.24, -0.15, 0.25]]],
+        dtype=torch.float64,
+    )
+    covariance = torch.tensor(
+        [[1.0, 0.10, 0.03], [0.10, 0.9, -0.04], [0.03, -0.04, 0.8]],
+        dtype=torch.float64,
+    )
+    data = simulate_var(coefficients, covariance, 320, burnin=150, seed=77)[0]
+    frequencies = torch.linspace(0.0, 0.5, 17, dtype=torch.float64)
+    config = InferenceMeasureConfig(
+        primary=ModelMeasureConfig(
+            frequencies=frequencies,
+            source=(0,),
+            target=(2,),
+        ),
+        delta_oir_target_group=0,
+        hop_sources=((0,), (1,)),
+        hop_target=(2,),
+    )
+    names = (
+        "dynamics.predictive_information",
+        "criticality.spectral_radius",
+        "rates.o_information_rate",
+        "rates.mutual_information_rate",
+        "pird.redundant",
+        "pdgc.synergistic",
+        "spectral_pird.delta",
+    )
+    result = measure_confidence_intervals(
+        data,
+        measures=names,
+        estimator=LarimoreStateSpace(
+            3, 6, future_horizon=6, mode="pooled", dtype="float64"
+        ),
+        config=config,
+        method="parametric",
+        n_resamples=6,
+        confidence=0.9,
+        seed=8,
+        return_samples=True,
+    )
+    assert set(result.intervals) == set(names)
+    for interval in result.intervals.values():
+        assert interval.samples is not None
+        assert interval.samples.shape[0] == result.n_valid
+        assert bool(torch.isfinite(interval.samples).all())
+
+
+def test_linear_gaussian_em_independent_bootstrap_preserves_initialization_groups():
+    """Independent EM refits keep one original initialization per trajectory."""
+    from complextorch import LinearGaussianEM, N4SID
+
+    data = _stable_data(batch=2, n_times=180, seed=41)
+    initial = N4SID(2, block_rows=5, mode="independent", dtype="float64").fit(data).system_
+    result = measure_confidence_intervals(
+        data,
+        measures="predictive_information",
+        estimator=LinearGaussianEM(initial, n_iter=2, mode="independent"),
+        method="parametric",
+        n_resamples=4,
+        seed=6,
+        return_samples=True,
+    )
+    interval = result["dynamics.predictive_information"]
+    assert interval.estimate.shape == (2,)
+    assert interval.samples.shape == (result.n_valid, 2)

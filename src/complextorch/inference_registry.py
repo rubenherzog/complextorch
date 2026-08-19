@@ -1,37 +1,24 @@
-r"""Registry of model-derived measures evaluated on one resampling ensemble.
+r"""Measure registry for one shared resampling ensemble.
 
-The registry is deliberately separate from the resampling engine. It consumes a
-single canonical :class:`~complextorch.VARSystem` (possibly batched over bootstrap
-replicates) and evaluates every configured compatible analytical measure without
-refitting observations. High-order HOP outputs reuse the already-computed PIRD
-and PDGC tensors rather than invoking either decomposition twice.
+The confidence layer delegates scientific calculations to the canonical
+:func:`complextorch.compute_all_model_measures` aggregate. This module only
+adapts inference-specific legacy configuration and aliases; it does not maintain
+an alternative implementation of model-derived measures.
 
 References
 ----------
 - Beda, A., Simpson, D. M., and Faes, L. (2017). Estimation of confidence
   limits for descriptive indexes derived from autoregressive analysis of time
   series. *PLoS ONE*, 12(10), e0186694.
-- Faes, L. et al. (2022). A new framework for the time- and frequency-domain
-  assessment of high-order interactions in networks of random processes.
-  *IEEE Transactions on Signal Processing*, 70, 5766-5777.
 """
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import torch
 
-from .control import var_to_innovations_state_space
-from .measures.oir import (
-    delta_o_information_rate,
-    o_information_rate,
-    spectral_delta_o_information_rate,
-    spectral_o_information_rate,
-)
-from .measures.pdgc import spectral_partial_granger_causality_decomposition
-from .measures.pird import spectral_partial_information_rate_decomposition
 from .measures.primary import ModelMeasureConfig, compute_all_model_measures
 from .measures.rates import (
     gaussian_instantaneous_information_rate,
@@ -40,35 +27,19 @@ from .measures.rates import (
     spectral_gaussian_mutual_information_rate,
     spectral_gaussian_transfer_entropy_rate,
 )
-from .representations import VARSystem
-from .spectra import integrate_spectral_rate
+from .transformations import ModelSystem
 
 GroupInput = int | Sequence[int]
 
 
 @dataclass(frozen=True)
 class InferenceMeasureConfig:
-    """Measure configuration for one shared VAR-resampling ensemble.
+    """Backward-compatible configuration for confidence-interval measures.
 
-    Parameters
-    ----------
-    primary
-        Existing ComplexTorch primary-measure configuration. Its ``source`` and
-        ``target`` are reused for MIR, TE, instantaneous information rate and
-        MVGC so the same directed partition is evaluated consistently.
-    oir_groups
-        Optional O-information-rate process groups. ``None`` uses every channel
-        as a singleton group, matching :func:`o_information_rate`.
-    delta_oir_target_group
-        Optional zero-based group position for delta O-information rate. It is
-        evaluated only when supplied.
-    hop_sources, hop_target
-        Exactly two or three source groups plus one target group for PIRD/PDGC/
-        HOP. PIRD and PDGC spectra are each evaluated once. Integrated terms and
-        HOP aliases are derived from those same tensors.
-    half_open
-        Use the Faes/HOP half-open spectral integration convention for
-        integrated PIRD/PDGC quantities when true.
+    ``primary`` is the source of truth. Historical inference-only OIR and HOP
+    fields are translated into the corresponding :class:`ModelMeasureConfig`
+    fields before the canonical aggregate is evaluated. They are retained to
+    avoid breaking the public API.
     """
 
     primary: ModelMeasureConfig = field(default_factory=ModelMeasureConfig)
@@ -79,13 +50,40 @@ class InferenceMeasureConfig:
     half_open: bool = False
 
     def __post_init__(self) -> None:
-        """Validate coupled high-order configuration fields."""
+        """Validate coupled legacy HOP configuration fields."""
         if (self.hop_sources is None) != (self.hop_target is None):
             raise ValueError("hop_sources and hop_target must be supplied together")
 
 
+def _groups(groups: Sequence[GroupInput] | None):
+    """Normalize integer or sequence group specifications to tuples."""
+    if groups is None:
+        return None
+    return tuple((group,) if isinstance(group, int) else tuple(group) for group in groups)
+
+
+def _primary_config(config: InferenceMeasureConfig) -> ModelMeasureConfig:
+    """Map legacy inference fields onto the canonical measure configuration."""
+    updates: dict[str, Any] = {}
+    if config.oir_groups is not None:
+        updates["rate_groups"] = _groups(config.oir_groups)
+    if config.hop_sources is not None:
+        updates.update(
+            hop_sources=_groups(config.hop_sources),
+            hop_target=(
+                (config.hop_target,)
+                if isinstance(config.hop_target, int)
+                else tuple(config.hop_target)
+            ),
+            hop_half_open=config.half_open,
+        )
+    elif config.half_open:
+        updates["hop_half_open"] = True
+    return replace(config.primary, **updates) if updates else config.primary
+
+
 def _result_tensors(result: Any) -> dict[str, torch.Tensor]:
-    """Extract only tensor-valued scientific fields from a result dataclass."""
+    """Expose tensor fields of a decomposition result without recomputation."""
     output: dict[str, torch.Tensor] = {}
     for name in (
         "subset_mir", "subset_gc", "redundancy", "atoms", "unique",
@@ -97,156 +95,79 @@ def _result_tensors(result: Any) -> dict[str, torch.Tensor]:
     return output
 
 
-def _integrate_result_tensors(
-    tensors: dict[str, torch.Tensor],
-    frequencies: torch.Tensor,
-    *,
-    sampling_frequency: float,
-    half_open: bool,
-) -> dict[str, torch.Tensor]:
-    """Integrate one spectral decomposition without recomputing its primitives."""
-    return {
-        name: integrate_spectral_rate(
-            value,
-            frequencies,
-            sampling_frequency=sampling_frequency,
-            half_open=half_open,
-        )
-        for name, value in tensors.items()
-    }
-
-
 def evaluate_resampling_measures(
-    system: VARSystem,
+    system: ModelSystem,
     config: InferenceMeasureConfig,
 ) -> dict[str, Any]:
-    """Evaluate all configured measures once on a supplied VARSystem batch.
+    """Evaluate all compatible measures once on a canonical model batch."""
+    primary = _primary_config(config)
+    result: dict[str, Any] = dict(compute_all_model_measures(system, primary))
+    innovations = result["primitives"]["innovations_state_space"]
+    rates = result.setdefault("rates", {})
 
-    No observations are fitted here. The leading model batch axis is preserved
-    by every registered consumer and is therefore the bootstrap axis used by the
-    confidence-interval engine.
-    """
-    result: dict[str, Any] = dict(compute_all_model_measures(system, config.primary))
-    innovations = var_to_innovations_state_space(system)
-    base = config.primary.base
-    frequencies = config.primary.frequencies
-    sampling_frequency = config.primary.sampling_frequency
-
-    rates: dict[str, torch.Tensor] = {}
-    if system.n_variables >= 2:
-        rates["o_information_rate"] = o_information_rate(
-            innovations, groups=config.oir_groups, base=base
-        )
-        if frequencies is not None:
-            rates["spectral_o_information_rate"] = spectral_o_information_rate(
-                innovations,
-                frequencies,
-                groups=config.oir_groups,
-                sampling_frequency=sampling_frequency,
-                base=base,
-            )
-    elif config.oir_groups is not None or config.delta_oir_target_group is not None:
-        raise ValueError("O-information-rate inference requires at least two variables")
-
+    # Historical names are aliases to canonical aggregate outputs.
+    if "o_information" in rates:
+        rates["o_information_rate"] = rates["o_information"]
     if config.delta_oir_target_group is not None:
-        rates["delta_o_information_rate"] = delta_o_information_rate(
-            innovations,
-            config.delta_oir_target_group,
-            groups=config.oir_groups,
-            base=base,
-        )
-        if frequencies is not None:
-            rates["spectral_delta_o_information_rate"] = spectral_delta_o_information_rate(
-                innovations,
-                frequencies,
-                config.delta_oir_target_group,
-                groups=config.oir_groups,
-                sampling_frequency=sampling_frequency,
-                base=base,
-            )
+        target = config.delta_oir_target_group
+        if "delta_o_information" not in rates:
+            raise ValueError("delta O-information rate requires at least three groups")
+        rates["delta_o_information_rate"] = rates["delta_o_information"][..., target]
+        if "spectral_delta_o_information" in rates:
+            rates["spectral_delta_o_information_rate"] = rates[
+                "spectral_delta_o_information"
+            ][..., target, :]
 
-    if config.primary.source is not None and config.primary.target is not None:
-        source = config.primary.source
-        target = config.primary.target
+    # Group-specific source/target rates are not part of the always-computed
+    # pairwise aggregate, so evaluate only these requested quantities here.
+    if primary.source is not None and primary.target is not None:
+        source, target = primary.source, primary.target
         rates.update(
-            {
-                "mutual_information_rate": gaussian_mutual_information_rate(
-                    innovations, source, target, base=base
-                ),
-                "transfer_entropy_rate": gaussian_transfer_entropy_rate(
-                    innovations, source, target, base=base
-                ),
-                "instantaneous_information_rate": gaussian_instantaneous_information_rate(
-                    innovations, source, target, base=base
-                ),
-            }
+            mutual_information_rate=gaussian_mutual_information_rate(
+                innovations, source, target, base=primary.base
+            ),
+            transfer_entropy_rate=gaussian_transfer_entropy_rate(
+                innovations, source, target, base=primary.base
+            ),
+            instantaneous_information_rate=gaussian_instantaneous_information_rate(
+                innovations, source, target, base=primary.base
+            ),
         )
-        if frequencies is not None:
+        if primary.frequencies is not None:
             rates.update(
-                {
-                    "spectral_mutual_information_rate": spectral_gaussian_mutual_information_rate(
-                        innovations,
-                        source,
-                        target,
-                        frequencies,
-                        sampling_frequency=sampling_frequency,
-                        base=base,
-                    ),
-                    "spectral_transfer_entropy_rate": spectral_gaussian_transfer_entropy_rate(
-                        innovations,
-                        source,
-                        target,
-                        frequencies,
-                        sampling_frequency=sampling_frequency,
-                        base=base,
-                    ),
-                }
+                spectral_mutual_information_rate=spectral_gaussian_mutual_information_rate(
+                    innovations,
+                    source,
+                    target,
+                    primary.frequencies,
+                    sampling_frequency=primary.sampling_frequency,
+                    base=primary.base,
+                ),
+                spectral_transfer_entropy_rate=spectral_gaussian_transfer_entropy_rate(
+                    innovations,
+                    source,
+                    target,
+                    primary.frequencies,
+                    sampling_frequency=primary.sampling_frequency,
+                    base=primary.base,
+                ),
             )
-    if rates:
-        result["rates"] = rates
 
-    if config.hop_sources is not None and config.hop_target is not None:
-        if frequencies is None:
-            raise ValueError("PIRD/PDGC/HOP confidence intervals require frequencies")
-        spectral_pird = spectral_partial_information_rate_decomposition(
-            innovations,
-            config.hop_sources,
-            config.hop_target,
-            frequencies,
-            sampling_frequency=sampling_frequency,
-            base=base,
-        )
-        spectral_pdgc = spectral_partial_granger_causality_decomposition(
-            innovations,
-            config.hop_sources,
-            config.hop_target,
-            frequencies,
-            sampling_frequency=sampling_frequency,
-            base=base,
-        )
-        spectral_pird_tensors = _result_tensors(spectral_pird)
-        spectral_pdgc_tensors = _result_tensors(spectral_pdgc)
-        pird_tensors = _integrate_result_tensors(
-            spectral_pird_tensors,
-            spectral_pird.frequencies,
-            sampling_frequency=sampling_frequency,
-            half_open=config.half_open,
-        )
-        pdgc_tensors = _integrate_result_tensors(
-            spectral_pdgc_tensors,
-            spectral_pdgc.frequencies,
-            sampling_frequency=sampling_frequency,
-            half_open=config.half_open,
-        )
-        result["pird"] = pird_tensors
-        result["pdgc"] = pdgc_tensors
-        result["spectral_pird"] = spectral_pird_tensors
-        result["spectral_pdgc"] = spectral_pdgc_tensors
-        # HOP is composition, not a third numerical estimator. Reuse references.
-        result["hop"] = {"pird": pird_tensors, "pdgc": pdgc_tensors}
+    # The canonical aggregate returns typed HOP/PIRD/PDGC results. Preserve the
+    # historical inference mapping shape by exposing references to those tensors.
+    if "pird" in result and "pdgc" in result:
+        pird = _result_tensors(result["pird"])
+        pdgc = _result_tensors(result["pdgc"])
+        spectral_pird = _result_tensors(result["spectral_pird"])
+        spectral_pdgc = _result_tensors(result["spectral_pdgc"])
+        result["pird"] = pird
+        result["pdgc"] = pdgc
+        result["spectral_pird"] = spectral_pird
+        result["spectral_pdgc"] = spectral_pdgc
+        result["hop"] = {"pird": pird, "pdgc": pdgc}
         result["spectral_hop"] = {
-            "pird": spectral_pird_tensors,
-            "pdgc": spectral_pdgc_tensors,
+            "pird": spectral_pird,
+            "pdgc": spectral_pdgc,
         }
     return result
 
