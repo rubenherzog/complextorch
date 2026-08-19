@@ -131,6 +131,7 @@ def test_invalid_resampling_requests_fail_explicitly():
         )
 
 
+
 def test_state_space_parametric_ci_converges_with_var_and_innovations():
     """Equivalent model families give compatible finite-sample PI intervals."""
     coefficients = torch.tensor(
