@@ -1,10 +1,11 @@
 r"""Registry of model-derived measures evaluated on one resampling ensemble.
 
 The registry is deliberately separate from the resampling engine. It consumes a
-single canonical :class:`~complextorch.VARSystem` (possibly batched over bootstrap
-replicates) and evaluates every configured compatible analytical measure without
-refitting observations. High-order HOP outputs reuse the already-computed PIRD
-and PDGC tensors rather than invoking either decomposition twice.
+single canonical VAR, general state-space, or innovations-form system (possibly
+batched over bootstrap replicates) and evaluates every configured compatible
+analytical measure without refitting observations. High-order HOP outputs reuse
+the already-computed PIRD and PDGC tensors rather than invoking either
+decomposition twice.
 
 References
 ----------
@@ -23,7 +24,6 @@ from typing import Any
 
 import torch
 
-from .control import var_to_innovations_state_space
 from .measures.oir import (
     delta_o_information_rate,
     o_information_rate,
@@ -40,15 +40,15 @@ from .measures.rates import (
     spectral_gaussian_mutual_information_rate,
     spectral_gaussian_transfer_entropy_rate,
 )
-from .representations import VARSystem
 from .spectra import integrate_spectral_rate
+from .transformations import ModelSystem, as_innovations_state_space
 
 GroupInput = int | Sequence[int]
 
 
 @dataclass(frozen=True)
 class InferenceMeasureConfig:
-    """Measure configuration for one shared VAR-resampling ensemble.
+    """Measure configuration for one shared model-resampling ensemble.
 
     Parameters
     ----------
@@ -88,8 +88,14 @@ def _result_tensors(result: Any) -> dict[str, torch.Tensor]:
     """Extract only tensor-valued scientific fields from a result dataclass."""
     output: dict[str, torch.Tensor] = {}
     for name in (
-        "subset_mir", "subset_gc", "redundancy", "atoms", "unique",
-        "redundant", "synergistic", "delta",
+        "subset_mir",
+        "subset_gc",
+        "redundancy",
+        "atoms",
+        "unique",
+        "redundant",
+        "synergistic",
+        "delta",
     ):
         value = getattr(result, name, None)
         if torch.is_tensor(value):
@@ -117,23 +123,24 @@ def _integrate_result_tensors(
 
 
 def evaluate_resampling_measures(
-    system: VARSystem,
+    system: ModelSystem,
     config: InferenceMeasureConfig,
 ) -> dict[str, Any]:
-    """Evaluate all configured measures once on a supplied VARSystem batch.
+    """Evaluate all configured measures once on a supplied canonical model batch.
 
     No observations are fitted here. The leading model batch axis is preserved
     by every registered consumer and is therefore the bootstrap axis used by the
     confidence-interval engine.
     """
     result: dict[str, Any] = dict(compute_all_model_measures(system, config.primary))
-    innovations = var_to_innovations_state_space(system)
+    innovations = as_innovations_state_space(system)
     base = config.primary.base
     frequencies = config.primary.frequencies
     sampling_frequency = config.primary.sampling_frequency
 
     rates: dict[str, torch.Tensor] = {}
-    if system.n_variables >= 2:
+    n_variables = innovations.observation.shape[-2]
+    if n_variables >= 2:
         rates["o_information_rate"] = o_information_rate(
             innovations, groups=config.oir_groups, base=base
         )
