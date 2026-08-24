@@ -9,6 +9,7 @@ from complextorch import (
     N4SID,
     StateSpaceModel,
     fit_diagnostics,
+    innovation_diagnostics,
     state_space_recovery_diagnostics,
 )
 
@@ -90,6 +91,26 @@ def test_state_space_recovery_supports_batched_models():
     assert result.spectral_distance[1] > 1e-2
 
 
+def test_recovery_diagnostics_rank_deliberate_process_perturbation():
+    reference = _general_system()
+    perturbed = StateSpaceModel(
+        0.88 * reference.transition,
+        reference.observation.clone(),
+        reference.process_covariance.clone(),
+        1.35 * reference.observation_covariance,
+        state_covariance=reference.state_covariance.clone(),
+    )
+
+    exact = state_space_recovery_diagnostics(reference, reference, horizon=4)
+    changed = state_space_recovery_diagnostics(perturbed, reference, horizon=4)
+
+    assert exact.spectral_distance < 1e-12
+    assert exact.hankel_relative_error < 1e-10
+    assert changed.spectral_distance > 1e-2
+    assert changed.hankel_relative_error > 1e-2
+    assert changed.innovation_covariance_relative_error > 1e-2
+
+
 def test_fit_diagnostics_exposes_predictions_without_a_second_recursion():
     observations = _data(time=320)
     train, test = observations[:220], observations[220:]
@@ -121,6 +142,33 @@ def test_predictive_extensions_preserve_independent_batch_semantics():
     assert result.prediction_interval_coverage.shape == (2,)
 
 
+def test_predictive_coverage_detects_miscalibrated_covariance():
+    generator = torch.Generator().manual_seed(92)
+    errors = torch.randn((2500, 3), generator=generator, dtype=torch.float64)
+    observations = errors.clone()
+    mean = torch.zeros(3, dtype=torch.float64)
+    identity = torch.eye(3, dtype=torch.float64)
+
+    calibrated = innovation_diagnostics(
+        observations,
+        errors,
+        identity,
+        training_mean=mean,
+        max_lag=6,
+    )
+    too_narrow = innovation_diagnostics(
+        observations,
+        errors,
+        0.25 * identity,
+        training_mean=mean,
+        max_lag=6,
+    )
+
+    assert abs(float(calibrated.prediction_interval_coverage) - 0.95) < 0.03
+    assert float(too_narrow.prediction_interval_coverage) < 0.75
+    assert calibrated.covariance_calibration < too_narrow.covariance_calibration
+
+
 def test_n4sid_can_initialize_em_without_new_fitting_api():
     observations = _data(batch=2, time=180)
     initializer = N4SID(2, block_rows=5, mode="pooled", dtype="float64").fit(
@@ -140,6 +188,7 @@ def test_n4sid_can_initialize_em_without_new_fitting_api():
         refined.final_log_likelihood_ - refined.initial_log_likelihood_,
     )
     assert torch.isfinite(refined.log_likelihood_gain_)
+    assert refined.final_log_likelihood_ >= refined.initial_log_likelihood_ - 1e-8
 
     diagnostics = fit_diagnostics(
         refined, observations, evaluation="in_sample", max_lag=5
