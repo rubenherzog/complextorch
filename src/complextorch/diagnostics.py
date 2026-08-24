@@ -62,10 +62,10 @@ class FitDiagnostics:
     max_abs_autocorrelation: torch.Tensor
     durbin_watson: torch.Tensor
     n_observations: torch.Tensor
-    prediction_mean: torch.Tensor
-    prediction_covariance: torch.Tensor
-    standardized_errors: torch.Tensor
-    prediction_interval_coverage: torch.Tensor
+    prediction_mean: torch.Tensor | None = None
+    prediction_covariance: torch.Tensor | None = None
+    standardized_errors: torch.Tensor | None = None
+    prediction_interval_coverage: torch.Tensor | None = None
 
 
 @dataclass(frozen=True)
@@ -510,6 +510,8 @@ def _ss_in_sample_errors(estimator, data: torch.Tensor):
             training_mean = training_mean[:, None]
         if training_mean.shape[0] == 1 and batch > 1:
             training_mean = training_mean.expand(batch, -1, -1)
+        if training_mean.shape != (batch, 1, data.shape[-1]):
+            raise ValueError("fitted centering mean does not match observations")
     centered = data - training_mean
     if isinstance(estimator, LarimoreStateSpace):
         warmup = int(estimator.past_horizon)
@@ -645,6 +647,7 @@ def _innovations_hankel(transition, observation, gain, covariance, horizon):
 
 
 def _relative_matrix_error(estimate, reference):
+    """Return Frobenius error normalized by the reference matrix norm."""
     denominator = torch.linalg.matrix_norm(reference, ord="fro", dim=(-2, -1)).clamp_min(
         torch.finfo(reference.dtype).eps
     )
