@@ -465,7 +465,8 @@ class N4SID(BaseEstimator):
         batch, n_times, n_variables = values.shape
         if n_times <= 2 * self.block_rows + 2:
             raise ValueError("not enough samples for requested block_rows")
-        values = values - values.mean(dim=1, keepdim=True)
+        mean = values.mean(dim=1, keepdim=True)
+        values = values - mean
         past, future = _block_hankel(values, self.block_rows, self.block_rows)
         n_columns = past.shape[-1]
 
@@ -533,6 +534,7 @@ class N4SID(BaseEstimator):
         self.singular_values_ = singular_values.squeeze(0) if self.mode == "pooled" else singular_values
         self.states_ = states[0] if single else states
         self.n_states_ = self.n_states
+        self.mean_ = mean[0, 0] if single else mean[:, 0]
         return self
 
 
@@ -670,10 +672,20 @@ class LarimoreStateSpace(BaseEstimator):
 class LinearGaussianEM(BaseEstimator):
     r"""Refine linear Gaussian state-space systems by batched EM.
 
+    ``system`` may be a general :class:`StateSpaceModel` or a fitted estimator
+    whose ``system_`` is a general state-space model (for example ``N4SID``).
+    This makes subspace identification a direct, well-conditioned initializer
+    for likelihood refinement without adding a second fitting abstraction.
+
     ``mode="pooled"`` estimates one system from independent trajectories by
-    summing sufficient statistics over batch and time. ``mode="independent"``
+    summing sufficient statistics over batch and time. ``mode="independent``
     estimates one system per trajectory. Trial boundaries are never used as
     state transitions.
+
+    Innovations-form models are intentionally not accepted as initializers:
+    their equivalent general representation contains process--observation
+    cross-covariance, whereas this EM implementation assumes independent
+    process and observation noise.
 
     References
     ----------
@@ -694,6 +706,24 @@ class LinearGaussianEM(BaseEstimator):
         self.min_covar = min_covar
         self.mode = mode
 
+    def _initial_system_and_mean(self):
+        """Resolve a direct model or fitted general state-space estimator."""
+        source = self.system
+        fitted_mean = None
+        if hasattr(source, "system_"):
+            fitted_mean = getattr(source, "mean_", None)
+            source = source.system_
+        if isinstance(source, InnovationsStateSpace):
+            raise TypeError(
+                "LinearGaussianEM cannot exactly refine innovations-form models: "
+                "the current EM contract assumes independent process and observation noise"
+            )
+        if not isinstance(source, StateSpaceModel):
+            raise TypeError(
+                "system must be a StateSpaceModel or fitted estimator exposing a StateSpaceModel"
+            )
+        return source, fitted_mean
+
     def fit(self, observations, y=None):
         """Run EM on one trajectory or a batch of independent trajectories."""
         del y
@@ -701,12 +731,38 @@ class LinearGaussianEM(BaseEstimator):
             raise ValueError("invalid EM settings")
         if self.mode not in {"pooled", "independent"}:
             raise ValueError("mode must be 'pooled' or 'independent'")
+        system, fitted_mean = self._initial_system_and_mean()
         values, single = _normalise_ss_observations(
             observations,
-            device=self.system.transition.device,
-            dtype=self.system.transition.dtype,
+            device=system.transition.device,
+            dtype=system.transition.dtype,
         )
-        system = self.system
+        if fitted_mean is None:
+            mean_offset = torch.zeros(
+                (values.shape[0], 1, values.shape[-1]),
+                dtype=values.dtype,
+                device=values.device,
+            )
+        else:
+            mean_offset = torch.as_tensor(
+                fitted_mean, dtype=values.dtype, device=values.device
+            )
+            if mean_offset.ndim == 1:
+                mean_offset = mean_offset[None, None]
+            elif mean_offset.ndim == 2:
+                mean_offset = mean_offset[:, None]
+            if mean_offset.shape[0] == 1 and values.shape[0] > 1:
+                mean_offset = mean_offset.expand(values.shape[0], -1, -1)
+            if mean_offset.shape != (values.shape[0], 1, values.shape[-1]):
+                raise ValueError(
+                    "initializer centering mean must match observation batch and variables"
+                )
+            values = values - mean_offset
+        self.mean_ = mean_offset[0, 0] if single else mean_offset[:, 0]
+
+        initial_likelihood = kalman_filter(values, system).log_likelihood
+        if initial_likelihood.ndim == 0:
+            initial_likelihood = initial_likelihood.unsqueeze(0)
         total_history = []
         trajectory_history = []
 
@@ -798,6 +854,9 @@ class LinearGaussianEM(BaseEstimator):
             trajectory_history.append(likelihood.detach().clone())
             total_history.append(float(likelihood.sum()))
 
+        final_likelihood = kalman_filter(values, system).log_likelihood
+        if final_likelihood.ndim == 0:
+            final_likelihood = final_likelihood.unsqueeze(0)
         self.system_ = system
         self.log_likelihood_history_ = (
             torch.stack(trajectory_history)
@@ -805,6 +864,21 @@ class LinearGaussianEM(BaseEstimator):
             else total_history
         )
         self.trajectory_log_likelihood_history_ = torch.stack(trajectory_history)
+        self.trajectory_initial_log_likelihood_ = initial_likelihood.detach().clone()
+        self.trajectory_final_log_likelihood_ = final_likelihood.detach().clone()
+        self.trajectory_log_likelihood_gain_ = (
+            self.trajectory_final_log_likelihood_
+            - self.trajectory_initial_log_likelihood_
+        )
+        if self.mode == "pooled":
+            self.initial_log_likelihood_ = self.trajectory_initial_log_likelihood_.sum()
+            self.final_log_likelihood_ = self.trajectory_final_log_likelihood_.sum()
+        else:
+            self.initial_log_likelihood_ = self.trajectory_initial_log_likelihood_
+            self.final_log_likelihood_ = self.trajectory_final_log_likelihood_
+        self.log_likelihood_gain_ = (
+            self.final_log_likelihood_ - self.initial_log_likelihood_
+        )
         return self
 
 
