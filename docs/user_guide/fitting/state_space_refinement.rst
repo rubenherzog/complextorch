@@ -37,8 +37,9 @@ state-space model is desired. The appropriate workflow is therefore
 
 The refinement should be evaluated using the same temporal validation design as
 the unrefined model. An increased training likelihood alone is not evidence of
-better out-of-sample prediction or better residual adequacy; use
-:func:`~complextorch.fit_diagnostics` for those questions.
+better out-of-sample prediction, temporal residual adequacy, or uncertainty
+calibration; use :func:`~complextorch.fit_diagnostics` to inspect those separate
+axes.
 
 Innovations-form limitation
 ---------------------------
