@@ -155,18 +155,23 @@ Model-derived measures
    complextorch.mvgc_pvalue
    complextorch.significance
 
-Fit diagnostics
----------------
+Fit and recovery diagnostics
+----------------------------
 
 In-sample and out-of-sample evaluation are exposed through the same public
 :func:`~complextorch.fit_diagnostics` entry point and share the
-:func:`~complextorch.innovation_diagnostics` statistical core.
+:func:`~complextorch.innovation_diagnostics` statistical core. Ground-truth
+state-space recovery is a separate operation for simulations and controlled
+benchmarks and uses gauge-aware model invariants rather than raw matrix-entry
+errors.
 
 .. api-table::
 
    complextorch.FitDiagnostics
    complextorch.fit_diagnostics
    complextorch.innovation_diagnostics
+   complextorch.StateSpaceRecoveryDiagnostics
+   complextorch.state_space_recovery_diagnostics
 
 Inference, confidence intervals, and NuMIT
 ------------------------------------------
@@ -218,71 +223,3 @@ Dynamics and additional measure primitives
    complextorch.measures.active_information_storage
    complextorch.measures.transfer_function
    complextorch.measures.inverse_transfer_function
-   complextorch.measures.cross_spectral_density
-   complextorch.measures.spectral_entropy
-   complextorch.measures.state_space_temporal_mvgc
-   complextorch.measures.pairwise_spectral_gc
-   complextorch.measures.emergence_from_model
-   complextorch.measures.emergence_from_full_past
-   complextorch.measures.emergence_measures
-   complextorch.measures.emergence_from_observations
-   complextorch.measures.covariance_amplification
-   complextorch.measures.dominant_timescale
-   complextorch.measures.stability_margin
-   complextorch.measures.gaussian_phiid_mmi
-   complextorch.measures.gaussian_phiid_atoms
-
-Synthetic systems and covariance generators
--------------------------------------------
-
-Synthetic constructors define dynamical systems or covariance structures; they
-do not simulate observation trajectories. :func:`~complextorch.synthetic_var`
-constructs canonical batched VAR(1) systems for controlled sweeps over topology,
-spectral radius, innovation correlation, and topology-specific parameters.
-
-.. api-table::
-
-   complextorch.available_synthetic_systems
-   complextorch.synthetic_system_parameters
-   complextorch.synthetic_transition_matrix
-   complextorch.equicorrelated_innovation_covariance
-   complextorch.planted_module_projection
-   complextorch.synthetic_var
-   complextorch.demo_var
-   complextorch.random_stable_var
-   complextorch.random_correlation_matrix
-   complextorch.random_positive_definite_covariance
-
-Trajectory simulation
----------------------
-
-Trajectory generation is kept separate from synthetic model construction.
-:func:`~complextorch.simulate_var` simulates independent stationary Gaussian VAR
-trajectories from supplied coefficients and innovation covariance.
-
-.. api-table::
-
-   complextorch.automatic_burnin
-   complextorch.simulate_var
-
-Spectra and multiscale utilities
---------------------------------
-
-.. api-table::
-
-   complextorch.SpectralMeasureContext
-   complextorch.build_spectral_measure_context
-   complextorch.innovations_spectral_density
-   complextorch.integrate_spectral_rate
-   complextorch.downsample_innovations_state_space
-   complextorch.varma_to_innovations_state_space
-
-Adapters
---------
-
-.. api-table::
-
-   complextorch.from_complexbox_timeseries
-   complextorch.to_complexbox_timeseries
-   complextorch.from_complexbox_var
-   complextorch.to_complexbox_var
