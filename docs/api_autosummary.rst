@@ -104,6 +104,8 @@ from :doc:`api`.
    ~complextorch.FitDiagnostics
    ~complextorch.fit_diagnostics
    ~complextorch.innovation_diagnostics
+   ~complextorch.StateSpaceRecoveryDiagnostics
+   ~complextorch.state_space_recovery_diagnostics
    ~complextorch.measure_confidence_intervals
    ~complextorch.InferenceMeasureConfig
    ~complextorch.ConfidenceIntervalResult
