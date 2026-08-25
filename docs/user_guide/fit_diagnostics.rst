@@ -188,8 +188,9 @@ system is unknown.
 Minimal workflow
 ----------------
 
-The following example is intentionally small. It shows the recommended reading
-of fit diagnostics without turning the User Guide into a benchmarking script.
+The following example is intentionally small. It generates a simple stable
+multivariate process and shows the recommended reading of fit diagnostics
+without turning the User Guide into a benchmarking script.
 
 .. code-block:: python
 
@@ -197,9 +198,16 @@ of fit diagnostics without turning the User Guide into a benchmarking script.
    from complextorch import N4SID, fit_diagnostics
 
    torch.manual_seed(7)
-   x = torch.randn(1000, 3, dtype=torch.float64)
-   train, test = x[:800], x[800:]
+   x = torch.zeros(1000, 3, dtype=torch.float64)
+   a = torch.tensor(
+       [[0.65, 0.10, 0.00], [-0.05, 0.55, 0.08], [0.00, 0.04, 0.45]],
+       dtype=torch.float64,
+   )
+   noise = 0.3 * torch.randn_like(x)
+   for t in range(1, x.shape[0]):
+       x[t] = a @ x[t - 1] + noise[t]
 
+   train, test = x[:800], x[800:]
    model = N4SID(2, block_rows=6, dtype="float64").fit(train)
    diagnostics = fit_diagnostics(model, train, test, max_lag=8)
 
