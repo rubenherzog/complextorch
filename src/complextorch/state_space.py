@@ -678,7 +678,7 @@ class LinearGaussianEM(BaseEstimator):
     for likelihood refinement without adding a second fitting abstraction.
 
     ``mode="pooled"`` estimates one system from independent trajectories by
-    summing sufficient statistics over batch and time. ``mode="independent``
+    summing sufficient statistics over batch and time. ``mode="independent"``
     estimates one system per trajectory. Trial boundaries are never used as
     state transitions.
 
