@@ -31,7 +31,7 @@ EM is optional
 
 EM is not part of model-order selection and does not replace the subspace fit.
 It is useful when likelihood refinement of a chosen fixed-order general
-state-space model is desired. The appropriate workflow is therefore
+state-space model is desired. The workflow is therefore
 
 ``select order -> fit subspace model -> optionally refine -> diagnose``.
 
