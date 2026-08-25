@@ -39,7 +39,13 @@ from .dd_optimization import (
     spectral_dynamical_dependence_gradient,
 )
 from .inference import ConfidenceIntervalResult, MeasureInterval, ResamplingMethod
-from .diagnostics import FitDiagnostics, fit_diagnostics, innovation_diagnostics
+from .diagnostics import (
+    FitDiagnostics,
+    StateSpaceRecoveryDiagnostics,
+    fit_diagnostics,
+    innovation_diagnostics,
+    state_space_recovery_diagnostics,
+)
 from .inference_registry import InferenceMeasureConfig
 from .measures.cmem import cmem1_full_past
 from .measures.mvgc import maximum_temporal_mvgc, pairwise_temporal_mvgc
@@ -192,6 +198,7 @@ __all__ = [
     "StateSpaceOrderSearchResult",
     "StateSpaceOrderSelection",
     "StateSpaceOrderSelectionResult",
+    "StateSpaceRecoveryDiagnostics",
     "VARInformationCriteriaResult",
     "VAROrderScore",
     "VAROrderSearchCV",
@@ -274,6 +281,7 @@ __all__ = [
     "spectral_o_information_rate",
     "spectral_partial_granger_causality_decomposition",
     "spectral_partial_information_rate_decomposition",
+    "state_space_recovery_diagnostics",
     "stochastic_interaction",
     "synthetic_system_parameters",
     "synthetic_transition_matrix",

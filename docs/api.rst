@@ -155,18 +155,23 @@ Model-derived measures
    complextorch.mvgc_pvalue
    complextorch.significance
 
-Fit diagnostics
----------------
+Fit and recovery diagnostics
+----------------------------
 
 In-sample and out-of-sample evaluation are exposed through the same public
 :func:`~complextorch.fit_diagnostics` entry point and share the
-:func:`~complextorch.innovation_diagnostics` statistical core.
+:func:`~complextorch.innovation_diagnostics` statistical core. Ground-truth
+state-space recovery is a separate operation for simulations and controlled
+benchmarks and uses gauge-aware model invariants rather than raw matrix-entry
+errors.
 
 .. api-table::
 
    complextorch.FitDiagnostics
    complextorch.fit_diagnostics
    complextorch.innovation_diagnostics
+   complextorch.StateSpaceRecoveryDiagnostics
+   complextorch.state_space_recovery_diagnostics
 
 Inference, confidence intervals, and NuMIT
 ------------------------------------------
