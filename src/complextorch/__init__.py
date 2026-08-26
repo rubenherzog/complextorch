@@ -13,6 +13,7 @@ from .control import (
     innovations_form,
     innovations_transfer_function,
     optimise_dynamical_dependence_projection,
+    project_innovations_state_space,
     project_state_space,
     reduce_innovations_state_space,
     reduce_state_space,
@@ -47,6 +48,18 @@ from .diagnostics import (
     state_space_recovery_diagnostics,
 )
 from .inference_registry import InferenceMeasureConfig
+from .design import (
+    DesignOptimizationResult,
+    LevelSetProjectionResult,
+    capability_mobility,
+    finite_difference_jacobian,
+    jacobian_rank,
+    neutral_projector,
+    optimise_prescribed_capabilities,
+    pareto_nondominated,
+    project_to_capability_level_set,
+)
+from .mechanisms import ModalDecomposition, modal_decomposition, modal_observation_covariance
 from .measures.cmem import cmem1_full_past
 from .measures.mvgc import maximum_temporal_mvgc, pairwise_temporal_mvgc
 from .measures.entropy_rate import (
@@ -298,6 +311,19 @@ __all__ = [
     "numit_pid_var",
     "var_past_future_covariance",
     "var_total_mutual_information",
+    "DesignOptimizationResult",
+    "LevelSetProjectionResult",
+    "ModalDecomposition",
+    "capability_mobility",
+    "finite_difference_jacobian",
+    "jacobian_rank",
+    "modal_decomposition",
+    "modal_observation_covariance",
+    "neutral_projector",
+    "optimise_prescribed_capabilities",
+    "pareto_nondominated",
+    "project_innovations_state_space",
+    "project_to_capability_level_set",
     "FitDiagnostics",
     "fit_diagnostics",
     "innovation_diagnostics",
