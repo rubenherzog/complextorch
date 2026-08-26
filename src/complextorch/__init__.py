@@ -13,7 +13,6 @@ from .control import (
     innovations_form,
     innovations_transfer_function,
     optimise_dynamical_dependence_projection,
-    project_innovations_state_space,
     project_state_space,
     reduce_innovations_state_space,
     reduce_state_space,
@@ -174,7 +173,11 @@ from .synthetic import (
     synthetic_var,
 )
 from .var import VAR, VARParameters
-from .transformations import as_innovations_state_space, scale_dynamics
+from .transformations import (
+    as_innovations_state_space,
+    project_innovations_state_space,
+    scale_dynamics,
+)
 
 __all__ = [
     "ConfidenceIntervalResult",

@@ -151,7 +151,7 @@ def spectral_radius(matrix: torch.Tensor) -> torch.Tensor:
     Parameters
     ----------
     matrix
-        Input required by this calculation.
+        Input observations or tensor-valued quantity.
     
     Returns
     -------
@@ -212,10 +212,10 @@ def solve_discrete_lyapunov(transition: torch.Tensor, noise_cov: torch.Tensor, *
         s=q.clone(); ap=a.clone(); converged=False
         for iterations in range(1,max_iter+1):
             inc=ap@s@ap.transpose(-1,-2); sn=symmetrise(s+inc); scale=sn.abs().amax().clamp_min(torch.finfo(s.dtype).tiny)
-            if float(inc.abs().amax())<=atol+rtol*float(scale): s=sn; converged=True; break
+            if float(inc.detach().abs().amax())<=atol+rtol*float(scale.detach()): s=sn; converged=True; break
             s=sn; ap=ap@ap
         if not converged: raise RuntimeError("Lyapunov doubling did not converge")
     else: raise ValueError("method must be 'doubling' or 'direct'")
     residual=s-a@s@a.transpose(-1,-2)-q
-    info=LyapunovInfo(method,iterations,True,float(residual.abs().amax()))
+    info=LyapunovInfo(method,iterations,True,float(residual.detach().abs().amax()))
     return (s[0] if unbatched else s),info
