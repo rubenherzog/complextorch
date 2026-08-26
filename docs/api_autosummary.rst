@@ -26,9 +26,22 @@ from :doc:`api`.
    ~complextorch.var_to_innovations_state_space
    ~complextorch.reduce_state_space
    ~complextorch.reduce_innovations_state_space
+   ~complextorch.project_innovations_state_space
    ~complextorch.project_state_space
    ~complextorch.as_innovations_state_space
    ~complextorch.scale_dynamics
+   ~complextorch.ModalDecomposition
+   ~complextorch.modal_decomposition
+   ~complextorch.modal_observation_covariance
+   ~complextorch.finite_difference_jacobian
+   ~complextorch.jacobian_rank
+   ~complextorch.neutral_projector
+   ~complextorch.capability_mobility
+   ~complextorch.LevelSetProjectionResult
+   ~complextorch.project_to_capability_level_set
+   ~complextorch.DesignOptimizationResult
+   ~complextorch.optimise_prescribed_capabilities
+   ~complextorch.pareto_nondominated
    ~complextorch.EpochTimeSeriesSplit
    ~complextorch.VAROrderSelectionIC
    ~complextorch.VAROrderSearchCV
