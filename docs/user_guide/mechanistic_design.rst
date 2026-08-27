@@ -2,15 +2,28 @@ Mechanistic representation and prescribed dynamical design
 ==========================================================
 
 ComplexTorch separates **process mechanics**, **information capabilities**, and
-**design objectives**.  The purpose of this layer is not to assign one graph
-statistic to one information measure.  It provides process-level coordinates
+**design objectives**. The purpose of this layer is not to assign one graph
+statistic to one information measure. It provides process-level coordinates
 and differential tools for asking which dynamical capabilities can be changed,
 held fixed, or jointly prescribed by modifying a model architecture.
 
-The implementation is Torch-first and batch preserving.  It does not simulate
+The implementation is Torch-first and batch preserving. It does not simulate
 trajectories or refit observations: all calculations act directly on canonical
 ``VARSystem``, ``StateSpaceModel``, or ``InnovationsStateSpace`` objects and on
 user-supplied design parameters.
+
+The public functionality has two coherent module namespaces:
+
+``complextorch.mechanisms``
+   Process-level pole--residue coordinates and exact modal identities.
+
+``complextorch.design``
+   Differential accessibility, degeneracy, constrained inverse design, and
+   Pareto filtering.
+
+The same public objects are also re-exported at the package top level, matching
+ComplexTorch's existing API convention. The module namespaces are the natural
+ownership boundaries for code organization and more explicit imports.
 
 Process-level modal coordinates
 -------------------------------
@@ -47,17 +60,22 @@ where
 
 :func:`~complextorch.modal_decomposition` returns ``lambda_j``, ``R_j``, the
 largest singular value ``s_j`` of each residue, normalized residues, and the
-condition number of the eigenvector basis.  Nonzero-residue pole--residue
-pairs are invariant to latent-state similarity transformations.  Distinct
+condition number of the eigenvector basis. Nonzero-residue pole--residue
+pairs are invariant to latent-state similarity transformations. Distinct
 nonminimal state modes are retained with an ``active=False`` mask rather than
-being interpreted as observable transfer modes.  Raw state-space matrix entries
+being interpreted as observable transfer modes. Raw state-space matrix entries
 are not process invariants.
 
 The decomposition intentionally rejects repeated or numerically unresolved
-poles.  Individual simple-mode residues are not unique at repeated poles, and
-near-defective eigenvector bases can make them numerically sensitive.  The
+poles. Individual simple-mode residues are not unique at repeated poles, and
+near-defective eigenvector bases can make them numerically sensitive. The
 returned ``eigenvector_condition`` exposes that sensitivity instead of hiding
 it with regularization.
+
+Mode order follows ``torch.linalg.eig`` and is not a cross-system matching
+convention. Analyses comparing nearby systems or parameter paths should match
+modes explicitly by poles and, when necessary, residue geometry rather than
+assuming a stable array order across a pole crossing.
 
 For a fully observed VAR(1), represented in innovations form as
 
@@ -78,8 +96,8 @@ and therefore
    s_j=|\lambda_j|\,\|P_j\|_2.
 
 For a normal matrix, ``||P_j||_2=1`` and residue strength is locked to pole
-magnitude.  For a non-normal matrix, spectral projectors can have norm greater
-than one, so responsiveness can increase without moving the poles.  This is a
+magnitude. For a non-normal matrix, spectral projectors can have norm greater
+than one, so responsiveness can increase without moving the poles. This is a
 property of the linear system, not a separate graph statistic.
 
 Master covariance identity
@@ -102,7 +120,7 @@ The stationary observation covariance is
    }.
 
 :func:`~complextorch.modal_observation_covariance` evaluates this identity
-directly.  It is validated against the canonical Lyapunov/autocovariance
+directly. It is validated against the canonical Lyapunov/autocovariance
 backbone rather than implemented as a second covariance definition.
 
 This factorization motivates three useful mechanistic readings:
@@ -127,7 +145,7 @@ Innovation context and scale
 ----------------------------
 
 The innovation covariance is separated into a global scale and a normalized
-geometry.  ``ModalDecomposition.normalized_innovation_covariance`` returns
+geometry. ``ModalDecomposition.normalized_innovation_covariance`` returns
 
 .. math::
 
@@ -135,13 +153,13 @@ geometry.  ``ModalDecomposition.normalized_innovation_covariance`` returns
 
 For normalized Gaussian information capabilities derived from the same linear
 process, replacing ``V`` by ``beta V`` multiplies all stationary covariances by
-``beta`` but cancels from covariance ratios.  Thus predictive information,
+``beta`` but cancels from covariance ratios. Thus predictive information,
 full-past collective memory, and dynamical dependence are invariant to this
-global innovation scale.  Anisotropy and orientation of ``bar V`` do not, in
+global innovation scale. Anisotropy and orientation of ``bar V`` do not, in
 general, cancel and remain genuine context variables.
 
 This scale invariance is an exact property under the stated linear-Gaussian
-assumptions.  It should not be generalized to unnormalized quantities such as
+assumptions. It should not be generalized to unnormalized quantities such as
 absolute variance or Gaussian differential entropy.
 
 Exact information-measure relations
@@ -162,14 +180,14 @@ For full-past collective memory,
    }.
 
 For a fixed full-row-rank macro projection ``L``, let ``V_L^R`` be the exact
-innovations covariance of the projected macroprocess.  Dynamical dependence is
+innovations covariance of the projected macroprocess. Dynamical dependence is
 
 .. math::
 
    DD(L)=\log_b\frac{\det V_L^R}{\det(LVL^\top)}.
 
 :func:`~complextorch.project_innovations_state_space` exposes the exact
-projected innovations representation used by DD.  If
+projected innovations representation used by DD. If
 
 .. math::
 
@@ -190,8 +208,8 @@ and therefore
    =\log_b\frac{\det\Gamma_L}{\det(LVL^\top)}
    }.
 
-This is an exact fixed-``L`` identity.  It is **not** a universal functional
-relationship between microscopic ``CMem`` and ``DD``.  DD depends explicitly
+This is an exact fixed-``L`` identity. It is **not** a universal functional
+relationship between microscopic ``CMem`` and ``DD``. DD depends explicitly
 on the chosen macro projection and on the reduced spectral factor.
 
 Differential accessibility and degeneracy
@@ -203,18 +221,19 @@ Let ``theta`` denote arbitrary continuous design parameters and let
 
    D(\theta)\in\mathbb R^m
 
-be a vector of dynamical capabilities.  The local design map is
+be a vector of dynamical capabilities. The local design map is
 
 .. math::
 
    J_{D\leftarrow\theta}=\frac{\partial D}{\partial\theta}.
 
 :func:`~complextorch.finite_difference_jacobian` computes this Jacobian with a
-central difference while evaluating all plus/minus perturbations in one batched
-call.  This is useful when the capability function is analytical but not
-conveniently differentiable end to end.
+central difference while evaluating plus/minus perturbations in vectorized
+parameter chunks. The default bounds temporary memory for high-dimensional
+designs while retaining batched model evaluation. ``chunk_size=None`` restores
+one all-directions batch when that is preferable.
 
-The local dimension accessible in capability space is the rank of ``J``.  For
+The local dimension accessible in capability space is the rank of ``J``. For
 fixed target capabilities ``D_A``, the neutral tangent space is
 
 .. math::
@@ -230,7 +249,7 @@ where
    =\{\theta:D_A(\theta)=d^*\}.
 
 :func:`~complextorch.neutral_projector` returns the orthogonal projector onto
-this nullspace.  A fixed-shape projector is used instead of a padded nullspace
+this nullspace. A fixed-shape projector is used instead of a padded nullspace
 basis so that batches whose numerical ranks differ remain representable.
 
 If ``D_B`` are untargeted capabilities, their first-order freedom under fixed
@@ -240,11 +259,11 @@ If ``D_B`` are untargeted capabilities, their first-order freedom under fixed
 
    \boxed{J_B P_{N_A}},
 
-returned by :func:`~complextorch.capability_mobility`.  Nonzero singular values
+returned by :func:`~complextorch.capability_mobility`. Nonzero singular values
 of this operator quantify **functional sloppiness**: capability combinations
 that can move while the prescribed panel is locally unchanged.
 
-Local nullity and global uniqueness are different questions.  A zero-dimensional
+Local nullity and global uniqueness are different questions. A zero-dimensional
 local nullspace does not rule out disconnected architectures elsewhere in
 parameter space with the same capability vector.
 
@@ -265,25 +284,30 @@ With residual ``r=D_A(theta)-d*``, it uses the damped minimum-norm step
    \Delta\theta
    =J^\top(JJ^\top+\lambda I)^{-1}r.
 
-The solve is batched and no explicit matrix inverse is formed.  Backtracking
-candidates for all active designs are also evaluated in a common batch.  An
-optional ``validity_function`` can reject candidates that violate external
-constraints such as stationarity or parameter bounds.
+The solve is batched and no explicit matrix inverse is formed. Backtracking
+candidates for all active designs are evaluated in common batches. An optional
+``validity_function`` can enforce a design domain such as stationarity or
+parameter bounds. Candidate validity is checked **before** capability
+evaluation, so invalid line-search proposals are not sent into model routines
+that may be undefined outside the admissible domain. The central finite-
+difference stencil must itself remain valid; near a hard boundary the caller
+must reduce the step or use a validity-preserving parameterization.
 
-This is a local projection/correction primitive.  Failure to converge does not
+This is a local projection/correction primitive. Failure to converge does not
 prove that the requested capability vector is globally infeasible.
 
 Prescribed-capability optimization
 ----------------------------------
 
 :func:`~complextorch.optimise_prescribed_capabilities` implements a minimal
-Torch-native multistart design loop.  The leading dimension contains independent
-starts, which are optimized simultaneously.  A user supplies
+Torch-native multistart design loop. The leading dimension contains independent
+starts, which are optimized simultaneously. A user supplies
 
 * a differentiable batched capability function,
 * one common target or one target per run,
-* an optional design objective, and
-* an optional additional soft penalty.
+* an optional design objective,
+* an optional additional soft penalty, and
+* optionally, a batched validity predicate for the admissible design domain.
 
 The optimization stage minimizes
 
@@ -294,12 +318,16 @@ The optimization stage minimizes
    +R(\theta,D)
 
 with Adam and can then call the finite-difference level-set correction to make
-the equality specification numerically precise.
+the equality specification numerically precise. If a validity predicate is
+provided, invalid Adam proposals are reverted per run before the next
+capability evaluation. For hard constraints, a smooth validity-preserving
+parameterization is still preferable because rejected proposals do not reset
+Adam's internal moment estimates.
 
 The API deliberately does not hard-code ``PI``, ``CMem``, ``DD``, a network
-matrix, or a particular resource cost.  For example, ``theta`` can be the full
+matrix, or a particular resource cost. For example, ``theta`` can be the full
 entries of a VAR transition, while the objective may be Frobenius energy and a
-soft penalty may enforce a stability margin using the existing
+validity predicate may enforce a strict stability domain using the existing
 :func:`complextorch.linalg.spectral_radius` primitive.
 
 This general Euclidean design routine is separate from SSDI optimization.
@@ -311,7 +339,7 @@ Pareto selection
 ----------------
 
 Functional degeneracy means that a prescribed capability vector need not select
-one architecture.  The second design layer can therefore compare remaining
+one architecture. The second design layer can therefore compare remaining
 objectives over the feasible family:
 
 .. math::
@@ -321,11 +349,11 @@ objectives over the feasible family:
 
 :func:`~complextorch.pareto_nondominated` returns the nondominated mask for a
 set of candidate objective vectors and accepts a separate minimize/maximize
-orientation for every objective.  It uses chunked comparisons to avoid
+orientation for every objective. It uses chunked comparisons to avoid
 materializing the full ``N x N x M`` dominance tensor for large candidate sets.
 
 The function filters a supplied set of designs; it does not claim to discover
-or certify the global Pareto front.  Epsilon-constraint continuation,
+or certify the global Pareto front. Epsilon-constraint continuation,
 preference-conditioned search, or other multiobjective optimizers can be built
 by repeatedly using the same prescribed-capability and feasibility primitives.
 
@@ -336,14 +364,14 @@ The exact equations on this page assume stationary linear-Gaussian processes.
 The modal representation additionally assumes simple, diagonalizable poles.
 Differential rank, nullspaces, and level-set projection are local properties.
 Optimization returns best-found solutions and does not establish global
-optimality or global feasibility.  DD is defined relative to an explicit macro
+optimality or global feasibility. DD is defined relative to an explicit macro
 projection ``L``; its scientific interpretation must always retain that
 projection.
 
 The design API is intentionally smaller than the research workflows that
-motivated it.  Synthetic intervention families, particular four-node networks,
+motivated it. Synthetic intervention families, particular four-node networks,
 specific capability panels, and paper figures remain analysis artifacts rather
-than package primitives.  This prevents the public API from encoding one
+than package primitives. This prevents the public API from encoding one
 research narrative as a software contract.
 
 References
