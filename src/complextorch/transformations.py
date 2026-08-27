@@ -13,6 +13,7 @@ import torch
 from .control import (
     InnovationsStateSpace,
     _as_innovations_state_space,
+    _project_innovations_state_space,
     solve_generalized_dare,
 )
 from .linalg import spd_solve, symmetrise
@@ -43,6 +44,27 @@ def as_innovations_state_space(system: ModelSystem) -> InnovationsStateSpace:
     ``StateSpaceModel`` inputs use the steady-state DARE conversion.
     """
     return _as_innovations_state_space(system)
+
+
+def project_innovations_state_space(
+    system: ModelSystem,
+    projection: torch.Tensor,
+) -> InnovationsStateSpace:
+    r"""Return the exact innovations representation of ``Y=LX``.
+
+    This public transformation exposes the canonical generalized-DARE
+    projection primitive used internally by dynamical dependence. The supplied
+    projection may be unbatched or batched and must have full row rank.
+    Orthonormal rows are not required.
+
+    References
+    ----------
+    - Barnett, L. and Seth, A. K. (2015). *Physical Review E* 91, 040101.
+    - Barnett, L. and Seth, A. K. (2023). *Physical Review E* 108, 014304.
+    """
+    return _project_innovations_state_space(
+        as_innovations_state_space(system), projection
+    )
 
 
 def _batched_matrix(value: torch.Tensor) -> tuple[torch.Tensor, bool]:
@@ -220,4 +242,9 @@ def scale_dynamics(
     return InnovationsStateSpace(scaled_a, c, scaled_k, scaled_v)
 
 
-__all__ = ["ModelSystem", "as_innovations_state_space", "scale_dynamics"]
+__all__ = [
+    "ModelSystem",
+    "as_innovations_state_space",
+    "project_innovations_state_space",
+    "scale_dynamics",
+]

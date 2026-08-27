@@ -22,3 +22,4 @@ the cited scientific literature remains the primary mathematical authority.
    inference/index
    measures
    control
+   mechanistic_design
