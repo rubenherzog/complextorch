@@ -38,19 +38,32 @@ State-space models
    complextorch.project_innovations_state_space
    complextorch.project_state_space
 
-Mechanistic representation and network design
----------------------------------------------
+Mechanistic representation
+--------------------------
 
-Pole--residue coordinates expose process-level modal mechanisms while the
-design utilities operate on arbitrary continuous architecture parameters.
-Finite-difference perturbations, multistart optimization, level-set correction,
-and Pareto filtering all preserve leading design batches.
+The canonical ownership namespace is :mod:`complextorch.mechanisms`.
+Top-level aliases are retained to match the existing ComplexTorch API style.
+Pole--residue coordinates expose process-level modal mechanisms without
+introducing a second measure implementation.
 
 .. api-table::
 
    complextorch.ModalDecomposition
    complextorch.modal_decomposition
    complextorch.modal_observation_covariance
+
+Prescribed dynamical design
+---------------------------
+
+The canonical ownership namespace is :mod:`complextorch.design`. Top-level
+aliases are retained for consistency and discoverability. The design API acts
+on arbitrary continuous architecture parameters and preserves leading design
+batches. Finite-difference Jacobians support bounded parameter chunks,
+constrained level-set correction validates candidate domains before capability
+evaluation, and Pareto filtering uses chunked dominance comparisons.
+
+.. api-table::
+
    complextorch.finite_difference_jacobian
    complextorch.jacobian_rank
    complextorch.neutral_projector
@@ -65,7 +78,7 @@ Canonical model transformations
 -------------------------------
 
 :func:`~complextorch.as_innovations_state_space` provides the public common
-conversion for supported canonical dynamical models.  Model transformations
+conversion for supported canonical dynamical models. Model transformations
 such as :func:`~complextorch.scale_dynamics` act on this common representation
 without refitting observations.
 
