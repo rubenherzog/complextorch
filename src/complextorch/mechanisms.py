@@ -23,7 +23,7 @@ modal residues ``R_j`` such that
 
 These poles and residues are process-level objects: they are invariant to
 latent-state similarity transforms even though the state-space matrices are
-not.  This module exposes that representation without introducing a second
+not. This module exposes that representation without introducing a second
 measure implementation.
 """
 from __future__ import annotations
@@ -32,11 +32,17 @@ from dataclasses import dataclass
 
 import torch
 
-from .representations import StateSpaceModel, VARSystem
 from .control import InnovationsStateSpace
+from .representations import StateSpaceModel, VARSystem
 from .transformations import as_innovations_state_space
 
 ModelSystem = StateSpaceModel | InnovationsStateSpace | VARSystem
+
+__all__ = [
+    "ModalDecomposition",
+    "modal_decomposition",
+    "modal_observation_covariance",
+]
 
 
 @dataclass(frozen=True)
@@ -99,14 +105,14 @@ def modal_decomposition(
     r"""Return poles, transfer residues, and residue strengths.
 
     For ``A = X diag(lambda) X^-1``, the resolvent projector of mode ``j`` is
-    ``P_j = x_j w_j^*``, where ``w_j^*`` is row ``j`` of ``X^-1``.  Therefore
+    ``P_j = x_j w_j^*``, where ``w_j^*`` is row ``j`` of ``X^-1``. Therefore
 
     .. math::
 
        R_j = C P_j K = (C x_j)(w_j^* K).
 
     The solve for ``X^-1`` is performed with :func:`torch.linalg.solve`; no
-    explicit matrix inverse is formed.  The calculation is fully batched.
+    explicit matrix inverse is formed. The calculation is fully batched.
 
     Parameters
     ----------
@@ -129,10 +135,15 @@ def modal_decomposition(
     Notes
     -----
     The decomposition assumes a diagonalizable transition with simple poles.
-    Near defective transitions can have a large ``eigenvector_condition``;
+    Near-defective transitions can have a large ``eigenvector_condition``;
     that sensitivity is retained rather than silently regularized. Distinct
     state modes with zero transfer residue are retained and flagged inactive,
     so nonminimal augmentation does not masquerade as an observable mechanism.
+
+    Mode order follows :func:`torch.linalg.eig` and is not a cross-system
+    matching convention. Analyses comparing nearby systems or parameter paths
+    should match modes explicitly by poles and, when needed, residue geometry.
+    This avoids introducing an arbitrary sorting convention at pole crossings.
 
     References
     ----------
@@ -155,7 +166,11 @@ def modal_decomposition(
         raise ValueError("transition must be square")
     if c.shape[-1] != a.shape[-1] or k.shape[-2] != a.shape[-1]:
         raise ValueError("incompatible transition, observation, or gain dimensions")
-    if c.shape[-2] != k.shape[-1] or v.shape[-1] != c.shape[-2] or v.shape[-2] != c.shape[-2]:
+    if (
+        c.shape[-2] != k.shape[-1]
+        or v.shape[-1] != c.shape[-2]
+        or v.shape[-2] != c.shape[-2]
+    ):
         raise ValueError("innovation covariance must match observation dimension")
 
     batch = max(t.shape[0] for t in (a, c, k, v))
@@ -175,24 +190,33 @@ def modal_decomposition(
         minimum_separation = separation.amin(dim=(-2, -1))
         if simple_pole_tolerance is None:
             real_dtype = a.dtype
-            scale = poles.abs().amax(-1).clamp_min(torch.ones((), dtype=real_dtype, device=a.device))
+            scale = poles.abs().amax(-1).clamp_min(
+                torch.ones((), dtype=real_dtype, device=a.device)
+            )
             tolerance = 100.0 * torch.finfo(real_dtype).eps * scale
         else:
             if simple_pole_tolerance < 0:
                 raise ValueError("simple_pole_tolerance must be non-negative")
-            tolerance = torch.full_like(minimum_separation.real, float(simple_pole_tolerance))
+            tolerance = torch.full_like(
+                minimum_separation.real, float(simple_pole_tolerance)
+            )
         if bool(torch.any(minimum_separation <= tolerance).item()):
             raise ValueError("modal_decomposition requires simple, separated poles")
 
     complex_dtype = right.dtype
-    identity = torch.eye(state_dimension, dtype=complex_dtype, device=a.device).expand(batch, -1, -1)
+    identity = torch.eye(
+        state_dimension, dtype=complex_dtype, device=a.device
+    ).expand(batch, -1, -1)
     left_rows = torch.linalg.solve(right, identity)
     c_complex = c.to(complex_dtype)
     k_complex = k.to(complex_dtype)
 
     output_vectors = c_complex @ right
     input_rows = left_rows @ k_complex
-    residues = output_vectors.transpose(-1, -2)[..., :, :, None] * input_rows[..., :, None, :]
+    residues = (
+        output_vectors.transpose(-1, -2)[..., :, :, None]
+        * input_rows[..., :, None, :]
+    )
     strengths = torch.linalg.svdvals(residues)[..., 0].real
     tiny = torch.finfo(strengths.dtype).tiny
     if residue_tolerance is None:
@@ -201,7 +225,9 @@ def modal_decomposition(
     else:
         if residue_tolerance < 0:
             raise ValueError("residue_tolerance must be non-negative")
-        active_threshold = torch.full_like(strengths[..., :1], float(residue_tolerance))
+        active_threshold = torch.full_like(
+            strengths[..., :1], float(residue_tolerance)
+        )
     active = strengths > active_threshold
     safe_strength = strengths.clamp_min(tiny)
     normalized = residues / safe_strength[..., None, None]
@@ -238,7 +264,7 @@ def modal_observation_covariance(
        \Gamma_0 = V + \sum_{j,k}
        \frac{R_j V R_k^*}{1-\lambda_j\bar\lambda_k}.
 
-    This is an exact analytical identity, not a spectral quadrature.  Batched
+    This is an exact analytical identity, not a spectral quadrature. Batched
     dimensions are preserved.
     """
     poles = torch.as_tensor(decomposition.poles)
