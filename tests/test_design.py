@@ -33,6 +33,27 @@ def test_finite_difference_jacobian_batches_all_designs():
     assert torch.allclose(jacobian, expected, rtol=1e-8, atol=1e-9)
 
 
+def test_finite_difference_chunking_matches_single_batch():
+    designs = torch.tensor(
+        [[0.4, -0.2, 0.1], [0.7, 0.3, -0.4]], dtype=torch.float64
+    )
+    chunked = finite_difference_jacobian(
+        _capabilities,
+        designs,
+        step=1e-6,
+        batched=True,
+        chunk_size=1,
+    )
+    single_batch = finite_difference_jacobian(
+        _capabilities,
+        designs,
+        step=1e-6,
+        batched=True,
+        chunk_size=None,
+    )
+    assert torch.allclose(chunked, single_batch, rtol=1e-12, atol=1e-12)
+
+
 def test_neutral_projector_and_capability_mobility_are_batch_safe():
     target = torch.tensor([[1.0, 0.0, 0.0]], dtype=torch.float64)
     free = torch.tensor([[0.0, 2.0, 3.0]], dtype=torch.float64)
@@ -65,6 +86,28 @@ def test_level_set_projection_handles_multiple_starts_in_one_batch():
     assert torch.allclose(
         result.capabilities, torch.ones((3, 1), dtype=dtype), atol=1e-9
     )
+
+
+def test_level_set_validity_guards_invalid_candidate_evaluation():
+    dtype = torch.float64
+
+    def capability(parameters):
+        if bool((parameters[:, 0] < 0).any()):
+            raise RuntimeError("invalid design was evaluated")
+        return torch.sqrt(parameters[:, :1])
+
+    result = project_to_capability_level_set(
+        torch.tensor([[1.0]], dtype=dtype),
+        capability,
+        torch.tensor([0.1], dtype=dtype),
+        validity_function=lambda parameters: parameters[:, 0] >= 0,
+        batched=True,
+        tolerance=1e-8,
+        max_iterations=30,
+    )
+    assert bool(result.converged.all())
+    assert float(result.max_error.max()) < 1e-8
+    assert float(result.parameters.min()) >= 0.0
 
 
 def test_prescribed_capability_optimizer_preserves_multistart_shape():
@@ -187,3 +230,20 @@ def test_design_differential_primitives_preserve_float32_dtype():
     projector = neutral_projector(jacobian[:1])
     assert jacobian.dtype == torch.float32
     assert projector.dtype == torch.float32
+
+
+def test_design_module_declares_coherent_public_namespace():
+    import complextorch.design as design
+
+    expected = {
+        "DesignOptimizationResult",
+        "LevelSetProjectionResult",
+        "capability_mobility",
+        "finite_difference_jacobian",
+        "jacobian_rank",
+        "neutral_projector",
+        "optimise_prescribed_capabilities",
+        "pareto_nondominated",
+        "project_to_capability_level_set",
+    }
+    assert set(design.__all__) == expected
