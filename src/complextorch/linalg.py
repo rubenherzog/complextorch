@@ -151,7 +151,7 @@ def spectral_radius(matrix: torch.Tensor) -> torch.Tensor:
     Parameters
     ----------
     matrix
-        Input observations or tensor-valued quantity.
+        Input required by this calculation.
     
     Returns
     -------
